@@ -627,6 +627,77 @@ export const startWikidataFetch = () =>
 export const setAuthorAutopilot = (enabled: boolean) =>
     http.post<{ autopilot: AuthorAutopilotStatus }>(`${entityBase}/autopilot`, { enabled });
 
+/** One side of a model merge decision: its entity now, a name it goes by, its books. */
+export interface AuthorMergeSide {
+    entity?: string;
+    display_name: string;
+    books: number;
+}
+
+/** A live model merge decision with what the newest pass did with it. */
+export interface AuthorMergeDecision {
+    id: number;
+    kind: string;
+    script: string;
+    item_kind: string;
+    outcome: string;
+    created_at: string;
+    /** applied, lapsed or conflict; absent until a pass read it. */
+    state?: string;
+    reason?: string;
+    side_a: AuthorMergeSide;
+    side_b: AuthorMergeSide;
+}
+
+/** An entity holding a fingerprint of a veto's side: a choice of a re-anchor. */
+export interface AuthorMergeVetoEntity {
+    id: string;
+    display_name: string;
+}
+
+/** A live veto: a revoke keeps its pair apart. */
+export interface AuthorMergeVeto {
+    id: number;
+    revoke_decision_id: number;
+    item_kind: string;
+    book_id?: number;
+    replaces_veto_id?: number;
+    created_at: string;
+    /** anchored, unanchored or gone; absent until a pass read it. */
+    state?: string;
+    held_books: number;
+    lost_books: number;
+    gone_books: number;
+    widened_fingerprints: number;
+    side_a: AuthorMergeVetoEntity[];
+    side_b: AuthorMergeVetoEntity[];
+}
+
+/** The model merges of the entity step. */
+export interface AuthorMerges {
+    decisions: AuthorMergeDecision[];
+    decisions_total: number;
+    vetoes: AuthorMergeVeto[];
+    /** A live veto the last completed build found unanchored. */
+    unanchored: boolean;
+}
+
+export const getAuthorMerges = () => http.get<{ merges: AuthorMerges }>(`${entityBase}/merges`);
+
+/** revokeMergeDecision splits the pair at the next pass; its veto keeps the pair apart. */
+export const revokeMergeDecision = (id: number) =>
+    http.post<{ revoke_id: number }>(`${entityBase}/merges/decisions/${id}/revoke`);
+
+export const retireMergeVeto = (id: number) =>
+    http.post<{ veto_id: number }>(`${entityBase}/merges/vetoes/${id}/retire`);
+
+/** reanchorMergeVeto replaces the veto by one recorded from the two entities. */
+export const reanchorMergeVeto = (id: number, sideA: string, sideB: string) =>
+    http.post<{ veto_id: number }>(`${entityBase}/merges/vetoes/${id}/reanchor`, {
+        side_a: sideA,
+        side_b: sideB,
+    });
+
 const llmBase = '/admin/author-metadata/llm';
 
 export const getAuthorLLMStatus = () => http.get<{ status: AuthorLLMStatus }>(`${llmBase}/status`);

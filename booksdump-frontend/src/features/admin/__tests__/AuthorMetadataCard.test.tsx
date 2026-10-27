@@ -52,8 +52,9 @@ vi.mock('@/api/admin', async (importOriginal) => {
         deleteAuthorMetadataArchive: vi.fn(),
         // The card's LLM block has its own tests; here it reads a switched-off layer.
         getAuthorLLMStatus: vi.fn(),
-        // So has the entity block; here it reads no pass yet.
+        // So has the entity block; here it reads no pass yet and no merge.
         getAuthorEntityStatus: vi.fn(),
+        getAuthorMerges: vi.fn(),
     };
 });
 
@@ -165,6 +166,9 @@ beforeEach(() => {
         },
     });
     api.getAuthorEntityStatus.mockResolvedValue({ status: { run: null, report: null } });
+    api.getAuthorMerges.mockResolvedValue({
+        merges: { decisions: [], decisions_total: 0, vetoes: [], unanchored: false },
+    });
     api.startAuthorMetadataRun.mockResolvedValue({ run: run({ status: 'running' }) });
     api.approveAuthorMetadataFullRun.mockResolvedValue({ run: run({ approved_for_full: true }) });
     api.pauseAuthorMetadataRun.mockResolvedValue({ run: run({ status: 'paused' }) });

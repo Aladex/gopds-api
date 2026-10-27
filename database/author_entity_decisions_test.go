@@ -178,3 +178,25 @@ func TestADecisionWithoutBooksIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, vetoes)
 }
+
+// E4b-3a review r3 (P2): a raw fingerprint current under two extractor
+// versions — v1 on a book of component A, v2 on a book normalized into an
+// unrelated component C. A decision whose member is (F, v1) is about the v1
+// book only: the v2 book is not among its books.
+func TestADecisionsBooksAreItsMembersVersion(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	ctx := context.Background()
+	v1 := f.book()
+	f.displayCredit(f.snapshot(&snapshotSpec{book: v1, extractor: "v1"}), "author", 0, "fixture", 0x30)
+	v2 := f.book()
+	f.displayCredit(f.snapshot(&snapshotSpec{book: v2, extractor: "v2"}), "author", 0, "fixture", 0x30)
+	f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", 0x31)
+	id, err := InsertMergeDecision(ctx, f.tx, &MergeDecisionInput{Candidate: decisionCandidate(0x30),
+		Source: authorentity.MethodModel})
+	require.NoError(t, err)
+	var books []int64
+	_, err = f.tx.Query(&books, `SELECT book_id FROM author_entity_merge_decision_book
+		WHERE decision_id = ? AND side = 'a' ORDER BY book_id`, id)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{v1}, books, "the v2 book of another component is a book of the decision")
+}

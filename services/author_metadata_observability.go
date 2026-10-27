@@ -130,6 +130,9 @@ const (
 	// the refusals in a row; Status refused, or input_moved when the third
 	// failed the pass).
 	AuthorMetadataEventEntityBuildInputMoved AuthorMetadataEventName = "author_metadata.entity_build_input_moved"
+	// EntityMergeAction: an administrator acted on a model merge (ItemID:
+	// the decision or veto; Status revoked, veto_retired or veto_reanchored).
+	AuthorMetadataEventEntityMergeAction AuthorMetadataEventName = "author_metadata.entity_merge_action"
 
 	// Wikidata reference of the entity build (phase E4w). Started: an
 	// administrator started a fetch (RunID is the extract); ChunkImported:
@@ -184,7 +187,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
 		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
 		AuthorMetadataEventEntityBuildStepFailed, AuthorMetadataEventEntityBuildCensusFailed,
-		AuthorMetadataEventEntityBuildInputMoved,
+		AuthorMetadataEventEntityBuildInputMoved, AuthorMetadataEventEntityMergeAction,
 		AuthorMetadataEventWikidataFetchStarted, AuthorMetadataEventWikidataChunkImported,
 		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,
 		AuthorMetadataEventWikidataFetchStepFailed,

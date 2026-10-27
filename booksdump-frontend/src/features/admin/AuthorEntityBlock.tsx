@@ -4,10 +4,15 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Button } from '@/shared/ui/button';
 import { Progress } from '@/shared/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 import { Switch } from '@/shared/ui/switch';
 import * as adminApi from '@/api/admin';
 import type {
     AuthorAutopilotStatus,
+    AuthorMergeDecision,
+    AuthorMergeVeto,
+    AuthorMergeVetoEntity,
+    AuthorMerges,
     AuthorEntityReport,
     AuthorEntityRun,
     AuthorEntityStatus,
@@ -37,6 +42,11 @@ import { closedErrorCode } from '@/api/admin';
  * due, the last run it started and a failed check's backoff. While the
  * autopilot is on the block keeps re-reading, so what it starts on its own
  * shows up.
+ *
+ * Its merges section (E4b-3b) lists the model's merge decisions with what the
+ * newest pass did with them, and the vetoes revokes left: a revoke splits the
+ * pair and keeps it apart; a veto is retired, or re-anchored on the two
+ * entities that are its sides now when an extractor rewrite lost its books.
  */
 
 /** How often the block re-reads while a pass is active. */
@@ -425,6 +435,313 @@ const AutopilotSection: React.FC<{
     );
 };
 
+/** A candidate kind, by its closed code; an unknown code shows as it is. */
+const MERGE_KINDS: Record<string, [string, string]> = {
+    swap: ['authorEntity.merges.kind.swap', 'swapped name parts'],
+    initials: ['authorEntity.merges.kind.initials', 'initials'],
+    translit: ['authorEntity.merges.kind.translit', 'transliteration'],
+    bucket: ['authorEntity.merges.kind.bucket', 'a book of a short name'],
+};
+
+const mergeKind = (t: T, kind: string): string => {
+    const label = MERGE_KINDS[kind];
+    return label ? t(label[0], label[1]) : kind;
+};
+
+/** A decision's state in the newest pass, as one phrase. */
+const decisionState = (t: T, d: AuthorMergeDecision): string => {
+    const reason = d.reason ?? '';
+    switch (d.state) {
+        case 'applied':
+            return t('authorEntity.merges.state.applied', 'merged');
+        case 'lapsed':
+            return t('authorEntity.merges.state.lapsed', {
+                defaultValue: 'out of date ({{reason}})',
+                reason,
+            });
+        case 'conflict':
+            return t('authorEntity.merges.state.conflict', {
+                defaultValue: 'not merged: a conflict ({{reason}})',
+                reason,
+            });
+        default:
+            return t('authorEntity.merges.state.pending', 'waiting for a pass');
+    }
+};
+
+/** A veto's state in the newest pass, as one phrase. */
+const vetoState = (t: T, v: AuthorMergeVeto): string => {
+    switch (v.state) {
+        case 'anchored':
+            return t('authorEntity.merges.veto.anchored', 'anchored');
+        case 'unanchored':
+            return t('authorEntity.merges.veto.unanchored', 'lost its books');
+        case 'gone':
+            return t('authorEntity.merges.veto.gone', 'a side left the catalog');
+        default:
+            return t('authorEntity.merges.veto.pending', 'waiting for a pass');
+    }
+};
+
+const describeMergeError = (t: T, error: unknown): string => {
+    switch (closedErrorCode(error)) {
+        case 'decision_not_live':
+            return t('authorEntity.merges.error.decision', 'The merge is already undone.');
+        case 'veto_not_live':
+            return t('authorEntity.merges.error.veto', 'The veto is already retired.');
+        case 'veto_side_unrecorded':
+            return t(
+                'authorEntity.merges.error.unrecorded',
+                'The books of a side are not recorded: the merge cannot be undone into a veto.',
+            );
+        case 'veto_sides_invalid':
+            return t(
+                'authorEntity.merges.error.sides',
+                'The chosen entities are not the two sides of the veto.',
+            );
+        default:
+            return t('authorEntity.error.other', 'The action failed.');
+    }
+};
+
+/** The choice of one side of a re-anchor. */
+const SideChoice: React.FC<{
+    label: string;
+    entities: AuthorMergeVetoEntity[];
+    value: string;
+    onChange: (id: string) => void;
+}> = ({ label, entities, value, onChange }) => (
+    <div className="flex flex-col gap-1">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <Select value={value} onValueChange={onChange}>
+            <SelectTrigger aria-label={label}>
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {entities.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                        {e.display_name}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    </div>
+);
+
+/** One veto: its state, its retire and its re-anchor. */
+const VetoItem: React.FC<{
+    veto: AuthorMergeVeto;
+    busy: boolean;
+    act: (action: () => Promise<unknown>) => Promise<void>;
+}> = ({ veto, busy, act }) => {
+    const { t } = useTranslation();
+    const [reanchoring, setReanchoring] = useState(false);
+    const [sideA, setSideA] = useState(veto.side_a[0]?.id ?? '');
+    const [sideB, setSideB] = useState(veto.side_b[0]?.id ?? '');
+    const retire = () => {
+        if (
+            window.confirm(
+                t(
+                    'authorEntity.merges.retireConfirm',
+                    'Retire the veto? The pair may be merged again.',
+                ),
+            )
+        ) {
+            void act(() => adminApi.retireMergeVeto(veto.id));
+        }
+    };
+    return (
+        <li className="flex flex-col gap-1">
+            <p className="text-sm tabular-nums">
+                {t('authorEntity.merges.veto.line', {
+                    defaultValue:
+                        'Veto {{id}}: {{state}} · books held {{held}}, lost {{lost}}, deleted {{gone}}; fingerprints added {{widened}}',
+                    id: veto.id,
+                    state: vetoState(t, veto),
+                    held: formatNumber(veto.held_books),
+                    lost: formatNumber(veto.lost_books),
+                    gone: formatNumber(veto.gone_books),
+                    widened: formatNumber(veto.widened_fingerprints),
+                })}
+            </p>
+            <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" disabled={busy} onClick={retire}>
+                    {t('authorEntity.merges.retire', 'Retire veto')}
+                </Button>
+                {veto.side_a.length > 0 && veto.side_b.length > 0 && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => setReanchoring((open) => !open)}
+                    >
+                        {t('authorEntity.merges.reanchor', 'Re-anchor veto')}
+                    </Button>
+                )}
+            </div>
+            {reanchoring && (
+                <div className="flex flex-col gap-2">
+                    <SideChoice
+                        label={t('authorEntity.merges.sideA', 'Side A now')}
+                        entities={veto.side_a}
+                        value={sideA}
+                        onChange={setSideA}
+                    />
+                    <SideChoice
+                        label={t('authorEntity.merges.sideB', 'Side B now')}
+                        entities={veto.side_b}
+                        value={sideB}
+                        onChange={setSideB}
+                    />
+                    <div>
+                        <Button
+                            size="sm"
+                            disabled={busy || sideA === '' || sideB === ''}
+                            onClick={() =>
+                                act(() => adminApi.reanchorMergeVeto(veto.id, sideA, sideB))
+                            }
+                        >
+                            {t('authorEntity.merges.reanchorConfirm', 'Re-anchor on these two')}
+                        </Button>
+                    </div>
+                </div>
+            )}
+        </li>
+    );
+};
+
+/** The merges section: the model's decisions and the vetoes of revokes. */
+const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged }) => {
+    const { t } = useTranslation();
+    const [merges, setMerges] = useState<AuthorMerges | null>(null);
+    const [busy, setBusy] = useState(false);
+    const [errorText, setErrorText] = useState<string | null>(null);
+
+    const load = useCallback(async () => {
+        try {
+            const response = await adminApi.getAuthorMerges();
+            setMerges(response.merges);
+        } catch {
+            setErrorText(t('authorEntity.merges.loadFailed', 'Could not read the merges.'));
+        }
+    }, [t]);
+
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    const act = async (action: () => Promise<unknown>) => {
+        setBusy(true);
+        setErrorText(null);
+        try {
+            await action();
+        } catch (error) {
+            setErrorText(describeMergeError(t, error));
+        } finally {
+            await load();
+            await onChanged();
+            setBusy(false);
+        }
+    };
+
+    const revoke = (d: AuthorMergeDecision) => {
+        if (
+            window.confirm(
+                t('authorEntity.merges.revokeConfirm', {
+                    defaultValue:
+                        'Undo the merge of {{a}} and {{b}}? The pair stays apart until the veto is retired.',
+                    a: d.side_a.display_name,
+                    b: d.side_b.display_name,
+                }),
+            )
+        ) {
+            void act(() => adminApi.revokeMergeDecision(d.id));
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-2">
+            <h5 className="text-sm font-medium">
+                {t('authorEntity.merges.title', 'Merges by the model')}
+            </h5>
+            <p className="text-sm text-muted-foreground">
+                {t(
+                    'authorEntity.merges.hint',
+                    'Two records the model found to be one person. Undoing a merge splits the pair at the next pass and leaves a veto: no pass joins them again until it is retired.',
+                )}
+            </p>
+            {errorText !== null && (
+                <Alert variant="destructive">
+                    <AlertDescription>{errorText}</AlertDescription>
+                </Alert>
+            )}
+            {merges?.unanchored && (
+                <Alert>
+                    <AlertDescription>
+                        {t(
+                            'authorEntity.merges.unanchored',
+                            'A veto lost its books (re-extracted with other data): no question goes to the model until it is re-anchored or retired.',
+                        )}
+                    </AlertDescription>
+                </Alert>
+            )}
+            {merges !== null && merges.decisions_total === 0 && (
+                <p className="text-sm text-muted-foreground">
+                    {t('authorEntity.merges.none', 'No merge decision yet.')}
+                </p>
+            )}
+            {merges !== null && merges.decisions.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                    {merges.decisions.map((d) => (
+                        <li
+                            key={d.id}
+                            className="flex flex-wrap items-center justify-between gap-2"
+                        >
+                            <span className="text-sm tabular-nums">
+                                {t('authorEntity.merges.decision', {
+                                    defaultValue:
+                                        '{{id}}: {{a}} ({{booksA}}) and {{b}} ({{booksB}}) · {{kind}} · {{state}}',
+                                    id: d.id,
+                                    a: d.side_a.display_name,
+                                    booksA: formatNumber(d.side_a.books),
+                                    b: d.side_b.display_name,
+                                    booksB: formatNumber(d.side_b.books),
+                                    kind: mergeKind(t, d.kind),
+                                    state: decisionState(t, d),
+                                })}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() => revoke(d)}
+                            >
+                                {t('authorEntity.merges.revoke', 'Undo merge')}
+                            </Button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {merges !== null && merges.decisions_total > merges.decisions.length && (
+                <p className="text-sm text-muted-foreground tabular-nums">
+                    {t('authorEntity.merges.more', {
+                        defaultValue: 'The newest {{shown}} of {{total}}.',
+                        shown: formatNumber(merges.decisions.length),
+                        total: formatNumber(merges.decisions_total),
+                    })}
+                </p>
+            )}
+            {merges !== null && merges.vetoes.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                    {merges.vetoes.map((v) => (
+                        <VetoItem key={v.id} veto={v} busy={busy} act={act} />
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+};
+
 /** The report's summary lines. */
 const reportLines = (t: T, r: AuthorEntityReport): string[] => {
     const seconds = Math.round((r.timings.load_ms + r.timings.plan_ms + r.timings.apply_ms) / 1000);
@@ -599,6 +916,8 @@ const AuthorEntityBlock: React.FC = () => {
             {status !== null && (
                 <WikidataSection wikidata={status.wikidata ?? null} onChanged={load} />
             )}
+
+            {status !== null && <MergesSection onChanged={load} />}
 
             {report !== null && (
                 <div className="flex flex-col gap-1">

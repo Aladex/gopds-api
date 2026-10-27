@@ -214,7 +214,8 @@ const authorEntityFenceRefused = "refused"
 func AuthorEntityBuildStatuses() []string {
 	return []string{AuthorEntityCensusErrorGenerate, AuthorEntityCensusErrorCardLoad, AuthorEntityCensusErrorSeal,
 		AuthorEntityCensusErrorWrite, AuthorEntityBuildErrorCensus, authorEntityFenceRefused,
-		AuthorEntityBuildErrorInputMoved, AuthorEntityBuildErrorVetoOverlap}
+		AuthorEntityBuildErrorInputMoved, AuthorEntityBuildErrorVetoOverlap, authorEntityMergeRevoked,
+		authorEntityMergeVetoRetired, authorEntityMergeVetoReanchored}
 }
 
 // loaded runs the test hook after a load of the plan's snapshot.
@@ -784,4 +785,64 @@ func (a *AuthorEntityAdmin) Start(ctx context.Context, actor int64) (*database.A
 		Name: AuthorMetadataEventEntityBuildStarted, Stage: AuthorMetadataStageEntityBuild, RunID: run.ID,
 	})
 	return run, nil
+}
+
+// The model merges of the card (E4b-3b): what is decided and vetoed, and the
+// administrator's three actions on them. Each runs in one transaction and
+// marks a build (the decision and veto tables are build input).
+
+// Statuses of AuthorMetadataEventEntityMergeAction.
+const (
+	authorEntityMergeRevoked        = "revoked"
+	authorEntityMergeVetoRetired    = "veto_retired"
+	authorEntityMergeVetoReanchored = "veto_reanchored"
+)
+
+// MergeDecisions reads the card's merge block.
+func (a *AuthorEntityAdmin) MergeDecisions(ctx context.Context) (*database.MergeDecisionsView, error) {
+	return database.ReadMergeDecisions(ctx, a.db)
+}
+
+// RevokeMergeDecision revokes a live same decision; its veto keeps the pair
+// apart from the next pass on. It returns the revoke's id.
+func (a *AuthorEntityAdmin) RevokeMergeDecision(ctx context.Context, decisionID, actor int64) (int64, error) {
+	id, err := database.RevokeMergeDecision(ctx, a.db, decisionID, actor)
+	if err == nil {
+		logMergeAction(authorEntityMergeRevoked, decisionID)
+	}
+	return id, err
+}
+
+// RetireMergeVeto retires a live veto: its sides may be joined again.
+func (a *AuthorEntityAdmin) RetireMergeVeto(ctx context.Context, vetoID, actor int64) error {
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		return database.RetireMergeVeto(ctx, tx, vetoID, actor)
+	})
+	if err == nil {
+		logMergeAction(authorEntityMergeVetoRetired, vetoID)
+	}
+	return err
+}
+
+// ReanchorMergeVeto re-anchors a live veto on two current entities and
+// returns the new veto's id.
+func (a *AuthorEntityAdmin) ReanchorMergeVeto(
+	ctx context.Context, vetoID int64, sideA, sideB uuid.UUID, actor int64,
+) (int64, error) {
+	var id int64
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		var err error
+		id, err = database.ReanchorMergeVeto(ctx, tx, vetoID, sideA, sideB, actor)
+		return err
+	})
+	if err == nil {
+		logMergeAction(authorEntityMergeVetoReanchored, vetoID)
+	}
+	return id, err
+}
+
+func logMergeAction(status string, id int64) {
+	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventEntityMergeAction, Stage: AuthorMetadataStageEntityBuild, ItemID: id, Status: status,
+	})
 }

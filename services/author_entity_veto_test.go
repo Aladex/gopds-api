@@ -418,3 +418,72 @@ func TestASnapshotReplacedBeforeTheDecisionIsNotRecorded(t *testing.T) {
 	assert.Empty(t, rep.Veto.Overlaps)
 	assert.NotEqual(t, v.entityOf(0x61), v.entityOf(small))
 }
+
+// The card's model merges through the admin (E4b-3b): the block shows the
+// decision with what the pass did and its two sides; a revoke turns it into
+// a veto, which the next pass anchors and which names the entities of its
+// sides; a re-anchor on them replaces it, a retire ends it. Each action is a
+// build input.
+func TestTheModelMergesThroughTheAdmin(t *testing.T) {
+	v, id := newMergedCatalog(t)
+	admin := services.NewAuthorEntityAdmin(v.db)
+	ctx := context.Background()
+	view, err := admin.MergeDecisions(ctx)
+	require.NoError(t, err)
+	require.Len(t, view.Decisions, 1)
+	d := view.Decisions[0]
+	assert.Equal(t, id, d.ID)
+	require.NotNil(t, d.State)
+	assert.Equal(t, "applied", *d.State)
+	assert.Equal(t, database.MergeSideView{Entity: ptrUUID(v.big), DisplayName: "Стивен Кинг", Books: 2}, d.SideA)
+	assert.Equal(t, "Кинг Стивен", d.SideB.DisplayName)
+	assert.Equal(t, 1, d.SideB.Books)
+	assert.Empty(t, view.Vetoes)
+	assert.False(t, view.Unanchored)
+
+	_, err = admin.RevokeMergeDecision(ctx, id, 0)
+	require.NoError(t, err)
+	_, err = admin.RevokeMergeDecision(ctx, id, 0)
+	assert.ErrorIs(t, err, database.ErrMergeDecisionNotLive)
+	assert.Positive(t, v.marks(), "a revoke is build input")
+	view, err = admin.MergeDecisions(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, view.Decisions)
+	assert.Zero(t, view.DecisionsTotal)
+	require.Len(t, view.Vetoes, 1)
+	assert.Nil(t, view.Vetoes[0].State, "no pass read the veto yet")
+
+	v.build()
+	view, err = admin.MergeDecisions(ctx)
+	require.NoError(t, err)
+	w := view.Vetoes[0]
+	require.NotNil(t, w.State)
+	assert.Equal(t, "anchored", *w.State)
+	assert.Equal(t, 3, w.HeldBooks)
+	require.Len(t, w.SideA, 1)
+	require.Len(t, w.SideB, 1)
+	assert.Equal(t, v.big, w.SideA[0].ID.String())
+	assert.Equal(t, v.small, w.SideB[0].ID.String())
+
+	_, err = admin.ReanchorMergeVeto(ctx, w.ID, w.SideB[0].ID, w.SideA[0].ID, 0)
+	assert.ErrorIs(t, err, database.ErrMergeVetoSides, "the sides swapped")
+	newID, err := admin.ReanchorMergeVeto(ctx, w.ID, w.SideA[0].ID, w.SideB[0].ID, 0)
+	require.NoError(t, err)
+	view, err = admin.MergeDecisions(ctx)
+	require.NoError(t, err)
+	require.Len(t, view.Vetoes, 1)
+	assert.Equal(t, newID, view.Vetoes[0].ID)
+	require.NotNil(t, view.Vetoes[0].ReplacesVetoID)
+	assert.Equal(t, w.ID, *view.Vetoes[0].ReplacesVetoID)
+
+	require.NoError(t, admin.RetireMergeVeto(ctx, newID, 0))
+	assert.ErrorIs(t, admin.RetireMergeVeto(ctx, newID, 0), database.ErrMergeVetoNotLive)
+	view, err = admin.MergeDecisions(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, view.Vetoes)
+}
+
+func ptrUUID(s string) *uuid.UUID {
+	id := uuid.MustParse(s)
+	return &id
+}

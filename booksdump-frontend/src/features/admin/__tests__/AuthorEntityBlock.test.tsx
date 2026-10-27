@@ -5,6 +5,8 @@ import AuthorEntityBlock from '@/features/admin/AuthorEntityBlock';
 import * as adminApi from '@/api/admin';
 import type {
     AuthorAutopilotStatus,
+    AuthorMerges,
+    AuthorMergeVeto,
     AuthorEntityReport,
     AuthorEntityRun,
     WikidataExtract,
@@ -44,6 +46,10 @@ vi.mock('@/api/admin', async (importOriginal) => {
         startAuthorEntityBuild: vi.fn(),
         startWikidataFetch: vi.fn(),
         setAuthorAutopilot: vi.fn(),
+        getAuthorMerges: vi.fn(),
+        revokeMergeDecision: vi.fn(),
+        retireMergeVeto: vi.fn(),
+        reanchorMergeVeto: vi.fn(),
     };
 });
 
@@ -153,8 +159,54 @@ const showAutopilot = (a: AuthorAutopilotStatus) =>
         status: { run: null, report: null, autopilot: a },
     });
 
+const noMerges = (): AuthorMerges => ({
+    decisions: [],
+    decisions_total: 0,
+    vetoes: [],
+    unanchored: false,
+});
+
+const veto = (overrides: Partial<AuthorMergeVeto> = {}): AuthorMergeVeto => ({
+    id: 3,
+    revoke_decision_id: 10,
+    item_kind: 'entity',
+    created_at: new Date().toISOString(),
+    state: 'unanchored',
+    held_books: 1,
+    lost_books: 2,
+    gone_books: 0,
+    widened_fingerprints: 1,
+    side_a: [{ id: 'entity-a2', display_name: 'Стивен Кинг' }],
+    side_b: [{ id: 'entity-b', display_name: 'Кинг Стивен' }],
+    ...overrides,
+});
+
+const oneDecision = (): AuthorMerges => ({
+    ...noMerges(),
+    decisions: [
+        {
+            id: 9,
+            kind: 'swap',
+            script: 'Cyrl',
+            item_kind: 'entity',
+            outcome: 'same',
+            created_at: new Date().toISOString(),
+            state: 'applied',
+            side_a: { display_name: 'Стивен Кинг', books: 2 },
+            side_b: { display_name: 'Кинг Стивен', books: 1 },
+        },
+    ],
+    decisions_total: 1,
+});
+
+const showMerges = (merges: AuthorMerges) => {
+    api.getAuthorEntityStatus.mockResolvedValue({ status: { run: null, report: null } });
+    api.getAuthorMerges.mockResolvedValue({ merges });
+};
+
 beforeEach(() => {
     vi.clearAllMocks();
+    api.getAuthorMerges.mockResolvedValue({ merges: noMerges() });
     api.startWikidataFetch.mockResolvedValue({
         extract: extract({ status: 'fetching', chunks_done: 0 }),
     });
@@ -510,6 +562,72 @@ describe('AuthorEntityBlock', () => {
         fireEvent.click(await screen.findByRole('switch', { name: 'Autopilot after a scan' }));
         await waitFor(() => expect(api.setAuthorAutopilot).toHaveBeenCalledWith(false));
         await waitFor(() => expect(api.getAuthorEntityStatus).toHaveBeenCalledTimes(2));
+    });
+
+    it('says there is no merge decision yet', async () => {
+        showMerges(noMerges());
+        render(<AuthorEntityBlock />);
+        expect(await screen.findByText('No merge decision yet.')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Undo merge' })).not.toBeInTheDocument();
+    });
+
+    it('lists a decision and undoes it once confirmed, then reads again', async () => {
+        showMerges(oneDecision());
+        api.revokeMergeDecision.mockResolvedValue({ revoke_id: 10 });
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                `9: Стивен Кинг (${n(2)}) and Кинг Стивен (${n(1)}) · swapped name parts · merged`,
+            ),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Undo merge' }));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        expect(api.revokeMergeDecision).not.toHaveBeenCalled();
+        confirm.mockReturnValue(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Undo merge' }));
+        await waitFor(() => expect(api.revokeMergeDecision).toHaveBeenCalledWith(9));
+        await waitFor(() => expect(api.getAuthorMerges).toHaveBeenCalledTimes(2));
+        confirm.mockRestore();
+    });
+
+    it('shows an unanchored veto, retires it once confirmed and re-anchors it', async () => {
+        showMerges({ ...noMerges(), vetoes: [veto()], unanchored: true });
+        api.retireMergeVeto.mockResolvedValue({ veto_id: 3 });
+        api.reanchorMergeVeto.mockResolvedValue({ veto_id: 4 });
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                'A veto lost its books (re-extracted with other data): no question goes to the model until it is re-anchored or retired.',
+            ),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                `Veto 3: lost its books · books held ${n(1)}, lost ${n(2)}, deleted ${n(0)}; fingerprints added ${n(1)}`,
+            ),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Retire veto' }));
+        await waitFor(() => expect(api.retireMergeVeto).toHaveBeenCalledWith(3));
+        fireEvent.click(await screen.findByRole('button', { name: 'Re-anchor veto' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Re-anchor on these two' }));
+        await waitFor(() =>
+            expect(api.reanchorMergeVeto).toHaveBeenCalledWith(3, 'entity-a2', 'entity-b'),
+        );
+        confirm.mockRestore();
+    });
+
+    it('says why a re-anchor was refused', async () => {
+        showMerges({ ...noMerges(), vetoes: [veto()] });
+        api.reanchorMergeVeto.mockRejectedValue(
+            new ApiError('unprocessable', 422, { body: { error: 'veto_sides_invalid' } }),
+        );
+        render(<AuthorEntityBlock />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Re-anchor veto' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Re-anchor on these two' }));
+        expect(
+            await screen.findByText('The chosen entities are not the two sides of the veto.'),
+        ).toBeInTheDocument();
     });
 
     it('keeps both locales complete', () => {

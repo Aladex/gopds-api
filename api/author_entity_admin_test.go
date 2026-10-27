@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"gopds-api/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,6 +79,36 @@ func (f *fakeEntityAdmin) SetAutopilot(_ context.Context, enabled bool, actor in
 		QuietSeconds: 1800}, nil
 }
 
+func (f *fakeEntityAdmin) MergeDecisions(context.Context) (*database.MergeDecisionsView, error) {
+	f.record("merges")
+	if f.err != nil {
+		return nil, f.err
+	}
+	state := "applied"
+	return &database.MergeDecisionsView{Decisions: []database.MergeDecisionView{{ID: 9, Kind: "swap", Script: "Cyrl",
+		ItemKind: "entity", Outcome: "same", State: &state, SideA: database.MergeSideView{DisplayName: "Стивен Кинг",
+			Books: 2}, SideB: database.MergeSideView{DisplayName: "Кинг Стивен", Books: 1}}}, DecisionsTotal: 1,
+		Vetoes: []database.MergeVetoView{}}, nil
+}
+
+func (f *fakeEntityAdmin) RevokeMergeDecision(_ context.Context, id, actor int64) (int64, error) {
+	f.record(fmt.Sprintf("revoke %d", id))
+	f.actor = actor
+	return 10, f.err
+}
+
+func (f *fakeEntityAdmin) RetireMergeVeto(_ context.Context, id, actor int64) error {
+	f.record(fmt.Sprintf("retire %d", id))
+	f.actor = actor
+	return f.err
+}
+
+func (f *fakeEntityAdmin) ReanchorMergeVeto(_ context.Context, id int64, a, b uuid.UUID, actor int64) (int64, error) {
+	f.record(fmt.Sprintf("reanchor %d %s %s", id, a, b))
+	f.actor = actor
+	return 12, f.err
+}
+
 const entityBase = "/api/admin/author-metadata/entities"
 
 func entityRouter(svc AuthorEntityAdminService) *gin.Engine {
@@ -105,7 +137,11 @@ func TestAuthorEntityRoutesRequireAnAdministrator(t *testing.T) {
 
 	routes := []struct{ method, path, body string }{{http.MethodGet, entityBase + "/status", ""},
 		{http.MethodPost, entityBase + "/build", ""}, {http.MethodPost, entityBase + "/wikidata", ""},
-		{http.MethodPost, entityBase + "/autopilot", `{"enabled":false}`}}
+		{http.MethodPost, entityBase + "/autopilot", `{"enabled":false}`}, {http.MethodGet, entityBase + "/merges", ""},
+		{http.MethodPost, entityBase + "/merges/decisions/9/revoke", ""},
+		{http.MethodPost, entityBase + "/merges/vetoes/3/retire", ""},
+		{http.MethodPost, entityBase + "/merges/vetoes/3/reanchor",
+			`{"side_a":"01a17dc0-a8b4-7706-b3db-57951f632b68","side_b":"01a17dc0-a91f-737c-9c41-3ed188ad408f"}`}}
 	for _, route := range routes {
 		assert.Equal(t, http.StatusUnauthorized, runsRequest(t, r, route.method, route.path, route.body).Code)
 		req := httptest.NewRequestWithContext(context.Background(), route.method, route.path, strings.NewReader(route.body))
@@ -203,4 +239,61 @@ func TestAuthorEntityRoutesUnavailableUntilWired(t *testing.T) {
 	rec := runsRequest(t, entityRouter(unavailableAuthorEntityAdmin{}), http.MethodGet, entityBase+"/status", "")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.JSONEq(t, `{"error":"entity_service_unavailable"}`, rec.Body.String())
+}
+
+// The model merges: the block, the revoke by the administrator, a veto's
+// retire and re-anchor, each refused before the service when malformed and
+// answered with its closed code when the database refuses it.
+func TestTheModelMergeRoutes(t *testing.T) {
+	svc := &fakeEntityAdmin{}
+	r := entityRouter(svc)
+	rec := runsRequest(t, r, http.MethodGet, entityBase+"/merges", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"merges":{"decisions":[{"id":9,"kind":"swap","script":"Cyrl","item_kind":"entity",
+		"outcome":"same","created_at":"0001-01-01T00:00:00Z","state":"applied",
+		"side_a":{"display_name":"Стивен Кинг","books":2},"side_b":{"display_name":"Кинг Стивен","books":1}}],
+		"decisions_total":1,"vetoes":[],"unanchored":false}}`, rec.Body.String())
+
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/decisions/9/revoke", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"revoke_id":10}`, rec.Body.String())
+	assert.Equal(t, adminActorID, svc.actor)
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/vetoes/3/retire", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"veto_id":3}`, rec.Body.String())
+	a, b := uuid.New(), uuid.New()
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/vetoes/3/reanchor",
+		fmt.Sprintf(`{"side_a":%q,"side_b":%q}`, a, b))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"veto_id":12}`, rec.Body.String())
+	assert.Equal(t, []string{"merges", "revoke 9", "retire 3", fmt.Sprintf("reanchor 3 %s %s", a, b)}, svc.calls)
+
+	svc.calls = nil
+	for _, bad := range []struct{ path, body string }{
+		{"/merges/decisions/0/revoke", ""}, {"/merges/decisions/x/revoke", ""}, {"/merges/vetoes/-1/retire", ""},
+		{"/merges/vetoes/3/reanchor", ""}, {"/merges/vetoes/3/reanchor", `{"side_a":"not-a-uuid"}`},
+		{"/merges/vetoes/3/reanchor", fmt.Sprintf(`{"side_a":%q}`, a)},
+	} {
+		rec = runsRequest(t, r, http.MethodPost, entityBase+bad.path, bad.body)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, bad.path+" "+bad.body)
+		assert.JSONEq(t, `{"error":"invalid_request"}`, rec.Body.String())
+	}
+	assert.Empty(t, svc.calls, "a malformed request reached the service")
+
+	for _, tc := range []struct {
+		err  error
+		path string
+		code int
+		want string
+	}{
+		{database.ErrMergeDecisionNotLive, "/merges/decisions/9/revoke", http.StatusConflict, "decision_not_live"},
+		{database.ErrMergeVetoSideUnrecorded, "/merges/decisions/9/revoke", http.StatusConflict, "veto_side_unrecorded"},
+		{database.ErrMergeVetoNotLive, "/merges/vetoes/3/retire", http.StatusConflict, "veto_not_live"},
+		{database.ErrMergeVetoSides, "/merges/vetoes/3/reanchor", http.StatusUnprocessableEntity, "veto_sides_invalid"},
+	} {
+		svc.err = tc.err
+		rec = runsRequest(t, r, http.MethodPost, entityBase+tc.path, fmt.Sprintf(`{"side_a":%q,"side_b":%q}`, a, b))
+		assert.Equal(t, tc.code, rec.Code, tc.want)
+		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want), rec.Body.String())
+	}
 }
