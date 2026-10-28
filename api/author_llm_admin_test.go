@@ -126,6 +126,12 @@ func (f *fakeLLMAdmin) RecomputeEvalReport(_ context.Context, id int64) (*servic
 	return f.run(), nil
 }
 
+func (f *fakeLLMAdmin) AdversarialItems(context.Context, int64) (*services.AuthorLLMAdversarialReview, error) {
+	return &services.AuthorLLMAdversarialReview{}, nil
+}
+
+func (f *fakeLLMAdmin) Adjudicate(context.Context, int64, string, string, string) error { return nil }
+
 const llmBase = "/api/admin/author-metadata/llm"
 
 // llmRouter mounts the LLM routes behind the stub administrator.

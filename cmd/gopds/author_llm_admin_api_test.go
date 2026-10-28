@@ -143,6 +143,19 @@ func TestAuthorLLMAdminWiring(t *testing.T) {
 		rec = llmCall(t, r, http.MethodPost, "/runs", `{"kind":"eval","mode":"merge0"}`)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "K's admin started a merge eval")
 
+		// The suite review and its labels (E4c-2b-0): merge routes only.
+		rec = llmCall(t, r, http.MethodGet, "/merge/eval-report/"+jsonNumber(started.Run.ID)+"/adversarial", "")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "a K run has no suite")
+		assert.JSONEq(t, `{"error":"invalid_run"}`, rec.Body.String())
+		rec = llmCall(t, r, http.MethodPut, "/merge/adjudications/999999", `{"label":"same","note":""}`)
+		assert.Equal(t, http.StatusConflict, rec.Code)
+		assert.JSONEq(t, `{"error":"not_adjudicable"}`, rec.Body.String())
+		rec = llmCall(t, r, http.MethodPut, "/merge/adjudications/999999", `{"label":"maybe","note":""}`)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.JSONEq(t, `{"error":"invalid_request"}`, rec.Body.String())
+		rec = llmCall(t, r, http.MethodPut, "/adjudications/999999", `{"label":"same","note":""}`)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "K's admin labeled an item")
+
 		rec = llmCall(t, r, http.MethodPost, "/runs", `{"kind":"eval","mode":"pilot"}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.JSONEq(t, `{"error":"active_run_exists"}`, rec.Body.String())

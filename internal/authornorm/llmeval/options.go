@@ -43,8 +43,9 @@ func splitSuite(all []*Item) (rest, suite []*Item) {
 // suiteReason names the first combo the suite failed, or "".
 func suiteReason(combos []Combo, report *StratumReport) string {
 	for _, c := range combos {
-		if m := report.Combos[comboKey(c)]; m.Adversarial != nil && m.Adversarial.Accepted > 0 {
-			return fmt.Sprintf("adversarial: %d accepted in %s", m.Adversarial.Accepted, comboKey(c))
+		if a := report.Combos[comboKey(c)].Adversarial; a != nil && a.Failed > 0 {
+			return fmt.Sprintf("adversarial: %d accepted in %s (%d different, %d pending; %d unclear, %d same cleared)",
+				a.Accepted, comboKey(c), a.AdjudicatedDifferent, a.Pending, a.Unclear, a.AdjudicatedSame)
 		}
 	}
 	return ""
@@ -79,7 +80,9 @@ type ScriptMetrics struct {
 // AdversarialMetrics is the adversarial suite in a combo: every item's
 // expected answer is not the accepting one, so an item the production rule
 // accepts (the pair and both judges agree on the accepting answer) is a
-// failure of its stratum.
+// failure of its stratum when a human adjudicated it two people or nobody
+// has adjudicated it yet; one person and unclear clear it: the suite's
+// label (a different patronymic) is noisy on a real catalog.
 type AdversarialMetrics struct {
 	Items int `json:"items"`
 	// PairAccepted counts the items the pair agreed on the accepting
@@ -87,7 +90,21 @@ type AdversarialMetrics struct {
 	PairAccepted int     `json:"pair_accepted"`
 	Accepted     int     `json:"accepted"`
 	AcceptedIDs  []int64 `json:"accepted_ids,omitempty"`
+	// The accepted items by their adjudication; Failed are those
+	// adjudicated different or still pending: any fails the stratum.
+	AdjudicatedSame      int `json:"adjudicated_same"`
+	AdjudicatedDifferent int `json:"adjudicated_different"`
+	Unclear              int `json:"unclear"`
+	Pending              int `json:"pending"`
+	Failed               int `json:"failed"`
 }
+
+// The labels of an adjudication.
+const (
+	AdjudicatedSame      = "same"
+	AdjudicatedDifferent = "different"
+	AdjudicatedUnclear   = "unclear"
+)
 
 // suiteAccepts reports a suite item the production rule accepts: the pair
 // agreed on an accepting answer, and the judges' consensus is that answer.
@@ -173,8 +190,23 @@ func (m *AdversarialMetrics) add(it *Item, c Combo, o *Options) {
 	if pair {
 		m.PairAccepted++
 	}
-	if accepted {
-		m.Accepted++
-		m.AcceptedIDs = append(m.AcceptedIDs, it.ID)
+	if !accepted {
+		return
+	}
+	m.Accepted++
+	m.AcceptedIDs = append(m.AcceptedIDs, it.ID)
+	switch it.Adjudication {
+	case AdjudicatedSame:
+		m.AdjudicatedSame++
+	case AdjudicatedUnclear:
+		// Nobody read the books either: no evidence of two people, and a
+		// merge is reversible with a veto.
+		m.Unclear++
+	case AdjudicatedDifferent:
+		m.AdjudicatedDifferent++
+		m.Failed++
+	default:
+		m.Pending++
+		m.Failed++
 	}
 }

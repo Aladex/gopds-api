@@ -939,5 +939,10 @@
   "authorLLM.step.merge0": "Start the merge pilot (merge0)",
   "authorLLM.run.merge0": "Merge pilot",
   "authorLLM.otherActiveNames": "A name review run is active; the merge pilot starts after it.",
-  "authorLLM.otherActiveMerges": "A merge check run is active; the next step starts after it."
+  "authorLLM.otherActiveMerges": "A merge check run is active; the next step starts after it.",
+  "authorLLM.adjudication.same": "One person",
+  "authorLLM.adjudication.different": "Two people",
+  "authorLLM.adjudication.unclear": "Unclear",
+  "authorLLM.adjudication.pending": "Not labelled",
+  "authorLLM.adversarialTitle": "Namesakes the models merged: {{count}}. Label each, then recompute the report."
 }

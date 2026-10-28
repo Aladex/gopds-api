@@ -738,33 +738,9 @@ func (d *AuthorLLMEvalDriver) mergeReport(ctx context.Context, run *evalRun) err
 	if err != nil || waits > 0 {
 		return err
 	}
-	answers, err := d.readEvalAnswers(ctx, run.ID)
+	doc, err := d.mergeReportDoc(ctx, run)
 	if err != nil {
 		return err
-	}
-	holdout, suite, err := d.mergeMeasured(ctx, d.db, run)
-	if err != nil {
-		return err
-	}
-	sets := mergeEvalSetsOf(run.Mode)
-	anchors, err := d.mergeItems(ctx, d.db, sets.anchor, models.AuthorLLMEvalAnchor)
-	if err != nil {
-		return err
-	}
-	fingerprints, fpResult := d.fingerprintResult(answers)
-	in := mergeEvalInput(answers, holdout, suite)
-	in.Fingerprint = fpResult
-	recall, anchorCount := mergeRecallOf(anchors, answers.byItem)
-	in.Anchor = anchorCount
-	opts := mergeOptions()
-	evaluation := llmeval.EvaluateWith(&in, &opts)
-	doc := mergeEvalReportDoc{ReportVersion: 1, RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version,
-		Task: llmreq.TaskMerge, Gate: mergeEvalGate, Options: opts, Settings: d.reportSettings(run, answers),
-		FailedJobs: answers.failed, Fingerprints: fingerprints,
-		Recall: recall, Answers: mergeAnswerCounts(holdout, suite, anchors, answers.byItem),
-		Tokens: mergeTokenCounts(holdout, suite, anchors, answers.byItem), Evaluation: evaluation}
-	if setsErr := d.reportSets(ctx, run, &doc); setsErr != nil {
-		return setsErr
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
@@ -777,9 +753,50 @@ func (d *AuthorLLMEvalDriver) mergeReport(ctx context.Context, run *evalRun) err
 	return err
 }
 
+// mergeReportDoc computes a merge eval's report from the run's stored
+// answers and the suite's current adjudications.
+func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) (*mergeEvalReportDoc, error) {
+	answers, err := d.readEvalAnswers(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	holdout, suite, err := d.mergeMeasured(ctx, d.db, run)
+	if err != nil {
+		return nil, err
+	}
+	anchors, err := d.mergeItems(ctx, d.db, mergeEvalSetsOf(run.Mode).anchor, models.AuthorLLMEvalAnchor)
+	if err != nil {
+		return nil, err
+	}
+	adjudications, err := database.AuthorLLMAdjudications(ctx, d.db, itemIDs(suite))
+	if err != nil {
+		return nil, err
+	}
+	fingerprints, fpResult := d.fingerprintResult(answers)
+	in := mergeEvalInput(answers, holdout, suite, adjudications)
+	in.Fingerprint = fpResult
+	recall, anchorCount := mergeRecallOf(anchors, answers.byItem)
+	in.Anchor = anchorCount
+	opts := mergeOptions()
+	evaluation := llmeval.EvaluateWith(&in, &opts)
+	doc := &mergeEvalReportDoc{ReportVersion: 1, RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version,
+		Task: llmreq.TaskMerge, Gate: mergeEvalGate, Options: opts, Settings: d.reportSettings(run, answers),
+		FailedJobs: answers.failed, Fingerprints: fingerprints,
+		Recall: recall, Answers: mergeAnswerCounts(holdout, suite, anchors, answers.byItem),
+		Tokens: mergeTokenCounts(holdout, suite, anchors, answers.byItem), Evaluation: evaluation}
+	if setsErr := d.reportSets(ctx, run, doc); setsErr != nil {
+		return nil, setsErr
+	}
+	return doc, nil
+}
+
 // mergeEvalInput is the llmeval input of the measured items: the holdout
-// and the suite, one combo (arm A, one per request), strata the kinds.
-func mergeEvalInput(answers *evalAnswers, holdout, suite []database.AuthorLLMEvalItemRow) llmeval.Input {
+// and the suite with its adjudications, one combo (arm A, one per request),
+// strata the kinds.
+func mergeEvalInput(
+	answers *evalAnswers, holdout, suite []database.AuthorLLMEvalItemRow,
+	adjudications map[int64]database.AuthorLLMAdjudication,
+) llmeval.Input {
 	combos := []llmeval.Combo{{Arm: llmeval.ArmA, Batch: 1}}
 	in := llmeval.Input{Combos: combos, Invalid: sortedCounts(answers.invalid),
 		ProviderRejected: sortedCounts(answers.rejected)}
@@ -791,6 +808,7 @@ func mergeEvalInput(answers *evalAnswers, holdout, suite []database.AuthorLLMEva
 			item.Stratum, item.Script = splitMergeStratum(rows[i].Stratum)
 			item.Holdout = true
 			item.Adversarial = rows[i].ItemSet == string(models.AuthorLLMEvalAdversarial)
+			item.Adjudication = adjudications[rows[i].ID].Label
 			if !item.Adversarial {
 				item.Repeated = countRepeats(repeat, jobs)
 			}

@@ -31,6 +31,8 @@ type AuthorLLMAdminService interface {
 	ResumeEndpoint(ctx context.Context) error
 	EvalReport(ctx context.Context, id int64, version int) ([]byte, string, error)
 	RecomputeEvalReport(ctx context.Context, id int64) (*services.AuthorLLMRunState, error)
+	AdversarialItems(ctx context.Context, id int64) (*services.AuthorLLMAdversarialReview, error)
+	Adjudicate(ctx context.Context, itemID int64, label, note, by string) error
 }
 
 // Closed error codes of the LLM routes (beside the runs API's shared ones).
@@ -46,6 +48,7 @@ const (
 	codeLLMReportStale        = "report_stale"
 	codeLLMInvalidVersion     = "invalid_version"
 	codeLLMEvidenceChanged    = "evidence_changed"
+	codeLLMNotAdjudicable     = "not_adjudicable"
 )
 
 // errAuthorLLMServiceUnavailable: the LLM admin is not wired.
@@ -69,6 +72,8 @@ var llmErrors = []struct {
 	{database.ErrAuthorLLMEvidenceChanged, http.StatusConflict, codeLLMEvidenceChanged},
 	{services.ErrAuthorLLMInvalidRun, http.StatusBadRequest, codeLLMInvalidRun},
 	{services.ErrAuthorLLMInvalidSlot, http.StatusBadRequest, codeLLMInvalidSlot},
+	{services.ErrAuthorLLMInvalidAdjudication, http.StatusBadRequest, codeInvalidRequest},
+	{database.ErrAuthorLLMNotAdjudicable, http.StatusConflict, codeLLMNotAdjudicable},
 	{errAuthorLLMServiceUnavailable, http.StatusInternalServerError, codeLLMServiceUnavailable},
 }
 
@@ -146,6 +151,14 @@ func (unavailableAuthorLLMAdmin) RecomputeEvalReport(context.Context, int64) (*s
 	return nil, errAuthorLLMServiceUnavailable
 }
 
+func (unavailableAuthorLLMAdmin) AdversarialItems(context.Context, int64) (*services.AuthorLLMAdversarialReview, error) {
+	return nil, errAuthorLLMServiceUnavailable
+}
+
+func (unavailableAuthorLLMAdmin) Adjudicate(context.Context, int64, string, string, string) error {
+	return errAuthorLLMServiceUnavailable
+}
+
 // authorLLMHandler serves the LLM routes.
 type authorLLMHandler struct {
 	svc AuthorLLMAdminService
@@ -162,6 +175,8 @@ func SetupAuthorLLMRoutes(r *gin.RouterGroup, svc AuthorLLMAdminService) {
 	r.POST("/runs/:id/close", h.close)
 	r.GET("/eval-report/:id", h.report)
 	r.POST("/eval-report/:id/recompute", h.recompute)
+	r.GET("/eval-report/:id/adversarial", h.adversarial)
+	r.PUT("/adjudications/:id", h.adjudicate)
 	r.POST("/participants/:slot/resume", h.resumeParticipant)
 	r.POST("/endpoint/resume", h.resumeEndpoint)
 }
@@ -368,4 +383,71 @@ func (h *authorLLMHandler) close(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{jsonKeyRun: run})
+}
+
+// adversarial godoc
+// @Summary The accepted adversarial suite items of a merge eval run
+// @Description Each item's two sides (names, books), the four answers and its current adjudication (merge routes only).
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Run id"
+// @Produce json
+// @Success 200 {object} map[string]services.AuthorLLMAdversarialReview
+// @Router /api/admin/author-metadata/llm/merge/eval-report/{id}/adversarial [get]
+func (h *authorLLMHandler) adversarial(c *gin.Context) {
+	id, err := runID(c)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	review, err := h.svc.AdversarialItems(c.Request.Context(), id)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"review": review})
+}
+
+// adjudicateRequest is an adjudication's body: label is required, note may
+// be empty.
+type adjudicateRequest struct {
+	Label string `json:"label"`
+	Note  string `json:"note"`
+}
+
+// adjudicate godoc
+// @Summary Label an accepted adversarial suite item
+// @Description label same, different or unclear. 409 not_adjudicable: not an adversarial suite item
+// @Description a merge eval accepted.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Eval item id"
+// @Param body body adjudicateRequest true "label (same|different|unclear), note"
+// @Success 204
+// @Router /api/admin/author-metadata/llm/merge/adjudications/{id} [put]
+func (h *authorLLMHandler) adjudicate(c *gin.Context) {
+	id, err := runID(c)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	var req adjudicateRequest
+	if err := decodeStrict(c, &req); err != nil || req.Label == "" {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	by := c.GetString("username")
+	if by == "" {
+		actor, actorErr := actorID(c)
+		if actorErr != nil {
+			abortRun(c, http.StatusInternalServerError, codeInternalError)
+			return
+		}
+		by = "user:" + strconv.FormatInt(actor, 10)
+	}
+	if err := h.svc.Adjudicate(c.Request.Context(), id, req.Label, req.Note, by); err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

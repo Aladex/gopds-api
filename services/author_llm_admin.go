@@ -202,8 +202,11 @@ type AuthorLLMAdmin struct {
 	disabled string
 	settings config.AuthorLLMConfig
 	// merge is the merge configuration's admin (E4c): its chain is the
-	// merge evals, and it starts nothing else.
-	merge bool
+	// merge evals, and it starts nothing else. identity is the
+	// configuration's (a merge report is recomputed under it); nil for an
+	// admin of a layer that is off.
+	merge    bool
+	identity *llmreq.Identity
 }
 
 // NewAuthorLLMAdmin builds the admin of a configuration version; a non-empty
@@ -234,11 +237,14 @@ func NewAuthorLLMMergeAdminFromConfig(
 	return a, err
 }
 
-// NewAuthorLLMMergeAdmin builds the merge configuration's admin of a
-// version, as NewAuthorLLMAdmin builds the name normalization's.
-func NewAuthorLLMMergeAdmin(db *pg.DB, version, disabled string, settings *config.AuthorLLMConfig) *AuthorLLMAdmin {
+// NewAuthorLLMMergeAdmin builds the merge configuration's admin of an
+// identity and its version, as NewAuthorLLMAdmin builds the name
+// normalization's.
+func NewAuthorLLMMergeAdmin(
+	db *pg.DB, identity *llmreq.Identity, version, disabled string, settings *config.AuthorLLMConfig,
+) *AuthorLLMAdmin {
 	a := NewAuthorLLMAdmin(db, version, disabled, settings)
-	a.merge = true
+	a.merge, a.identity = true, identity
 	return a
 }
 
@@ -261,7 +267,9 @@ func newAuthorLLMAdminFromConfig(
 	if err != nil {
 		return nil, err
 	}
-	return NewAuthorLLMAdmin(db, version, "", &c.LLM), nil
+	a := NewAuthorLLMAdmin(db, version, "", &c.LLM)
+	a.identity = &identity
+	return a, nil
 }
 
 // AuthorLLMDisabledWorkersOff: the author-metadata workers are switched off,
@@ -795,7 +803,13 @@ func (a *AuthorLLMAdmin) RecomputeEvalReport(ctx context.Context, id int64) (*Au
 	if a.disabled != "" {
 		return nil, ErrAuthorLLMNotConfigured
 	}
-	_, stored, err := RecomputeAuthorLLMEvalReport(ctx, a.db, a.version, id)
+	var stored bool
+	var err error
+	if a.merge {
+		_, stored, err = RecomputeAuthorLLMMergeEvalReport(ctx, a.db, a.identity, a.version, id)
+	} else {
+		_, stored, err = RecomputeAuthorLLMEvalReport(ctx, a.db, a.version, id)
+	}
 	if errors.Is(err, pg.ErrNoRows) {
 		return nil, ErrAuthorLLMReportNotFound
 	}
@@ -823,4 +837,21 @@ func (a *AuthorLLMAdmin) Close(ctx context.Context, id, actor int64) (*AuthorLLM
 	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
 		Name: AuthorMetadataEventLLMRunClosed, Stage: AuthorMetadataStageRunner, RunID: id})
 	return a.get(ctx, id)
+}
+
+// AdversarialItems are a merge eval run's accepted suite items to
+// adjudicate; the name normalization's admin has none.
+func (a *AuthorLLMAdmin) AdversarialItems(ctx context.Context, id int64) (*AuthorLLMAdversarialReview, error) {
+	if !a.merge {
+		return nil, ErrAuthorLLMInvalidRun
+	}
+	return AuthorLLMAdversarialItems(ctx, a.db, id)
+}
+
+// Adjudicate labels an accepted suite item (merge configuration only).
+func (a *AuthorLLMAdmin) Adjudicate(ctx context.Context, itemID int64, label, note, by string) error {
+	if !a.merge {
+		return ErrAuthorLLMInvalidRun
+	}
+	return AdjudicateAuthorLLMEvalItem(ctx, a.db, itemID, label, note, by)
 }

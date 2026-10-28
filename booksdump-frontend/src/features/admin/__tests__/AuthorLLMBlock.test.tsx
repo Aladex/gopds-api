@@ -49,6 +49,8 @@ vi.mock('@/api/admin', async (importOriginal) => {
         resumeAuthorLLMEndpoint: vi.fn(),
         getAuthorLLMEvalReport: vi.fn(),
         recomputeAuthorLLMEvalReport: vi.fn(),
+        getAuthorLLMAdversarial: vi.fn(),
+        adjudicateAuthorLLMItem: vi.fn(),
     };
 });
 
@@ -153,6 +155,80 @@ describe('AuthorLLMBlock', () => {
         fireEvent.click(check);
         await waitFor(() => expect(api.startAuthorLLMRun).toHaveBeenCalledWith('eval', 'pilot'));
         await waitFor(() => expect(api.getAuthorLLMStatus).toHaveBeenCalledTimes(2));
+    });
+
+    it('lists the namesakes a merge eval accepted and labels them', async () => {
+        show(
+            status({
+                steps: [],
+                run: llmRun({
+                    mode: 'merge0',
+                    status: 'completed',
+                    stage: undefined,
+                    progress: undefined,
+                    report: {
+                        sha256: 'ab',
+                        strata_total: 2,
+                        strata_passed: 0,
+                        excerpt_helps: 0,
+                        registrable: false,
+                    },
+                }),
+            }),
+        );
+        api.getAuthorLLMAdversarial.mockResolvedValue({
+            review: {
+                run_id: 41,
+                items: [
+                    {
+                        eval_item_id: 16207,
+                        stratum: 'initials.cyrl',
+                        a: { names: ['А. Сальников'], size: '4-10', books: [{ title: 'Отдел' }] },
+                        b: {
+                            names: ['Алексей Борисович Сальников'],
+                            size: '11-30',
+                            books: [{ title: 'Бесполезное' }],
+                        },
+                        verdicts: { production_a: 'same' },
+                    },
+                ],
+            },
+        });
+        api.adjudicateAuthorLLMItem.mockResolvedValue(undefined);
+        render(<AuthorLLMBlock merge />);
+        expect(await screen.findByText('A: А. Сальников — Отдел')).toBeInTheDocument();
+        expect(
+            screen.getByText('B: Алексей Борисович Сальников — Бесполезное'),
+        ).toBeInTheDocument();
+        expect(screen.getByText('Not labelled')).toBeInTheDocument();
+        expect(api.getAuthorLLMAdversarial).toHaveBeenCalledWith(41);
+        expect(screen.getByRole('button', { name: 'Recompute report' })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Two people' }));
+        await waitFor(() =>
+            expect(api.adjudicateAuthorLLMItem).toHaveBeenCalledWith(16207, 'different'),
+        );
+        await waitFor(() => expect(api.getAuthorLLMAdversarial).toHaveBeenCalledTimes(2));
+    });
+
+    it('lists no namesakes on the names block', async () => {
+        show(
+            status({
+                run: llmRun({
+                    status: 'completed',
+                    report: {
+                        sha256: 'ab',
+                        strata_total: 2,
+                        strata_passed: 1,
+                        excerpt_helps: 0,
+                        registrable: true,
+                    },
+                }),
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        await screen.findByRole('button', { name: 'Recompute report' });
+        expect(api.getAuthorLLMAdversarial).not.toHaveBeenCalled();
     });
 
     it("is the merge configuration's block on its own routes", async () => {

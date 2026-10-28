@@ -4,7 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Button } from '@/shared/ui/button';
 import * as adminApi from '@/api/admin';
-import type { AuthorLLMRun, AuthorLLMStatus, AuthorLLMStep } from '@/api/admin';
+import type {
+    AuthorLLMAdversarialItem,
+    AuthorLLMAdversarialSide,
+    AuthorLLMRun,
+    AuthorLLMStatus,
+    AuthorLLMStep,
+} from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
 
 /**
@@ -241,6 +247,105 @@ const llmApi = (base?: string) => {
                   : adminApi.getAuthorLLMEvalReport(id, version),
         recompute: (id: number) => adminApi.recomputeAuthorLLMEvalReport(id, ...on),
     };
+};
+
+const ADJUDICATION_LABELS = ['same', 'different', 'unclear'] as const;
+
+const adjudicationLabel = (t: T, label: string): string => {
+    switch (label) {
+        case 'same':
+            return t('authorLLM.adjudication.same', 'One person');
+        case 'different':
+            return t('authorLLM.adjudication.different', 'Two people');
+        case 'unclear':
+            return t('authorLLM.adjudication.unclear', 'Unclear');
+        default:
+            return t('authorLLM.adjudication.pending', 'Not labelled');
+    }
+};
+
+/** sideLine is a side as one line: its names, then its book titles. */
+const sideLine = (side: AuthorLLMAdversarialSide): string =>
+    `${side.names.join(', ')} — ${side.books.map((b) => b.title).join('; ')}`;
+
+interface AdversarialReviewProps {
+    runID: number;
+    busy: boolean;
+    act: (action: () => Promise<unknown>) => Promise<void>;
+}
+
+/**
+ * The merge eval's accepted namesake items (E4c-2b-0): each with its two
+ * sides and its current label, labelled one person, two people or unclear.
+ * A stratum fails on an item labelled two people or not labelled; the
+ * report applies the labels once recomputed.
+ */
+const AdversarialReview: React.FC<AdversarialReviewProps> = ({ runID, busy, act }) => {
+    const { t } = useTranslation();
+    const [items, setItems] = useState<AuthorLLMAdversarialItem[] | null>(null);
+
+    const load = useCallback(async () => {
+        try {
+            const response = await adminApi.getAuthorLLMAdversarial(runID);
+            setItems(response.review.items);
+        } catch {
+            setItems([]);
+        }
+    }, [runID]);
+
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    if (items === null || items.length === 0) return null;
+    return (
+        <div className="flex flex-col gap-2">
+            <p className="text-sm">
+                {t('authorLLM.adversarialTitle', {
+                    defaultValue:
+                        'Namesakes the models merged: {{count}}. Label each, then recompute the report.',
+                    count: items.length,
+                })}
+            </p>
+            <ul className="flex flex-col gap-2">
+                {items.map((item) => (
+                    <li
+                        key={item.eval_item_id}
+                        className="flex flex-col gap-1 border-t pt-2 text-sm"
+                    >
+                        <span>{`A: ${sideLine(item.a)}`}</span>
+                        <span>{`B: ${sideLine(item.b)}`}</span>
+                        <span className="text-muted-foreground">
+                            {adjudicationLabel(t, item.adjudication?.label ?? '')}
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                            {ADJUDICATION_LABELS.map((label) => (
+                                <Button
+                                    key={label}
+                                    size="sm"
+                                    variant={
+                                        item.adjudication?.label === label ? 'default' : 'outline'
+                                    }
+                                    disabled={busy}
+                                    onClick={() =>
+                                        act(async () => {
+                                            await adminApi.adjudicateAuthorLLMItem(
+                                                item.eval_item_id,
+                                                label,
+                                            );
+                                            await load();
+                                        })
+                                    }
+                                >
+                                    {adjudicationLabel(t, label)}
+                                </Button>
+                            ))}
+                        </div>
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
 };
 
 interface AuthorLLMBlockProps {
@@ -555,7 +660,7 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                         >
                             {t('authorLLM.reportButton', 'Report')}
                         </Button>
-                        {run.kind === 'eval' && run.current_config && !merge && (
+                        {run.kind === 'eval' && run.current_config && (
                             <Button
                                 variant="outline"
                                 disabled={busy}
@@ -565,6 +670,7 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                             </Button>
                         )}
                     </div>
+                    {merge && <AdversarialReview runID={run.id} busy={busy} act={act} />}
                 </div>
             )}
 

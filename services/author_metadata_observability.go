@@ -89,6 +89,8 @@ const (
 	AuthorMetadataEventLLMEvalRunFailed   AuthorMetadataEventName = "author_metadata.llm_eval_run_failed"
 	// A merge eval froze its items (their count; E4c).
 	AuthorMetadataEventLLMMergeEvalFrozen AuthorMetadataEventName = "author_metadata.llm_merge_eval_frozen"
+	// An administrator labeled a suite item (ItemID; Status: the label).
+	AuthorMetadataEventLLMItemAdjudicated AuthorMetadataEventName = "author_metadata.llm_item_adjudicated"
 	// The LLM block's admin could not be built (its configuration row).
 	AuthorMetadataEventLLMAdminNotWired AuthorMetadataEventName = "author_metadata.llm_admin_not_wired"
 	// An administrator closed an LLM run (an older configuration's, or a
@@ -186,6 +188,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,
 		AuthorMetadataEventLLMResolveApplyFailed, AuthorMetadataEventLLMRelearnStarted,
 		AuthorMetadataEventLLMReportRecomputed, AuthorMetadataEventLLMMergeEvalFrozen,
+		AuthorMetadataEventLLMItemAdjudicated,
 		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
 		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
 		AuthorMetadataEventEntityBuildStepFailed, AuthorMetadataEventEntityBuildCensusFailed,
@@ -359,6 +362,8 @@ func authorMetadataEventStatuses() map[string]bool {
 	for _, v := range AuthorEntityBuildStatuses() {
 		set[v] = true
 	}
+	set[database.AdjudicationSame], set[database.AdjudicationDifferent] = true, true
+	set[database.AdjudicationUnclear] = true
 	return set
 }
 

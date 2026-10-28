@@ -746,6 +746,42 @@ export const getAuthorLLMEvalReport = (runID: number, version?: number, base = l
 export const recomputeAuthorLLMEvalReport = (runID: number, base = llmBase) =>
     http.post<{ run: AuthorLLMRun }>(`${base}/eval-report/${runID}/recompute`);
 
+/** One side of an accepted adversarial suite item, as the models saw it. */
+export interface AuthorLLMAdversarialSide {
+    names: string[];
+    size: string;
+    books: { title: string; year?: string; genres?: string[] }[];
+}
+
+/** A human label of an accepted suite item. */
+export interface AuthorLLMAdjudication {
+    eval_item_id: number;
+    label: 'same' | 'different' | 'unclear';
+    note: string;
+    adjudicated_by: string;
+    created_at: string;
+}
+
+/** An adversarial suite item a merge eval accepted. */
+export interface AuthorLLMAdversarialItem {
+    eval_item_id: number;
+    stratum: string;
+    a: AuthorLLMAdversarialSide;
+    b: AuthorLLMAdversarialSide;
+    verdicts: Record<string, string> | null;
+    adjudication?: AuthorLLMAdjudication;
+}
+
+/** getAuthorLLMAdversarial lists a merge eval run's accepted suite items. */
+export const getAuthorLLMAdversarial = (runID: number) =>
+    http.get<{ review: { run_id: number; items: AuthorLLMAdversarialItem[] } }>(
+        `${llmMergeBase}/eval-report/${runID}/adversarial`,
+    );
+
+/** adjudicateAuthorLLMItem labels an accepted suite item; recompute the report to apply it. */
+export const adjudicateAuthorLLMItem = (itemID: number, label: string, note = '') =>
+    http.put<unknown>(`${llmMergeBase}/adjudications/${itemID}`, { label, note });
+
 export function closedErrorCode(error: unknown): string | null {
     if (!isApiError(error)) {
         return null;

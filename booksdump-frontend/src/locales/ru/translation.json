@@ -943,5 +943,10 @@
   "authorLLM.step.merge0": "Запустить пилот слияний (merge0)",
   "authorLLM.run.merge0": "Пилот слияний",
   "authorLLM.otherActiveNames": "Идёт разбор имён LLM; пилот слияний запустится после него.",
-  "authorLLM.otherActiveMerges": "Идёт проверка слияний LLM; следующий шаг запустится после неё."
+  "authorLLM.otherActiveMerges": "Идёт проверка слияний LLM; следующий шаг запустится после неё.",
+  "authorLLM.adjudication.same": "Один человек",
+  "authorLLM.adjudication.different": "Разные люди",
+  "authorLLM.adjudication.unclear": "Неясно",
+  "authorLLM.adjudication.pending": "Не размечено",
+  "authorLLM.adversarialTitle": "Тёзки, которых модели слили: {{count}}. Разметьте каждого и пересчитайте отчёт."
 }

@@ -90,6 +90,9 @@ type Item struct {
 	// suite (Options): never measured, any accept of one fails its stratum.
 	Script      string
 	Adversarial bool
+	// Adjudication is a suite item's human label: AdjudicatedSame and
+	// AdjudicatedUnclear clear its accept; "different" or none fails.
+	Adjudication string
 }
 
 // InvalidShare is a participant's invalid answers of all answered or
@@ -538,7 +541,7 @@ func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, St
 		}
 		if len(suite) > 0 {
 			m.Adversarial = measureSuite(c, suite, o)
-			m.Passed = m.Passed && m.Adversarial.Accepted == 0
+			m.Passed = m.Passed && m.Adversarial.Failed == 0
 		}
 		report.Combos[comboKey(c)] = m
 	}

@@ -386,7 +386,7 @@ func TestEachCardShowsItsOwnConfigurationsRun(t *testing.T) {
 	m := e.mergeConfig()
 	ctx := context.Background()
 	k := services.NewAuthorLLMAdmin(e.db, e.version, "", &e.settings)
-	merge := services.NewAuthorLLMMergeAdmin(e.db, m.version, "", &e.settings)
+	merge := services.NewAuthorLLMMergeAdmin(e.db, &m.identity, m.version, "", &e.settings)
 
 	st, err := merge.Status(ctx)
 	require.NoError(t, err)
