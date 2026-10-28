@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
@@ -22,6 +22,9 @@ import { closedErrorCode } from '@/api/admin';
  *
  * Every action starts at once on the server; the block re-reads after it and
  * every few seconds while a run is active.
+ *
+ * With merge set, the block is the merge configuration's (E4c): the same
+ * block on its own routes, whose one step is the merge pilot.
  */
 
 /** How often the block re-reads while a run is active. */
@@ -54,6 +57,7 @@ const stepLabels = (t: T): Record<string, string> => ({
     swap_eval: t('authorLLM.step.swap_eval', 'Swaps: check'),
     swap_pilot: t('authorLLM.step.swap_pilot', 'Swaps: pilot 500'),
     swap_full: t('authorLLM.step.swap_full', 'Swap everything'),
+    merge0: t('authorLLM.step.merge0', 'Start the merge pilot (merge0)'),
 });
 
 const stageLabels = (t: T): Record<string, string> => ({
@@ -73,6 +77,7 @@ const runLabel = (t: T, run: AuthorLLMRun): string => {
         if (run.mode === 'dev') return t('authorLLM.run.eval_dev', 'Model settings check');
         if (run.mode === 'full') return t('authorLLM.run.eval_full', 'Full check');
         if (run.mode === 'swap') return t('authorLLM.run.eval_swap', 'Swaps check');
+        if (run.mode.startsWith('merge')) return t('authorLLM.run.merge0', 'Merge pilot');
         if (run.mode.startsWith('stage'))
             return t('authorLLM.run.eval_stage', {
                 defaultValue: 'Stage {{stage}} check',
@@ -214,8 +219,38 @@ const tokensLine = (t: T, run: AuthorLLMRun): string =>
               spent: formatNumber(run.spent_tokens),
           });
 
-const AuthorLLMBlock: React.FC = () => {
+/**
+ * llmApi is the block's calls on its routes: the name normalization's
+ * (base undefined, the API's defaults) or the merge configuration's.
+ */
+const llmApi = (base?: string) => {
+    const on = base === undefined ? [] : [base];
+    return {
+        status: () => adminApi.getAuthorLLMStatus(...on),
+        start: (kind: string, mode: string) => adminApi.startAuthorLLMRun(kind, mode, ...on),
+        pause: (id: number) => adminApi.pauseAuthorLLMRun(id, ...on),
+        resume: (id: number) => adminApi.resumeAuthorLLMRun(id, ...on),
+        close: (id: number) => adminApi.closeAuthorLLMRun(id, ...on),
+        resumeParticipant: (slot: string) => adminApi.resumeAuthorLLMParticipant(slot, ...on),
+        resumeEndpoint: () => adminApi.resumeAuthorLLMEndpoint(...on),
+        report: (id: number, version?: number) =>
+            base !== undefined
+                ? adminApi.getAuthorLLMEvalReport(id, version, base)
+                : version === undefined
+                  ? adminApi.getAuthorLLMEvalReport(id)
+                  : adminApi.getAuthorLLMEvalReport(id, version),
+        recompute: (id: number) => adminApi.recomputeAuthorLLMEvalReport(id, ...on),
+    };
+};
+
+interface AuthorLLMBlockProps {
+    /** merge shows the merge configuration's block (E4c). */
+    merge?: boolean;
+}
+
+const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
     const { t } = useTranslation();
+    const api = useMemo(() => llmApi(merge ? adminApi.llmMergeBase : undefined), [merge]);
     const [status, setStatus] = useState<AuthorLLMStatus | null>(null);
     const [loadFailed, setLoadFailed] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -225,7 +260,7 @@ const AuthorLLMBlock: React.FC = () => {
     const load = useCallback(async () => {
         const current = ++generation.current;
         try {
-            const response = await adminApi.getAuthorLLMStatus();
+            const response = await api.status();
             if (current === generation.current) {
                 setStatus(response.status);
                 setLoadFailed(false);
@@ -235,7 +270,7 @@ const AuthorLLMBlock: React.FC = () => {
                 setLoadFailed(true);
             }
         }
-    }, []);
+    }, [api]);
 
     useEffect(() => {
         load();
@@ -264,14 +299,11 @@ const AuthorLLMBlock: React.FC = () => {
 
     const downloadReport = (id: number, version?: number) =>
         act(async () => {
-            const blob =
-                version === undefined
-                    ? await adminApi.getAuthorLLMEvalReport(id)
-                    : await adminApi.getAuthorLLMEvalReport(id, version);
+            const blob = await api.report(id, version);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `author-llm-${run?.kind === 'resolve' || run?.kind === 'swap' ? run.kind : 'eval'}-${id}${
+            link.download = `author-llm-${run?.kind === 'resolve' || run?.kind === 'swap' ? run.kind : merge ? 'merge-eval' : 'eval'}-${id}${
                 version === undefined ? '' : `-v${version}`
             }.json`;
             document.body.appendChild(link);
@@ -280,7 +312,13 @@ const AuthorLLMBlock: React.FC = () => {
             window.URL.revokeObjectURL(url);
         });
 
-    const title = <h4 className="text-sm font-medium">{t('authorLLM.title', 'LLM review')}</h4>;
+    const title = (
+        <h4 className="text-sm font-medium">
+            {merge
+                ? t('authorLLM.mergeTitle', 'LLM: author merges')
+                : t('authorLLM.title', 'LLM review')}
+        </h4>
+    );
 
     if (status === null) {
         return (
@@ -340,7 +378,7 @@ const AuthorLLMBlock: React.FC = () => {
                         size="sm"
                         variant="outline"
                         disabled={busy}
-                        onClick={() => act(() => adminApi.resumeAuthorLLMEndpoint())}
+                        onClick={() => act(() => api.resumeEndpoint())}
                     >
                         {t('authorLLM.continue', 'Continue')}
                     </Button>
@@ -357,12 +395,26 @@ const AuthorLLMBlock: React.FC = () => {
                             size="sm"
                             variant="outline"
                             disabled={busy}
-                            onClick={() => act(() => adminApi.resumeAuthorLLMParticipant(p.slot))}
+                            onClick={() => act(() => api.resumeParticipant(p.slot))}
                         >
                             {t('authorLLM.continue', 'Continue')}
                         </Button>
                     </div>
                 ))}
+
+            {status.other_active && (
+                <p className="text-sm text-muted-foreground">
+                    {merge
+                        ? t(
+                              'authorLLM.otherActiveNames',
+                              'A name review run is active; the merge pilot starts after it.',
+                          )
+                        : t(
+                              'authorLLM.otherActiveMerges',
+                              'A merge check run is active; the next step starts after it.',
+                          )}
+                </p>
+            )}
 
             {run !== null && active && (
                 <div className="flex flex-col gap-1">
@@ -401,8 +453,8 @@ const AuthorLLMBlock: React.FC = () => {
                                 onClick={() =>
                                     act(() =>
                                         run.status === 'paused'
-                                            ? adminApi.resumeAuthorLLMRun(run.id)
-                                            : adminApi.pauseAuthorLLMRun(run.id),
+                                            ? api.resume(run.id)
+                                            : api.pause(run.id),
                                     )
                                 }
                             >
@@ -415,7 +467,7 @@ const AuthorLLMBlock: React.FC = () => {
                             <Button
                                 variant="outline"
                                 disabled={busy}
-                                onClick={() => act(() => adminApi.closeAuthorLLMRun(run.id))}
+                                onClick={() => act(() => api.close(run.id))}
                             >
                                 {t('authorLLM.close', 'Close run')}
                             </Button>
@@ -503,13 +555,11 @@ const AuthorLLMBlock: React.FC = () => {
                         >
                             {t('authorLLM.reportButton', 'Report')}
                         </Button>
-                        {run.kind === 'eval' && run.current_config && (
+                        {run.kind === 'eval' && run.current_config && !merge && (
                             <Button
                                 variant="outline"
                                 disabled={busy}
-                                onClick={() =>
-                                    act(() => adminApi.recomputeAuthorLLMEvalReport(run.id))
-                                }
+                                onClick={() => act(() => api.recompute(run.id))}
                             >
                                 {t('authorLLM.recomputeButton', 'Recompute report')}
                             </Button>
@@ -572,7 +622,7 @@ const AuthorLLMBlock: React.FC = () => {
                             variant={s.enabled ? 'default' : 'outline'}
                             disabled={busy || !s.enabled}
                             title={s.strata?.join(', ')}
-                            onClick={() => act(() => adminApi.startAuthorLLMRun(s.kind, s.mode))}
+                            onClick={() => act(() => api.start(s.kind, s.mode))}
                         >
                             {s.done ? `✓ ${labels[s.key]}` : labels[s.key]}
                         </Button>

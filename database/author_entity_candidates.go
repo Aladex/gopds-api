@@ -338,3 +338,17 @@ func sortedRowKeys(m map[string]sampleRow) []string {
 	slices.Sort(out)
 	return out
 }
+
+// MergeCandidateDigests are the digests of the stored candidates: the
+// census of the last committed pass.
+func MergeCandidateDigests(ctx context.Context, db pg.DBI) (map[string]bool, error) {
+	var digests [][]byte
+	if _, err := db.QueryContext(ctx, &digests, `SELECT digest FROM author_entity_merge_candidate`); err != nil {
+		return nil, fmt.Errorf("reading the stored merge candidates: %w", err)
+	}
+	out := make(map[string]bool, len(digests))
+	for _, d := range digests {
+		out[string(d)] = true
+	}
+	return out, nil
+}

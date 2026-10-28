@@ -65,6 +65,9 @@ const (
 	AuthorLLMStepSwapEval  = "swap_eval"
 	AuthorLLMStepSwapPilot = "swap_pilot"
 	AuthorLLMStepSwapFull  = "swap_full"
+	// AuthorLLMStepMerge0 is the merge configuration's one step (E4c): the
+	// merge pilot.
+	AuthorLLMStepMerge0 = models.AuthorLLMEvalModeMerge0
 )
 
 // Why a step is not enabled.
@@ -177,8 +180,12 @@ type AuthorLLMParticipantState struct {
 type AuthorLLMStatus struct {
 	Enabled bool `json:"enabled"`
 	// Reason says why the layer is off.
-	Reason               string                      `json:"reason,omitempty"`
-	Run                  *AuthorLLMRunState          `json:"run"`
+	Reason string             `json:"reason,omitempty"`
+	Run    *AuthorLLMRunState `json:"run"`
+	// OtherActive: a run of the other live configuration (the name
+	// normalization's or the merge one's) holds the one active slot; its
+	// own block shows it.
+	OtherActive          bool                        `json:"other_active,omitempty"`
 	Steps                []AuthorLLMStep             `json:"steps"`
 	Participants         []AuthorLLMParticipantState `json:"participants"`
 	EndpointPausedReason string                      `json:"endpoint_paused_reason,omitempty"`
@@ -194,6 +201,9 @@ type AuthorLLMAdmin struct {
 	version  string
 	disabled string
 	settings config.AuthorLLMConfig
+	// merge is the merge configuration's admin (E4c): its chain is the
+	// merge evals, and it starts nothing else.
+	merge bool
 }
 
 // NewAuthorLLMAdmin builds the admin of a configuration version; a non-empty
@@ -217,7 +227,19 @@ func NewAuthorLLMAdminFromConfig(
 func NewAuthorLLMMergeAdminFromConfig(
 	ctx context.Context, db *pg.DB, c *config.AuthorMetadataConfig, shared config.LLMConfig,
 ) (*AuthorLLMAdmin, error) {
-	return newAuthorLLMAdminFromConfig(ctx, db, c, shared, llmreq.NewMergeIdentity)
+	a, err := newAuthorLLMAdminFromConfig(ctx, db, c, shared, llmreq.NewMergeIdentity)
+	if a != nil {
+		a.merge = true
+	}
+	return a, err
+}
+
+// NewAuthorLLMMergeAdmin builds the merge configuration's admin of a
+// version, as NewAuthorLLMAdmin builds the name normalization's.
+func NewAuthorLLMMergeAdmin(db *pg.DB, version, disabled string, settings *config.AuthorLLMConfig) *AuthorLLMAdmin {
+	a := NewAuthorLLMAdmin(db, version, disabled, settings)
+	a.merge = true
+	return a
 }
 
 func newAuthorLLMAdminFromConfig(
@@ -285,10 +307,12 @@ const authorLLMResolvable = "resolvable"
 func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 	st := &AuthorLLMStatus{Enabled: a.disabled == "", Reason: a.disabled,
 		BudgetTokens: a.settings.Budget.OneOffTokens, PriceUnit: a.settings.Price.Unit}
-	run, err := database.AuthorLLMRunToShow(ctx, a.db, a.version)
+	run, otherActive, err := database.AuthorLLMRunToShowOf(ctx, a.db, a.version, a.merge)
 	if err != nil {
 		return nil, err
 	}
+	st.OtherActive = otherActive
+	active := otherActive || (run != nil && isActiveLLMRun(run.Status))
 	if run != nil {
 		if st.Run, err = a.runState(ctx, run); err != nil {
 			return nil, err
@@ -302,6 +326,13 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 		if completed, err = database.AuthorLLMCompletedRuns(ctx, a.db, a.version); err != nil {
 			return nil, err
 		}
+	}
+	if a.merge {
+		st.Steps = authorLLMMergeSteps(st.Enabled, active, completed)
+		if !st.Enabled {
+			return st, nil
+		}
+		return st, a.participants(ctx, st)
 	}
 	if st.Enabled {
 		// The resolve pilot rests on the full and stage evals: evidence that
@@ -320,7 +351,7 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 		}
 		completed[string(models.AuthorLLMRunEval)+"/"+models.AuthorLLMEvalModeSwap] = registrable
 	}
-	st.Steps = authorLLMSteps(st.Enabled, run != nil && isActiveLLMRun(run.Status), completed)
+	st.Steps = authorLLMSteps(st.Enabled, active, completed)
 	if !st.Enabled {
 		return st, nil
 	}
@@ -356,6 +387,23 @@ func authorLLMSteps(enabled, active bool, completed map[string]bool) []AuthorLLM
 		steps = append(steps, s)
 	}
 	return steps
+}
+
+// authorLLMMergeSteps is the merge configuration's chain: the merge pilot,
+// enabled when the layer is on and no run is active.
+func authorLLMMergeSteps(enabled, active bool, completed map[string]bool) []AuthorLLMStep {
+	mode := models.AuthorLLMEvalModeMerge0
+	s := AuthorLLMStep{Key: AuthorLLMStepMerge0, Kind: string(models.AuthorLLMRunEval), Mode: mode, Available: true,
+		Done: completed[string(models.AuthorLLMRunEval)+"/"+mode]}
+	switch {
+	case !enabled:
+		s.Blocked = AuthorLLMStepNotConfigured
+	case active:
+		s.Blocked = AuthorLLMStepActiveRun
+	default:
+		s.Enabled = true
+	}
+	return []AuthorLLMStep{s}
 }
 
 // stageEstimates fills each stage eval step's token estimate.
@@ -527,6 +575,17 @@ func summarizeEvalReport(raw []byte, sha string) (*AuthorLLMReportSummary, error
 func (a *AuthorLLMAdmin) Start(ctx context.Context, kind, mode string, actor int64) (*AuthorLLMRunState, error) {
 	if a.disabled != "" {
 		return nil, ErrAuthorLLMNotConfigured
+	}
+	if a.merge {
+		// The merge configuration starts its evals only.
+		if kind != string(models.AuthorLLMRunEval) {
+			return nil, ErrAuthorLLMInvalidRun
+		}
+		id, err := StartAuthorLLMMergeEval(ctx, a.db, a.version, mode, &actor)
+		if err != nil {
+			return nil, err
+		}
+		return a.get(ctx, id)
 	}
 	switch kind {
 	case string(models.AuthorLLMRunSwap):

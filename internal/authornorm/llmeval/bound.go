@@ -58,6 +58,9 @@ func ClopperPearsonUpper(k, n int) float64 {
 // PassesBound reports whether k errors among n accepted items keep the upper
 // bound within MaxErrorShare: 0 errors from 299 items on, 1 from 473, 2 from
 // 628, 3 from 773.
-func PassesBound(k, n int) bool {
-	return n > 0 && ClopperPearsonUpper(k, n) <= MaxErrorShare
+func PassesBound(k, n int) bool { return passesBoundAt(k, n, MaxErrorShare) }
+
+// passesBoundAt is PassesBound at another largest error share.
+func passesBoundAt(k, n int, share float64) bool {
+	return n > 0 && ClopperPearsonUpper(k, n) <= share
 }

@@ -113,9 +113,35 @@ func TestAuthorLLMAdminWiring(t *testing.T) {
 		_, err = db.QueryOne(pg.Scan(&version), `SELECT config_version FROM author_llm_run WHERE id = ?`, started.Run.ID)
 		require.NoError(t, err)
 		var workerVersion string
-		_, err = db.QueryOne(pg.Scan(&workerVersion), `SELECT version FROM author_llm_config`)
-		require.NoError(t, err, "one configuration row: the admin's and the worker's")
+		_, err = db.QueryOne(pg.Scan(&workerVersion), `SELECT version FROM author_llm_config WHERE NOT identity ? 'task'`)
+		require.NoError(t, err, "one name normalization configuration row: the admin's and the worker's")
 		assert.Equal(t, workerVersion, version)
+
+		// The merge configuration's admin (E4c) on the same routes under
+		// /merge: its own row, its one step, refused while K's run is active.
+		var configs int
+		_, err = db.QueryOne(pg.Scan(&configs), `SELECT count(*) FROM author_llm_config WHERE identity->>'task' = 'merge'`)
+		require.NoError(t, err)
+		assert.Equal(t, 1, configs)
+		rec = llmCall(t, r, http.MethodGet, "/merge/status", "")
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var merge struct {
+			Status services.AuthorLLMStatus `json:"status"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &merge))
+		assert.True(t, merge.Status.Enabled)
+		assert.True(t, merge.Status.OtherActive)
+		assert.Nil(t, merge.Status.Run, "the merge card showed K's run")
+		require.Len(t, merge.Status.Steps, 1)
+		assert.Equal(t, services.AuthorLLMStepActiveRun, merge.Status.Steps[0].Blocked)
+		rec = llmCall(t, r, http.MethodPost, "/merge/runs", `{"kind":"eval","mode":"merge0"}`)
+		assert.Equal(t, http.StatusConflict, rec.Code)
+		assert.JSONEq(t, `{"error":"active_run_exists"}`, rec.Body.String())
+		rec = llmCall(t, r, http.MethodPost, "/merge/runs", `{"kind":"eval","mode":"pilot"}`)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.JSONEq(t, `{"error":"invalid_run"}`, rec.Body.String())
+		rec = llmCall(t, r, http.MethodPost, "/runs", `{"kind":"eval","mode":"merge0"}`)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "K's admin started a merge eval")
 
 		rec = llmCall(t, r, http.MethodPost, "/runs", `{"kind":"eval","mode":"pilot"}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)

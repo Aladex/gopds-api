@@ -192,6 +192,9 @@ type candItem struct {
 type candidates struct {
 	b     *builder
 	items []*candItem
+	// sides are the person sides by root, kept for the merge eval's suite
+	// and anchors (mergeeval.go).
+	sides map[int]*candSide
 }
 
 // collectCandidates generates the pass's candidates and exclusions on the
@@ -234,7 +237,7 @@ func (b *builder) collectCandidates(p *Plan, groups []*group) {
 			r.Excluded++
 		}
 	}
-	p.cand = &candidates{b: b, items: items}
+	p.cand = &candidates{b: b, items: items, sides: sides}
 	p.cardBooks = b.cardBookIDs(items)
 	r.CardBooks = len(p.cardBooks)
 }

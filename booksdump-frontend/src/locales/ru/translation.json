@@ -938,5 +938,10 @@
   "authorEntity.merges.kind.swap": "переставлены части имени",
   "authorEntity.merges.kind.initials": "инициалы",
   "authorEntity.merges.kind.translit": "транслитерация",
-  "authorEntity.merges.kind.bucket": "книга короткого имени"
+  "authorEntity.merges.kind.bucket": "книга короткого имени",
+  "authorLLM.mergeTitle": "LLM: слияния авторов",
+  "authorLLM.step.merge0": "Запустить пилот слияний (merge0)",
+  "authorLLM.run.merge0": "Пилот слияний",
+  "authorLLM.otherActiveNames": "Идёт разбор имён LLM; пилот слияний запустится после него.",
+  "authorLLM.otherActiveMerges": "Идёт проверка слияний LLM; следующий шаг запустится после неё."
 }

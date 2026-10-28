@@ -934,5 +934,10 @@
   "authorEntity.merges.kind.swap": "swapped name parts",
   "authorEntity.merges.kind.initials": "initials",
   "authorEntity.merges.kind.translit": "transliteration",
-  "authorEntity.merges.kind.bucket": "a book of a short name"
+  "authorEntity.merges.kind.bucket": "a book of a short name",
+  "authorLLM.mergeTitle": "LLM: author merges",
+  "authorLLM.step.merge0": "Start the merge pilot (merge0)",
+  "authorLLM.run.merge0": "Merge pilot",
+  "authorLLM.otherActiveNames": "A name review run is active; the merge pilot starts after it.",
+  "authorLLM.otherActiveMerges": "A merge check run is active; the next step starts after it."
 }

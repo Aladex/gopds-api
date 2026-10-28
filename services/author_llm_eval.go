@@ -284,6 +284,8 @@ type AuthorLLMEvalDriver struct {
 	// rejudged, when set, replaces the stored answers of these jobs: the
 	// re-score preview's answers under this build's validators.
 	rejudged map[int64]rejudgedAnswer
+	// mergeSizes are a merge configuration's eval sizes (E4c).
+	mergeSizes AuthorLLMMergeEvalSizes
 }
 
 // NewAuthorLLMEvalDriver builds the driver of a configuration.
@@ -298,7 +300,7 @@ func NewAuthorLLMEvalDriver(
 		poll = authorLLMPollInterval
 	}
 	return &AuthorLLMEvalDriver{db: db, identity: *identity, version: version, sizes: sizes,
-		archivesDir: archivesDir, archives: archives, poll: poll}
+		archivesDir: archivesDir, archives: archives, poll: poll, mergeSizes: DefaultAuthorLLMMergeEvalSizes()}
 }
 
 // EvalDriver is the eval driver of the worker's configuration, with the
@@ -312,11 +314,16 @@ func (w *AuthorLLMWorker) EvalDriver() *AuthorLLMEvalDriver {
 const authorLLMEvalDriverName = "author_llm_eval"
 
 // Name is the driver's log label.
-func (d *AuthorLLMEvalDriver) Name() string { return authorLLMEvalDriverName }
+func (d *AuthorLLMEvalDriver) Name() string {
+	if d.merge() {
+		return authorLLMMergeEvalDriverName
+	}
+	return authorLLMEvalDriverName
+}
 
 // Run steps the running eval run until ctx is canceled.
 func (d *AuthorLLMEvalDriver) Run(ctx context.Context) error {
-	return pollLoop(ctx, authorLLMEvalDriverName, d.poll, d.Step)
+	return pollLoop(ctx, d.Name(), d.poll, d.Step)
 }
 
 // evalRun is the running eval run as the driver reads it.
@@ -422,6 +429,9 @@ func stageImpossible(err error) bool {
 
 // stage does one stage; it returns the next stage once this one is done.
 func (d *AuthorLLMEvalDriver) stage(ctx context.Context, run *evalRun) (string, error) {
+	if d.merge() {
+		return d.mergeStage(ctx, run)
+	}
 	switch run.Stage {
 	case evalStageFreeze:
 		if err := d.freeze(ctx, run); err != nil {
@@ -757,18 +767,46 @@ func (d *AuthorLLMEvalDriver) learnFingerprint(ctx context.Context, run *evalRun
 	if !data.fingerprintResult.OK {
 		return false, nil
 	}
+	return true, d.recordLearned(ctx, run, data.fingerprints, data.modes)
+}
+
+// recordLearned records the passed fingerprints on the run: the model ids
+// and the references, each in its negotiated output mode.
+func (d *AuthorLLMEvalDriver) recordLearned(
+	ctx context.Context, run *evalRun, fingerprints []llmeval.ParticipantFingerprint, modes map[string]string,
+) error {
 	expected := map[string][]string{}
 	reference := map[string]database.AuthorLLMFingerprintReference{}
-	for _, p := range data.fingerprints {
+	for _, p := range fingerprints {
 		expected[p.Participant] = p.Models
-		mode := data.modes[p.Participant]
+		mode := modes[p.Participant]
 		if mode == "" {
 			mode = d.mode(run, llmreq.Slot(p.Participant))
 		}
 		reference[p.Participant] = database.AuthorLLMFingerprintReference{PromptTokens: p.PromptTokens,
 			ReasoningFloor: p.ReasoningFloor, OutputMode: mode}
 	}
-	return true, database.SetAuthorLLMRunLearned(ctx, d.db, run.ID, expected, reference)
+	return database.SetAuthorLLMRunLearned(ctx, d.db, run.ID, expected, reference)
+}
+
+// fingerprintResult evaluates the fingerprint stage's answers.
+func (d *AuthorLLMEvalDriver) fingerprintResult(
+	answers *evalAnswers,
+) ([]llmeval.ParticipantFingerprint, llmeval.FingerprintResult) {
+	reasoning := map[string]bool{}
+	for _, p := range d.identity.Participants {
+		reasoning[string(p.Slot)] = p.ReasoningEffort != ""
+	}
+	fingerprints, result := llmeval.EvaluateFingerprint(answers.measurements, reasoning)
+	// A participant that refused every output mode has no fingerprint; the
+	// reason says so before anything the measurements say.
+	for _, slot := range llmreq.Slots() {
+		if answers.noMode[string(slot)] {
+			result = llmeval.FingerprintResult{Reason: "no_output_mode: " + string(slot)}
+			break
+		}
+	}
+	return fingerprints, result
 }
 
 // evalData is everything the report reads, collected from the database.
@@ -916,20 +954,8 @@ func (d *AuthorLLMEvalDriver) collect(ctx context.Context, run *evalRun) (*evalD
 		return nil, err
 	}
 	data := &evalData{failed: answers.failed}
-	reasoning := map[string]bool{}
-	for _, p := range d.identity.Participants {
-		reasoning[string(p.Slot)] = p.ReasoningEffort != ""
-	}
-	data.fingerprints, data.fingerprintResult = llmeval.EvaluateFingerprint(answers.measurements, reasoning)
+	data.fingerprints, data.fingerprintResult = d.fingerprintResult(answers)
 	data.modes = answers.modes
-	// A participant that refused every output mode has no fingerprint; the
-	// reason says so before anything the measurements say.
-	for _, slot := range llmreq.Slots() {
-		if answers.noMode[string(slot)] {
-			data.fingerprintResult = llmeval.FingerprintResult{Reason: "no_output_mode: " + string(slot)}
-			break
-		}
-	}
 
 	anchors, err := database.AuthorLLMEvalItems(ctx, d.db, []string{authorLLMEvalAnchorSet},
 		[]models.AuthorLLMEvalItemSet{models.AuthorLLMEvalAnchor})
@@ -1325,7 +1351,9 @@ func RecomputeAuthorLLMEvalReport(
 		return nil, false, err
 	}
 	switch {
-	case row.Kind != models.AuthorLLMRunEval:
+	case row.Kind != models.AuthorLLMRunEval || models.IsAuthorLLMEvalMergeMode(row.Mode):
+		// A merge eval's report is the merge driver's, never recomputed
+		// with K's gate.
 		return nil, false, ErrAuthorLLMInvalidRun
 	case row.ConfigVersion != version:
 		return nil, false, ErrAuthorLLMRunConfigChanged

@@ -69,7 +69,8 @@ func buildAuthorMetadataWorkersOn(
 		workers = append(workers, llmWorker, llmWorker.EvalDriver(), llmWorker.ResolveDriver())
 		// The merge configuration's worker (E4c) answers the merge questions
 		// on the same endpoint, under its own version; the name
-		// normalization's runs as without it. Its eval comes with E4c-2.
+		// normalization's runs as without it. Its eval driver steps the merge
+		// evals of its version (E4c-2).
 		mergeWorker, _, mergeErr := services.NewAuthorLLMMergeWorkerFromConfig(context.Background(), db, c, shared)
 		switch {
 		case mergeErr != nil:
@@ -77,7 +78,7 @@ func buildAuthorMetadataWorkersOn(
 				Name: services.AuthorLLMEventDisabled, SQLState: services.AuthorMetadataSQLState(mergeErr),
 			})
 		case mergeWorker != nil:
-			workers = append(workers, mergeWorker)
+			workers = append(workers, mergeWorker, mergeWorker.EvalDriver())
 		}
 	}
 	return workers, nil
@@ -125,6 +126,16 @@ func initializeAuthorLLMAdminAPI(db *pg.DB, c *config.AuthorMetadataConfig, shar
 		return
 	}
 	api.SetAuthorLLMAdminService(admin)
+	// The merge configuration's admin (E4c) on the same routes under /merge.
+	merge, err := services.NewAuthorLLMMergeAdminFromConfig(context.Background(), db, c, shared)
+	if err != nil {
+		services.LogAuthorMetadataEvent(services.AuthorMetadataEventError, &services.AuthorMetadataEvent{
+			Name: services.AuthorMetadataEventLLMAdminNotWired, Stage: services.AuthorMetadataStageRunner,
+			SQLState: services.AuthorMetadataSQLState(err),
+		})
+		return
+	}
+	api.SetAuthorLLMMergeAdminService(merge)
 }
 
 // authorAutopilotLLM gives the autopilot the LLM block's admin of the

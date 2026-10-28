@@ -85,6 +85,11 @@ type Item struct {
 	// Repeated holds, for every participant whose answer to the item was
 	// asked again, whether the repeat reproduced its first answer.
 	Repeated map[string]bool
+	// Script is the item's script, for the per-script breakdown
+	// (Options.ByScript); Adversarial marks an item of the adversarial
+	// suite (Options): never measured, any accept of one fails its stratum.
+	Script      string
+	Adversarial bool
 }
 
 // InvalidShare is a participant's invalid answers of all answered or
@@ -164,6 +169,11 @@ type ComboMetrics struct {
 	// InvalidPassed whether both are within the limit.
 	Invalid       []InvalidShare `json:"invalid"`
 	InvalidPassed bool           `json:"invalid_passed"`
+	// Scripts is the breakdown per script (Options.ByScript); Adversarial
+	// the suite's items in the combo (Options). Both are absent from K's
+	// report.
+	Scripts     map[string]ScriptMetrics `json:"scripts,omitempty"`
+	Adversarial *AdversarialMetrics      `json:"adversarial,omitempty"`
 }
 
 // AblationResult compares arm B with arm A at one batch size.
@@ -278,11 +288,15 @@ func RepeatChanges(counts []ParticipantCount) []RepeatChange {
 
 // Evaluate computes the report and the decision. It is deterministic: strata
 // come out sorted, items in input order.
-func Evaluate(in *Input) Report {
+func Evaluate(in *Input) Report { return EvaluateWith(in, &Options{}) }
+
+// EvaluateWith is Evaluate with the gate's options; zero options are K's
+// gate, byte for byte.
+func EvaluateWith(in *Input, o *Options) Report {
 	r := Report{Strata: map[string]StratumReport{}, Anchor: in.Anchor, Repeat: in.Repeat,
 		RepeatChange: RepeatChanges(in.Repeat), Invalid: in.Invalid, ProviderRejected: in.ProviderRejected,
 		Fingerprint: in.Fingerprint}
-	reasons := runReasons(in)
+	reasons := runReasons(in, o)
 	byStratum := map[string][]*Item{}
 	var names []string
 	for i := range in.Items {
@@ -294,7 +308,7 @@ func Evaluate(in *Input) Report {
 	}
 	slices.Sort(names)
 	for _, name := range names {
-		report, decision := evaluateStratum(in.Combos, byStratum[name])
+		report, decision := evaluateStratum(in.Combos, byStratum[name], o)
 		decision.Stratum = name
 		r.Strata[name] = report
 		r.Decision.Strata = append(r.Decision.Strata, decision)
@@ -318,13 +332,15 @@ func Evaluate(in *Input) Report {
 // invalid and repeat shares are not among them: a stratum's invalid answers
 // are gated on its own items, the reproduction on the passing strata's
 // repeats (pooledRepeat).
-func runReasons(in *Input) []string {
+func runReasons(in *Input, o *Options) []string {
 	var reasons []string
 	if !in.Fingerprint.OK {
 		reasons = append(reasons, "fingerprint: "+in.Fingerprint.Reason)
 	}
-	reasons = append(reasons, AnchorReasons(in.Anchor)...)
-	reasons = append(reasons, evidenceReasons("anchor", in.Anchor, MinAnchorItems)...)
+	if !o.AnchorRecall {
+		reasons = append(reasons, AnchorReasons(in.Anchor)...)
+		reasons = append(reasons, evidenceReasons("anchor", in.Anchor, MinAnchorItems)...)
+	}
 	reasons = append(reasons, evidenceReasons("repeat", in.Repeat, MinRepeatItems)...)
 	return reasons
 }
@@ -510,12 +526,21 @@ func agreed(ans *[2]Answer, ok bool) string {
 // A combo is eligible only when both production participants answered it
 // validly enough on the stratum's items, the stratum only when both judges
 // did.
-func evaluateStratum(combos []Combo, all []*Item) (StratumReport, StratumDecision) {
+func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, StratumDecision) {
+	all, suite := splitSuite(all)
 	scope, report := stratumScope(all)
 	judgesPassed := false
 	report.JudgeInvalid, judgesPassed = judgeInvalid(scope)
 	for _, c := range combos {
-		report.Combos[comboKey(c)] = measure(c, scope)
+		m := measure(c, scope, o)
+		if o.ByScript {
+			m.Scripts = measureScripts(c, scope, suite, o)
+		}
+		if len(suite) > 0 {
+			m.Adversarial = measureSuite(c, suite, o)
+			m.Passed = m.Passed && m.Adversarial.Accepted == 0
+		}
+		report.Combos[comboKey(c)] = m
 	}
 	options := map[int]stratumOption{}
 	batches := batchSizes(combos)
@@ -535,6 +560,9 @@ func evaluateStratum(combos []Combo, all []*Item) (StratumReport, StratumDecisio
 				decision.Reason = invalidReason(m.Invalid, " in "+comboKey(c))
 				break
 			}
+		}
+		if reason := suiteReason(combos, &report); reason != "" {
+			decision.Reason = reason
 		}
 	}
 	return report, decision
@@ -629,29 +657,37 @@ type acceptedItem struct {
 	err    bool
 }
 
+// countAgreement counts the pair's both-valid and agreed answers.
+func countAgreement(m *ComboMetrics, ans *[2]Answer, ok bool) {
+	if ok && ans[0].Valid && ans[1].Valid {
+		m.BothValid++
+		if ans[0].Canonical == ans[1].Canonical && ans[0].Refused == ans[1].Refused {
+			m.Agreed++
+		}
+	}
+}
+
 // measure computes a combo's metrics and gate over the scope.
-func measure(c Combo, scope []*Item) ComboMetrics {
+func measure(c Combo, scope []*Item, o *Options) ComboMetrics {
 	m := ComboMetrics{Tiers: map[string]TierCount{}}
 	var acc []acceptedItem
 	for _, it := range scope {
 		ans, ok := candidates(it, c)
-		if ok && ans[0].Valid && ans[1].Valid {
-			m.BothValid++
-			if ans[0].Canonical == ans[1].Canonical && ans[0].Refused == ans[1].Refused {
-				m.Agreed++
-			}
-		}
+		countAgreement(&m, &ans, ok)
 		answer := agreed(&ans, ok)
-		if answer == "" {
+		if !o.accepts(answer) {
 			continue
 		}
 		g := gold(it)
 		if g == "" {
 			// No gold — the judges disagree, refuse or did not answer: resolve
 			// applies only what both judges confirm, so the item is neither
-			// accepted nor an error; it is reported as contested.
+			// accepted nor an error; it is reported as contested. Where a
+			// contested accept is an error (Options), it counts as one.
 			m.Contested++
-			continue
+			if !o.ContestedIsError {
+				continue
+			}
 		}
 		isErr := g != answer
 		acc = append(acc, acceptedItem{tier: ans[0].Tier, weight: max(it.Weight, 1), err: isErr})
@@ -674,7 +710,7 @@ func measure(c Combo, scope []*Item) ComboMetrics {
 			m.ErrorWeight += a.weight
 		}
 	}
-	g := gate(acc, m.AllowedTiers)
+	g := gate(acc, m.AllowedTiers, o.maxErrorShare())
 	m.UpperBound, m.ErrorsPassed, m.AllowedAccepted, m.AllowedErrors = g.upper, g.passed, g.accepted, g.errors
 	m.Invalid, m.InvalidPassed = comboInvalid(c, scope)
 	m.Passed = m.ErrorsPassed && m.InvalidPassed
@@ -703,7 +739,7 @@ type gateResult struct {
 }
 
 // gate applies the bound and the weighted share to the allowed tiers.
-func gate(acc []acceptedItem, tiers []string) gateResult {
+func gate(acc []acceptedItem, tiers []string, share float64) gateResult {
 	n, k, w, we := 0, 0, 0, 0
 	for _, a := range acc {
 		if !slices.Contains(tiers, a.tier) {
@@ -716,7 +752,7 @@ func gate(acc []acceptedItem, tiers []string) gateResult {
 			we += a.weight
 		}
 	}
-	return gateResult{upper: ClopperPearsonUpper(k, n), passed: PassesBound(k, n) && float64(we) <= MaxErrorShare*float64(w),
+	return gateResult{upper: ClopperPearsonUpper(k, n), passed: passesBoundAt(k, n, share) && float64(we) <= share*float64(w),
 		accepted: n, errors: k}
 }
 

@@ -36,6 +36,38 @@ func AuthorLLMRunToShow(ctx context.Context, db pg.DBI, version string) (*models
 	return &run, nil
 }
 
+// AuthorLLMRunToShowOf is AuthorLLMRunToShow for one of the two live
+// configurations (E4c): the active run of a configuration of the same task
+// — the name normalization's (merge false), whatever its version, or the
+// merge one's — else the latest of the version; and whether a run of the
+// other task is active (it holds the one active slot, its own block shows
+// it).
+func AuthorLLMRunToShowOf(
+	ctx context.Context, db pg.DBI, version string, merge bool,
+) (run *models.AuthorLLMRun, otherActive bool, err error) {
+	var row models.AuthorLLMRun
+	_, err = db.QueryOneContext(ctx, &row, `
+		SELECT r.* FROM author_llm_run r JOIN author_llm_config c ON c.version = r.config_version
+		WHERE (r.status IN ('pending', 'running', 'paused') AND (coalesce(c.identity->>'task', '') = 'merge') = ?1)
+			OR r.config_version = ?0
+		ORDER BY r.status IN ('pending', 'running', 'paused') DESC, r.id DESC
+		LIMIT 1`, version, merge)
+	switch {
+	case errors.Is(err, pg.ErrNoRows):
+	case err != nil:
+		return nil, false, fmt.Errorf("reading the LLM run to show: %w", err)
+	default:
+		run = &row
+	}
+	if _, err = db.QueryOneContext(ctx, pg.Scan(&otherActive), `
+		SELECT EXISTS (SELECT 1 FROM author_llm_run r JOIN author_llm_config c ON c.version = r.config_version
+			WHERE r.status IN ('pending', 'running', 'paused') AND (coalesce(c.identity->>'task', '') = 'merge') <> ?0)`,
+		merge); err != nil {
+		return nil, false, fmt.Errorf("looking for the other configuration's run: %w", err)
+	}
+	return run, otherActive, nil
+}
+
 // GetAuthorLLMRunByID reads one run; ErrAuthorLLMRunNotFound when there is
 // none.
 func GetAuthorLLMRunByID(ctx context.Context, db pg.DBI, id int64) (*models.AuthorLLMRun, error) {

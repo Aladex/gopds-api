@@ -317,17 +317,28 @@ func IsAuthorLLMEvalStageMode(mode string) bool {
 	return slices.Contains(AuthorLLMEvalStageModes(), mode)
 }
 
+// AuthorLLMEvalMergeModes lists the merge eval modes in order.
+func AuthorLLMEvalMergeModes() []string {
+	return []string{AuthorLLMEvalModeMerge, AuthorLLMEvalModeMerge0, AuthorLLMEvalModeMerge1, AuthorLLMEvalModeMerge2,
+		AuthorLLMEvalModeMerge3, AuthorLLMEvalModeMerge4}
+}
+
+// IsAuthorLLMEvalMergeMode reports a merge eval mode.
+func IsAuthorLLMEvalMergeMode(mode string) bool {
+	return slices.Contains(AuthorLLMEvalMergeModes(), mode)
+}
+
 // authorLLMEvalScopedStage prefixes the stored stage of a stage eval. A
 // binary that does not know stage evals (v0.72.0 and before) steps an eval
 // run only through the stage names it knows and passes over any other, so it
 // leaves a stage eval to the binary that started it instead of reading it as
-// a full one.
+// a full one. A merge eval's stage is stored the same way (migration 66).
 const authorLLMEvalScopedStage = "scoped_"
 
 // AuthorLLMEvalStoredStage is the stage column value of an eval run of mode
 // in stage.
 func AuthorLLMEvalStoredStage(mode, stage string) string {
-	if IsAuthorLLMEvalStageMode(mode) {
+	if IsAuthorLLMEvalStageMode(mode) || IsAuthorLLMEvalMergeMode(mode) {
 		return authorLLMEvalScopedStage + stage
 	}
 	return stage
@@ -336,7 +347,7 @@ func AuthorLLMEvalStoredStage(mode, stage string) string {
 // AuthorLLMEvalStageOf is the stage an eval run of mode is in, read from its
 // stage column.
 func AuthorLLMEvalStageOf(mode, stored string) string {
-	if IsAuthorLLMEvalStageMode(mode) {
+	if IsAuthorLLMEvalStageMode(mode) || IsAuthorLLMEvalMergeMode(mode) {
 		return strings.TrimPrefix(stored, authorLLMEvalScopedStage)
 	}
 	return stored

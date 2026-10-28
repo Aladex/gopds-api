@@ -98,6 +98,16 @@ func SetAuthorLLMAdminService(svc AuthorLLMAdminService) {
 	authorLLMAdminService = func() AuthorLLMAdminService { return svc }
 }
 
+// authorLLMMergeAdminService is the merge configuration's admin (E4c),
+// mounted on the same routes under /merge; until it is set they answer
+// llm_service_unavailable.
+var authorLLMMergeAdminService = func() AuthorLLMAdminService { return unavailableAuthorLLMAdmin{} }
+
+// SetAuthorLLMMergeAdminService installs the merge configuration's admin.
+func SetAuthorLLMMergeAdminService(svc AuthorLLMAdminService) {
+	authorLLMMergeAdminService = func() AuthorLLMAdminService { return svc }
+}
+
 type unavailableAuthorLLMAdmin struct{}
 
 func (unavailableAuthorLLMAdmin) Status(context.Context) (*services.AuthorLLMStatus, error) {

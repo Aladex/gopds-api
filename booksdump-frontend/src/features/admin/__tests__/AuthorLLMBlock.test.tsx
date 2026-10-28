@@ -155,6 +155,48 @@ describe('AuthorLLMBlock', () => {
         await waitFor(() => expect(api.getAuthorLLMStatus).toHaveBeenCalledTimes(2));
     });
 
+    it("is the merge configuration's block on its own routes", async () => {
+        const mergeStep: AuthorLLMStep = {
+            key: 'merge0',
+            kind: 'eval',
+            mode: 'merge0',
+            available: true,
+            enabled: true,
+            done: false,
+        };
+        show(status({ steps: [mergeStep] }));
+        render(<AuthorLLMBlock merge />);
+        expect(await screen.findByText('LLM: author merges')).toBeInTheDocument();
+        expect(api.getAuthorLLMStatus).toHaveBeenCalledWith(adminApi.llmMergeBase);
+        const start = screen.getByRole('button', { name: /Start the merge pilot \(merge0\)/ });
+        expect(start).toBeEnabled();
+        expect(screen.getAllByRole('button')).toHaveLength(1);
+
+        fireEvent.click(start);
+        await waitFor(() =>
+            expect(api.startAuthorLLMRun).toHaveBeenCalledWith(
+                'eval',
+                'merge0',
+                adminApi.llmMergeBase,
+            ),
+        );
+    });
+
+    it('says when the other configuration holds the active slot', async () => {
+        show(
+            status({
+                other_active: true,
+                steps: freshSteps().map((s) => ({ ...s, enabled: false, blocked: 'active_run' })),
+            }),
+        );
+        render(<AuthorLLMBlock />);
+        expect(
+            await screen.findByText('A merge check run is active; the next step starts after it.'),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Check quality/ })).toBeDisabled();
+        expect(screen.queryByRole('button', { name: /Close run/ })).not.toBeInTheDocument();
+    });
+
     it('marks done steps and opens the next one', async () => {
         show(
             status({

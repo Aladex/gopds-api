@@ -87,6 +87,8 @@ const (
 	// run ended because a stage cannot be done with its settings.
 	AuthorMetadataEventLLMEvalItemSkipped AuthorMetadataEventName = "author_metadata.llm_eval_item_skipped"
 	AuthorMetadataEventLLMEvalRunFailed   AuthorMetadataEventName = "author_metadata.llm_eval_run_failed"
+	// A merge eval froze its items (their count; E4c).
+	AuthorMetadataEventLLMMergeEvalFrozen AuthorMetadataEventName = "author_metadata.llm_merge_eval_frozen"
 	// The LLM block's admin could not be built (its configuration row).
 	AuthorMetadataEventLLMAdminNotWired AuthorMetadataEventName = "author_metadata.llm_admin_not_wired"
 	// An administrator closed an LLM run (an older configuration's, or a
@@ -183,7 +185,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
 		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,
 		AuthorMetadataEventLLMResolveApplyFailed, AuthorMetadataEventLLMRelearnStarted,
-		AuthorMetadataEventLLMReportRecomputed,
+		AuthorMetadataEventLLMReportRecomputed, AuthorMetadataEventLLMMergeEvalFrozen,
 		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
 		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
 		AuthorMetadataEventEntityBuildStepFailed, AuthorMetadataEventEntityBuildCensusFailed,
@@ -381,6 +383,7 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
 		label == authorLLMWorkerName || label == authorLLMMergeWorkerName || label == authorLLMEvalDriverName ||
+		label == authorLLMMergeEvalDriverName ||
 		label == string(AuthorMetadataStageDisplayModel) || label == string(AuthorMetadataStageEntityBuild) ||
 		label == string(AuthorMetadataStageWikidata) || label == authorAutopilotName {
 		return label

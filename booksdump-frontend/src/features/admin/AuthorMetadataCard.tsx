@@ -710,6 +710,7 @@ const AuthorMetadataCard: React.FC = () => {
                 </div>
 
                 <AuthorLLMBlock />
+                <AuthorLLMBlock merge />
                 <AuthorEntityBlock />
             </CardContent>
 

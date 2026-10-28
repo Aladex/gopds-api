@@ -391,7 +391,9 @@ export type AuthorLLMStepKey =
     | 'resolve_full'
     | 'swap_eval'
     | 'swap_pilot'
-    | 'swap_full';
+    | 'swap_full'
+    // The merge configuration's one step (E4c).
+    | 'merge0';
 
 export interface AuthorLLMStep {
     key: AuthorLLMStepKey;
@@ -468,6 +470,8 @@ export interface AuthorLLMStatus {
     enabled: boolean;
     reason?: string;
     run: AuthorLLMRun | null;
+    /** A run of the other live configuration (names or merges) is active. */
+    other_active?: boolean;
     steps: AuthorLLMStep[];
     participants: AuthorLLMParticipant[] | null;
     endpoint_paused_reason?: string;
@@ -700,42 +704,47 @@ export const reanchorMergeVeto = (id: number, sideA: string, sideB: string) =>
 
 const llmBase = '/admin/author-metadata/llm';
 
-export const getAuthorLLMStatus = () => http.get<{ status: AuthorLLMStatus }>(`${llmBase}/status`);
+/** The merge configuration's LLM routes (E4c): the same block, its own runs. */
+export const llmMergeBase = `${llmBase}/merge`;
+
+export const getAuthorLLMStatus = (base = llmBase) =>
+    http.get<{ status: AuthorLLMStatus }>(`${base}/status`);
 
 /** startAuthorLLMRun answers at once; the run's stages go on in the background. */
-export const startAuthorLLMRun = (kind: string, mode: string) =>
-    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs`, { kind, mode });
+export const startAuthorLLMRun = (kind: string, mode: string, base = llmBase) =>
+    http.post<{ run: AuthorLLMRun }>(`${base}/runs`, { kind, mode });
 
-export const pauseAuthorLLMRun = (runID: number) =>
-    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs/${runID}/pause`);
+export const pauseAuthorLLMRun = (runID: number, base = llmBase) =>
+    http.post<{ run: AuthorLLMRun }>(`${base}/runs/${runID}/pause`);
 
-export const resumeAuthorLLMRun = (runID: number) =>
-    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs/${runID}/resume`);
+export const resumeAuthorLLMRun = (runID: number, base = llmBase) =>
+    http.post<{ run: AuthorLLMRun }>(`${base}/runs/${runID}/resume`);
 
 /** closeAuthorLLMRun ends a run of an older configuration, or a paused one, for good. */
-export const closeAuthorLLMRun = (runID: number) =>
-    http.post<{ run: AuthorLLMRun }>(`${llmBase}/runs/${runID}/close`);
+export const closeAuthorLLMRun = (runID: number, base = llmBase) =>
+    http.post<{ run: AuthorLLMRun }>(`${base}/runs/${runID}/close`);
 
-export const resumeAuthorLLMParticipant = (slot: string) =>
-    http.post<unknown>(`${llmBase}/participants/${encodeURIComponent(slot)}/resume`);
+export const resumeAuthorLLMParticipant = (slot: string, base = llmBase) =>
+    http.post<unknown>(`${base}/participants/${encodeURIComponent(slot)}/resume`);
 
-export const resumeAuthorLLMEndpoint = () => http.post<unknown>(`${llmBase}/endpoint/resume`);
+export const resumeAuthorLLMEndpoint = (base = llmBase) =>
+    http.post<unknown>(`${base}/endpoint/resume`);
 
 /**
  * getAuthorLLMEvalReport downloads the stored report, byte for byte: the
  * latest version, or the given one of an eval run's report.
  */
-export const getAuthorLLMEvalReport = (runID: number, version?: number) =>
+export const getAuthorLLMEvalReport = (runID: number, version?: number, base = llmBase) =>
     requestBlob(
-        `${llmBase}/eval-report/${runID}${version === undefined ? '' : `?version=${version}`}`,
+        `${base}/eval-report/${runID}${version === undefined ? '' : `?version=${version}`}`,
     );
 
 /**
  * recomputeAuthorLLMEvalReport computes a completed eval run's report again
  * from its stored answers with the current gates, as a new version.
  */
-export const recomputeAuthorLLMEvalReport = (runID: number) =>
-    http.post<{ run: AuthorLLMRun }>(`${llmBase}/eval-report/${runID}/recompute`);
+export const recomputeAuthorLLMEvalReport = (runID: number, base = llmBase) =>
+    http.post<{ run: AuthorLLMRun }>(`${base}/eval-report/${runID}/recompute`);
 
 export function closedErrorCode(error: unknown): string | null {
     if (!isApiError(error)) {
