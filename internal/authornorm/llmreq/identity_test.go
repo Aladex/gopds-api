@@ -163,3 +163,65 @@ func TestReserveCoversTheRequestBoundAndTheCeiling(t *testing.T) {
 		t.Errorf("ceiling of ten = %d", o.Ceiling(10))
 	}
 }
+
+// prodParticipants are prod's K participants of the configuration with the
+// registrations at policy 6 (plan A.18).
+func prodParticipants() []Participant {
+	return []Participant{
+		{Slot: SlotProductionA, Model: "gpt-6-luna"},
+		{Slot: SlotProductionB, Model: "deepseek-v4.1-flash"},
+		{Slot: SlotJudgeA, Model: "gpt-6-sol"},
+		{Slot: SlotJudgeB, Model: "glm-5.3-zai"},
+	}
+}
+
+// The K identity on prod is pinned (E4c, plan §4.1, A.18): building it from
+// prod's participants and limits gives exactly the canonical JSON and the
+// version stored on prod, so the merge work never changes K's configuration.
+func TestIdentityLegacyCanonicalJSONPinned(t *testing.T) {
+	id, err := NewIdentity("http://cli-proxy-api.bots.svc:8317/v1", prodParticipants(), testOutput)
+	if err != nil {
+		t.Fatalf("NewIdentity: %v", err)
+	}
+	//nolint:lll // the canonical JSON is one line
+	const canonical = `{"base_url":"http://cli-proxy-api.bots.svc:8317/v1","participants":[{"slot":"production_a","model":"gpt-6-luna"},{"slot":"production_b","model":"deepseek-v4.1-flash"},{"slot":"judge_a","model":"gpt-6-sol"},{"slot":"judge_b","model":"glm-5.3-zai"}],"output":{"field":"max_completion_tokens","per_call_tokens":1000,"per_item_tokens":3000},"prompt_sha256":"0f3a582b35bca3317e2e19e2409ee011a477f21a2e8bda87ff396decabd5324a","schema_sha256":"66ed445880d20d4de8a916c68eb6eb81789ce219d8b67fadc0ccc8af43a13711","validator_version":"authornorm-llmres-validators-v3","tokenizer_version":"authornorm-llmres-tokens-v1","context_version":"authornorm-context-v1"}`
+	if got := string(id.CanonicalJSON()); got != canonical {
+		t.Fatalf("K canonical JSON moved:\n got %s\nwant %s", got, canonical)
+	}
+	if got, want := id.Version(), "llm1-bccc02419b686741a64bc02fda59078b94c026fc5bf582aeb4e47b12b445550e"; got != want {
+		t.Fatalf("K version moved: got %s, want %s", got, want)
+	}
+}
+
+// The merge identity on the same endpoint and participants is another
+// configuration: its task, prompt, schema, validator and context differ,
+// and so does its version.
+func TestMergeIdentityVersionDiffers(t *testing.T) {
+	k, err := NewIdentity("http://cli-proxy-api.bots.svc:8317/v1", prodParticipants(), testOutput)
+	if err != nil {
+		t.Fatalf("NewIdentity: %v", err)
+	}
+	m, err := NewMergeIdentity("http://cli-proxy-api.bots.svc:8317/v1", prodParticipants(), testOutput)
+	if err != nil {
+		t.Fatalf("NewMergeIdentity: %v", err)
+	}
+	if m.Version() == k.Version() {
+		t.Fatal("the merge configuration has K's version")
+	}
+	if m.Task != TaskMerge || k.Task != "" {
+		t.Fatalf("tasks: merge %q, K %q", m.Task, k.Task)
+	}
+	if m.PromptSHA256 == k.PromptSHA256 || m.SchemaSHA256 == k.SchemaSHA256 || m.ValidatorVersion == k.ValidatorVersion ||
+		m.ContextVersion == k.ContextVersion {
+		t.Fatal("the merge identity shares a digest or version with K")
+	}
+	if m.BaseURL != k.BaseURL || len(m.Participants) != 4 || m.Participants[0] != k.Participants[0] {
+		t.Fatal("the merge identity is not on K's endpoint and participants")
+	}
+	if !strings.HasSuffix(string(m.CanonicalJSON()), `,"task":"merge"}`) {
+		t.Fatalf("the task is not the last field: %s", m.CanonicalJSON())
+	}
+	if _, err := NewMergeIdentity("http://x", prodParticipants()[:3], testOutput); err == nil {
+		t.Fatal("the merge identity took three participants")
+	}
+}

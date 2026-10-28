@@ -380,7 +380,7 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 // labels, and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
-		label == authorLLMWorkerName || label == authorLLMEvalDriverName ||
+		label == authorLLMWorkerName || label == authorLLMMergeWorkerName || label == authorLLMEvalDriverName ||
 		label == string(AuthorMetadataStageDisplayModel) || label == string(AuthorMetadataStageEntityBuild) ||
 		label == string(AuthorMetadataStageWikidata) || label == authorAutopilotName {
 		return label

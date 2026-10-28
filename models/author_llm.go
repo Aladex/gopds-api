@@ -57,6 +57,10 @@ const (
 	// by the eval run's fingerprint stage (migration 31).
 	AuthorLLMPurposeEvalFingerprint AuthorLLMJobPurpose = "eval_fingerprint"
 	AuthorLLMPurposeCanary          AuthorLLMJobPurpose = "canary"
+	// AuthorLLMPurposeMergeCheck: a merge question of the merge
+	// configuration (E4c, migration 66), keyed by its candidate's digest.
+	// Its verdicts come with E4d; until then its answers only settle.
+	AuthorLLMPurposeMergeCheck AuthorLLMJobPurpose = "merge_check"
 )
 
 // IsResolve reports whether the purpose belongs to the resolve side (an input
@@ -272,6 +276,9 @@ const (
 	AuthorLLMEvalAnchor      AuthorLLMEvalItemSet = "anchor"
 	AuthorLLMEvalCanary      AuthorLLMEvalItemSet = "canary"
 	AuthorLLMEvalFingerprint AuthorLLMEvalItemSet = "fingerprint"
+	// AuthorLLMEvalAdversarial: the merge eval's namesake suite (E4c), each
+	// item expected different.
+	AuthorLLMEvalAdversarial AuthorLLMEvalItemSet = "adversarial"
 )
 
 // The modes of an eval run.
@@ -290,6 +297,14 @@ const (
 	AuthorLLMEvalModeStage1 = "stage1"
 	AuthorLLMEvalModeStage2 = "stage2"
 	AuthorLLMEvalModeStage3 = "stage3"
+	// The merge evals (E4c, migration 66) measure the merge configuration:
+	// merge0 the pilot, merge1..merge4 one pooled kind each.
+	AuthorLLMEvalModeMerge  = "merge"
+	AuthorLLMEvalModeMerge0 = "merge0"
+	AuthorLLMEvalModeMerge1 = "merge1"
+	AuthorLLMEvalModeMerge2 = "merge2"
+	AuthorLLMEvalModeMerge3 = "merge3"
+	AuthorLLMEvalModeMerge4 = "merge4"
 )
 
 // AuthorLLMEvalStageModes lists the stage eval modes in order.

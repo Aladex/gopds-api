@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 
 	"gopds-api/config"
 	"gopds-api/database"
+	"gopds-api/internal/authorentity"
 	"gopds-api/internal/authornorm"
 	"gopds-api/internal/authornorm/llmreq"
 	"gopds-api/internal/authornorm/llmres"
@@ -145,11 +147,24 @@ func NewAuthorLLMWorker(db *pg.DB, client AuthorLLMCaller, cfg *AuthorLLMWorkerC
 	return &AuthorLLMWorker{db: db, client: client, cfg: c, owner: database.NewLeaseOwner()}, nil
 }
 
-// authorLLMWorkerName is the worker's log label.
-const authorLLMWorkerName = "author_llm"
+// authorLLMWorkerName is the worker's log label; authorLLMMergeWorkerName
+// the merge configuration's worker's (E4c).
+const (
+	authorLLMWorkerName      = "author_llm"
+	authorLLMMergeWorkerName = "author_llm_merge"
+)
 
 // Name is the worker's log label.
-func (w *AuthorLLMWorker) Name() string { return authorLLMWorkerName }
+func (w *AuthorLLMWorker) Name() string {
+	if w.merge() {
+		return authorLLMMergeWorkerName
+	}
+	return authorLLMWorkerName
+}
+
+// merge reports the worker of the merge configuration (E4c): it asks the
+// merge question of its jobs, never the name normalization.
+func (w *AuthorLLMWorker) merge() bool { return w.cfg.Identity.Task == llmreq.TaskMerge }
 
 func (w *AuthorLLMWorker) now() *time.Time {
 	if w.cfg.Clock == nil {
@@ -176,7 +191,17 @@ func (w *AuthorLLMWorker) claimOptions(slot llmreq.Slot) *database.AuthorLLMClai
 		OneOffTokens:     s.Budget.OneOffTokens,
 		RunOverrun:       s.Budget.RunOverrun,
 		At:               w.now(),
+		PromptBound:      w.promptBound(),
 	}
+}
+
+// promptBound is the byte bound of the worker's requests: the cards' for the
+// merge configuration, nil (the name normalization's) otherwise.
+func (w *AuthorLLMWorker) promptBound() func(items, withContext int) int {
+	if w.merge() {
+		return llmreq.MergeRequestBoundBytes
+	}
+	return nil
 }
 
 // Claim claims one call for a participant.
@@ -288,6 +313,8 @@ type preparedItem struct {
 	job   *database.AuthorLLMClaimedJob
 	input llmres.Input
 	item  llmreq.Item
+	// mergeItem is the item of a merge question (E4c).
+	mergeItem llmreq.MergeItem
 	// skip is the class of a job that cannot be sent at all.
 	skip string
 }
@@ -310,10 +337,10 @@ func (w *AuthorLLMWorker) Process(ctx context.Context, slot llmreq.Slot, claim *
 	if err != nil {
 		return err
 	}
-	var send []llmreq.Item
+	var send []*preparedItem
 	for _, it := range items {
 		if it.skip == "" {
-			send = append(send, it.item)
+			send = append(send, it)
 		}
 	}
 	if len(send) == 0 {
@@ -350,7 +377,11 @@ func (w *AuthorLLMWorker) Process(ctx context.Context, slot llmreq.Slot, claim *
 		return w.settle(ctx, slot, claim, settlement)
 	}
 	if !settlement.ModelMismatch {
-		settlement.Items = w.judgeReplies(items, resp.Content)
+		if w.merge() {
+			settlement.Items = judgeMergeReplies(items, resp.Content)
+		} else {
+			settlement.Items = w.judgeReplies(items, resp.Content)
+		}
 	}
 	return w.settle(ctx, slot, claim, settlement)
 }
@@ -360,6 +391,9 @@ func (w *AuthorLLMWorker) Process(ctx context.Context, slot llmreq.Slot, claim *
 func (w *AuthorLLMWorker) callItems(ctx context.Context, claim *database.AuthorLLMClaim) ([]*preparedItem, error) {
 	if claim.Kind != models.AuthorLLMCallFingerprint {
 		return w.prepareItems(ctx, claim), nil
+	}
+	if w.merge() {
+		return []*preparedItem{{mergeItem: llmreq.MergeFingerprintItem()}}, nil
 	}
 	fp := llmreq.FingerprintItem()
 	in, err := llmres.NewInput(fp.Input.Fields)
@@ -371,19 +405,19 @@ func (w *AuthorLLMWorker) callItems(ctx context.Context, claim *database.AuthorL
 
 // send builds the request of the items and sends it.
 func (w *AuthorLLMWorker) send(
-	ctx context.Context, participant *llmreq.Participant, claim *database.AuthorLLMClaim, items []llmreq.Item,
+	ctx context.Context, participant *llmreq.Participant, claim *database.AuthorLLMClaim, items []*preparedItem,
 	settlement *database.AuthorLLMSettlement,
 ) (*llm.StructuredResponse, error) {
-	user, err := llmreq.BuildUserMessage(items)
+	system, user, schema, size, err := w.request(items)
 	if err != nil {
 		return nil, err
 	}
-	if llmreq.RequestBytes(user) > claim.PromptBoundBytes {
+	if size > claim.PromptBoundBytes {
 		return nil, errAuthorLLMOverBound
 	}
 	req := &llm.StructuredRequest{
-		Model: participant.Model, System: llmreq.SystemPrompt, User: string(user),
-		Mode: llm.OutputMode(claim.OutputMode), SchemaName: llmreq.SchemaName, Schema: llmreq.BatchSchema(),
+		Model: participant.Model, System: system, User: string(user),
+		Mode: llm.OutputMode(claim.OutputMode), SchemaName: llmreq.SchemaName, Schema: schema,
 		Temperature: participant.Temperature, ReasoningEffort: participant.ReasoningEffort,
 		Timeout:         w.cfg.Settings.EscalatedCallTimeout(len(items), claim.TimeoutStep),
 		MaxOutputTokens: claim.OutputCeiling, OutputLimitField: w.cfg.Identity.Output.Field,
@@ -394,6 +428,29 @@ func (w *AuthorLLMWorker) send(
 	resp, err := w.client.CompleteStructured(ctx, req)
 	settlement.Latency = time.Since(started)
 	return resp, err
+}
+
+// request is what a call sends: the system prompt, the user message, the
+// schema of the worker's task, and the bytes its bound measures.
+func (w *AuthorLLMWorker) request(items []*preparedItem) (system string, user, schema []byte, size int, err error) {
+	if w.merge() {
+		send := make([]llmreq.MergeItem, 0, len(items))
+		for _, it := range items {
+			send = append(send, it.mergeItem)
+		}
+		if user, err = llmreq.BuildMergeUserMessage(send); err != nil {
+			return "", nil, nil, 0, err
+		}
+		return llmreq.MergeSystemPrompt, user, llmreq.MergeSchema(), llmreq.MergeRequestBytes(user), nil
+	}
+	send := make([]llmreq.Item, 0, len(items))
+	for _, it := range items {
+		send = append(send, it.item)
+	}
+	if user, err = llmreq.BuildUserMessage(send); err != nil {
+		return "", nil, nil, 0, err
+	}
+	return llmreq.SystemPrompt, user, llmreq.BatchSchema(), llmreq.RequestBytes(user), nil
 }
 
 // answered records a response's standard fields and its V0 verdict.
@@ -538,6 +595,59 @@ func violationClass(err error) string {
 	return "assembly_failed"
 }
 
+// authorLLMMergeTier is the tier of an answered merge question that is not
+// a refusal (migration 66): same or different. cannot_tell is the refusal,
+// as for a name.
+const authorLLMMergeTier = "merge"
+
+// judgeMergeReplies splits a merge reply per item and settles each: the
+// closed answer, canonical, as the reply; cannot_tell as a refusal; a
+// missing, repeated or invalid result, or a reply that is not the envelope,
+// as invalid.
+func judgeMergeReplies(items []*preparedItem, content []byte) []database.AuthorLLMItemSettlement {
+	keys := make([]string, 0, len(items))
+	for _, it := range items {
+		if it.skip == "" {
+			keys = append(keys, it.mergeItem.Key)
+		}
+	}
+	replies, splitErr := llmreq.SplitMergeReply(content, keys)
+	out := make([]database.AuthorLLMItemSettlement, 0, len(items))
+	for _, it := range items {
+		s := database.AuthorLLMItemSettlement{AttemptID: it.job.AttemptID, Outcome: models.AuthorLLMAttemptInvalid}
+		switch {
+		case it.skip != "":
+			s.ValidatorClass = it.skip
+		case splitErr != nil:
+			s.ValidatorClass = authorLLMMalformedBatch
+		default:
+			settleMergeReply(replies[it.mergeItem.Key], &s)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// settleMergeReply settles one merge answer.
+func settleMergeReply(r llmreq.MergeItemReply, s *database.AuthorLLMItemSettlement) {
+	if r.Err != nil {
+		var ie *llmreq.ItemError
+		s.ValidatorClass = "item_invalid"
+		if errors.As(r.Err, &ie) {
+			s.ValidatorClass = "item_" + string(ie.Class)
+		}
+		return
+	}
+	canonical := llmreq.MergeCanonical(r.Answer)
+	sum := sha256.Sum256(canonical)
+	s.Outcome, s.Reply, s.CanonicalSHA256 = models.AuthorLLMAttemptAnswered, canonical, sum[:]
+	if r.Answer == llmreq.MergeCannotTell {
+		s.Refused = true
+		return
+	}
+	s.Tier = authorLLMMergeTier
+}
+
 // invalidItems settles every item as invalid with its skip class.
 func invalidItems(items []*preparedItem) []database.AuthorLLMItemSettlement {
 	out := make([]database.AuthorLLMItemSettlement, 0, len(items))
@@ -558,10 +668,14 @@ func (w *AuthorLLMWorker) prepareItems(ctx context.Context, claim *database.Auth
 	items := make([]*preparedItem, 0, len(claim.Jobs))
 	for i := range claim.Jobs {
 		job := &claim.Jobs[i]
-		it := &preparedItem{job: job, item: llmreq.Item{Key: job.ItemKey}}
+		it := &preparedItem{job: job, item: llmreq.Item{Key: job.ItemKey}, mergeItem: llmreq.MergeItem{Key: job.ItemKey}}
 		items = append(items, it)
 		if err := isolateItem(func() error {
-			w.prepareItem(ctx, claim, it)
+			if w.merge() {
+				prepareMergeItem(it)
+			} else {
+				w.prepareItem(ctx, claim, it)
+			}
 			return nil
 		}); err != nil {
 			it.skip, it.item.Context = authorLLMItemPanic, nil
@@ -578,6 +692,19 @@ func logAuthorLLMItemPanic(it *preparedItem) {
 		Name: AuthorMetadataEventLLMItemPanic, Stage: AuthorMetadataStageRunner, JobID: it.job.JobID,
 		ItemID: deref(it.job.EvalItemID), Fingerprint: it.job.SourceFingerprint, Status: authorLLMItemPanic,
 		Worker: authorLLMWorkerName})
+}
+
+// prepareMergeItem reads a merge job's stored question: the two cards of
+// this build's card version, exactly as the enqueue froze them.
+func prepareMergeItem(it *preparedItem) {
+	var input authorentity.MergeInput
+	dec := json.NewDecoder(bytes.NewReader(it.job.Input))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&input) != nil || input.CardVersion != authorentity.MergeCardVersion {
+		it.skip = authorLLMInputUnreadable
+		return
+	}
+	it.mergeItem.Input = input
 }
 
 // prepareItem builds one job's request item, or marks why it is not sent.
@@ -797,13 +924,38 @@ func (w *AuthorLLMWorker) settle(
 func NewAuthorLLMWorkerFromConfig(
 	ctx context.Context, db *pg.DB, archivesDir string, c *config.AuthorMetadataConfig, shared config.LLMConfig,
 ) (*AuthorLLMWorker, string, error) {
+	return newAuthorLLMWorkerFromConfig(ctx, db, archivesDir, c, shared, llmreq.NewIdentity)
+}
+
+// NewAuthorLLMMergeWorkerFromConfig builds the merge configuration's worker
+// (E4c, plan §4.1): the same endpoint, participants, client and settings as
+// the name normalization's, under the merge identity and its own version,
+// so it claims and answers only the merge questions.
+func NewAuthorLLMMergeWorkerFromConfig(
+	ctx context.Context, db *pg.DB, c *config.AuthorMetadataConfig, shared config.LLMConfig,
+) (*AuthorLLMWorker, string, error) {
+	return newAuthorLLMWorkerFromConfig(ctx, db, "", c, shared, llmreq.NewMergeIdentity)
+}
+
+// authorLLMIdentityFunc builds a configuration's identity.
+type authorLLMIdentityFunc func(baseURL string, participants []llmreq.Participant, output llmreq.OutputLimits) (llmreq.Identity, error)
+
+// authorLLMIdentity builds the identity of the section under newIdentity.
+func authorLLMIdentity(c *config.AuthorLLMConfig, shared config.LLMConfig, newIdentity authorLLMIdentityFunc) (llmreq.Identity, error) {
+	return newIdentity(shared.BaseURL, authorLLMParticipants(c), llmreq.OutputLimits{
+		Field: c.OutputLimitField, PerCall: c.MaxOutput.PerCallTokens, PerItem: c.MaxOutput.PerItemTokens,
+	})
+}
+
+func newAuthorLLMWorkerFromConfig(
+	ctx context.Context, db *pg.DB, archivesDir string, c *config.AuthorMetadataConfig, shared config.LLMConfig,
+	newIdentity authorLLMIdentityFunc,
+) (*AuthorLLMWorker, string, error) {
 	status := c.LLM.Status(shared)
 	if !status.Enabled {
 		return nil, status.Reason, nil
 	}
-	identity, err := llmreq.NewIdentity(shared.BaseURL, authorLLMParticipants(&c.LLM), llmreq.OutputLimits{
-		Field: c.LLM.OutputLimitField, PerCall: c.LLM.MaxOutput.PerCallTokens, PerItem: c.LLM.MaxOutput.PerItemTokens,
-	})
+	identity, err := authorLLMIdentity(&c.LLM, shared, newIdentity)
 	if err != nil {
 		return nil, config.AuthorLLMDisabledModels, nil
 	}

@@ -59,6 +59,11 @@ type AuthorLLMClaimOptions struct {
 	// Output is the output ceiling each request carries; with the prompt's
 	// byte bound it is the call's reserve (llmreq.OutputLimits.Reserve).
 	Output llmreq.OutputLimits
+	// PromptBound is the byte bound of a request of n items, withContext of
+	// them with an excerpt; nil is the name normalization's
+	// (llmreq.RequestBoundBytes). The merge configuration sends cards and
+	// passes llmreq.MergeRequestBoundBytes (E4c).
+	PromptBound func(items, withContext int) int
 	// The budget: every run together, and a run against its own estimate.
 	OneOffTokens int64
 	RunOverrun   float64
@@ -77,6 +82,20 @@ func (o *AuthorLLMClaimOptions) validate() error {
 		return ErrInvalidLeaseOptions
 	}
 	return nil
+}
+
+// callBound is the hard bound of a request of items items, withContext of
+// them with an excerpt: its prompt bytes, its output ceiling and their
+// reserve. With PromptBound nil it is llmreq.OutputLimits.Reserve exactly.
+func (o *AuthorLLMClaimOptions) callBound(items, withContext int) authorLLMCallBound {
+	prompt := llmreq.RequestBoundBytes
+	if o.PromptBound != nil {
+		prompt = o.PromptBound
+	}
+	bytes := prompt(items, withContext)
+	ceiling := o.Output.Ceiling(items)
+	return authorLLMCallBound{promptBytes: bytes, ceiling: ceiling,
+		reserve: int64(bytes) + llmreq.PromptTemplateTokens + int64(ceiling)}
 }
 
 // AuthorLLMClaimRefusal says why a claim took nothing.
@@ -383,11 +402,7 @@ func claimAuthorLLMJobs(
 		jobIDs[0], pg.In(jobIDs)); err != nil {
 		return nil, "", fmt.Errorf("reading the batch head: %w", err)
 	}
-	bound := authorLLMCallBound{
-		promptBytes: llmreq.RequestBoundBytes(len(jobIDs), head.WithContext),
-		ceiling:     opts.Output.Ceiling(len(jobIDs)),
-		reserve:     opts.Output.Reserve(len(jobIDs), head.WithContext),
-	}
+	bound := opts.callBound(len(jobIDs), head.WithContext)
 	if refusal, err := authorLLMBudgetRefusal(ctx, tx, opts, run, bound.reserve); err != nil || refusal != "" {
 		return nil, refusal, err
 	}
@@ -651,11 +666,7 @@ func claimAuthorLLMFingerprint(
 	ctx context.Context, tx *pg.Tx, opts *AuthorLLMClaimOptions, now time.Time,
 	run *claimRun, ref *AuthorLLMFingerprintReference, expected []string,
 ) (*AuthorLLMClaim, AuthorLLMClaimRefusal, error) {
-	bound := authorLLMCallBound{
-		promptBytes: llmreq.RequestBoundBytes(1, 0),
-		ceiling:     opts.Output.Ceiling(1),
-		reserve:     opts.Output.Reserve(1, 0),
-	}
+	bound := opts.callBound(1, 0)
 	if refusal, err := authorLLMBudgetRefusal(ctx, tx, opts, run, bound.reserve); err != nil || refusal != "" {
 		return nil, refusal, err
 	}

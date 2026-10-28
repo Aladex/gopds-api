@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"gopds-api/internal/authorentity"
 	"gopds-api/internal/authornorm/llmreq"
 	"gopds-api/models"
 
@@ -273,7 +274,11 @@ type AuthorLLMNewJob struct {
 	BatchSize         int
 	OutputMode        string
 	Input             llmreq.ItemInput
-	WithContext       bool
+	// MergeInput, when set, is the job's input instead of Input: a merge
+	// question's two cards (E4c), stored as authorentity.MergeInputJSON
+	// renders them.
+	MergeInput  *authorentity.MergeInput
+	WithContext bool
 	// AskAgainApplyFailed marks a review input whose request fields do not
 	// rebuild its fingerprint: an apply_failed verdict of it was the
 	// fingerprint defect run 15 hit, and a later run asks it again.
@@ -290,6 +295,9 @@ func EnqueueAuthorLLMJobs(ctx context.Context, db pg.DBI, jobs []AuthorLLMNewJob
 			return inserted, ErrAuthorLLMInvalidJob
 		}
 		input, err := json.Marshal(j.Input)
+		if j.MergeInput != nil {
+			input, err = json.Marshal(j.MergeInput)
+		}
 		if err != nil {
 			return inserted, err
 		}

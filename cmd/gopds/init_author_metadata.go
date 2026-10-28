@@ -29,6 +29,17 @@ func buildAuthorMetadataWorkers(
 	archivesDir string,
 	c *config.AuthorMetadataConfig,
 ) ([]services.AuthorMetadataStageWorker, error) {
+	return buildAuthorMetadataWorkersOn(db, archivesDir, c, config.LLM())
+}
+
+// buildAuthorMetadataWorkersOn is buildAuthorMetadataWorkers against the
+// shared llm section given.
+func buildAuthorMetadataWorkersOn(
+	db *pg.DB,
+	archivesDir string,
+	c *config.AuthorMetadataConfig,
+	shared config.LLMConfig,
+) ([]services.AuthorMetadataStageWorker, error) {
 	extraction, err := services.NewAuthorMetadataExtractionLoop(db, archivesDir, c)
 	if err != nil {
 		return nil, fmt.Errorf("building the extraction worker: %w", err)
@@ -44,7 +55,7 @@ func buildAuthorMetadataWorkers(
 	// The LLM worker runs when the shared llm section and the participants
 	// allow it; otherwise, or when it cannot be built, the other workers run
 	// without it and the review queue works as it does without the LLM.
-	llmWorker, reason, err := services.NewAuthorLLMWorkerFromConfig(context.Background(), db, archivesDir, c, config.LLM())
+	llmWorker, reason, err := services.NewAuthorLLMWorkerFromConfig(context.Background(), db, archivesDir, c, shared)
 	switch {
 	case err != nil:
 		services.LogAuthorLLMEvent(services.AuthorMetadataEventError, &services.AuthorLLMEvent{
@@ -56,6 +67,18 @@ func buildAuthorMetadataWorkers(
 		})
 	default:
 		workers = append(workers, llmWorker, llmWorker.EvalDriver(), llmWorker.ResolveDriver())
+		// The merge configuration's worker (E4c) answers the merge questions
+		// on the same endpoint, under its own version; the name
+		// normalization's runs as without it. Its eval comes with E4c-2.
+		mergeWorker, _, mergeErr := services.NewAuthorLLMMergeWorkerFromConfig(context.Background(), db, c, shared)
+		switch {
+		case mergeErr != nil:
+			services.LogAuthorLLMEvent(services.AuthorMetadataEventError, &services.AuthorLLMEvent{
+				Name: services.AuthorLLMEventDisabled, SQLState: services.AuthorMetadataSQLState(mergeErr),
+			})
+		case mergeWorker != nil:
+			workers = append(workers, mergeWorker)
+		}
 	}
 	return workers, nil
 }

@@ -1,0 +1,1236 @@
+{
+  "strata": {
+    "a.cyrl": {
+      "holdout": 112,
+      "dev": 8,
+      "gold": 112,
+      "combos": {
+        "A1": {
+          "both_valid": 112,
+          "agreed": 112,
+          "accepted": 112,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 224,
+          "error_weight": 0,
+          "upper_bound": 0.02639306042365302,
+          "tiers": {
+            "confirm": {
+              "accepted": 112,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 112,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "A10": {
+          "both_valid": 112,
+          "agreed": 112,
+          "accepted": 112,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 224,
+          "error_weight": 0,
+          "upper_bound": 0.02639306042365302,
+          "tiers": {
+            "confirm": {
+              "accepted": 112,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 112,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B1": {
+          "both_valid": 112,
+          "agreed": 112,
+          "accepted": 112,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 224,
+          "error_weight": 0,
+          "upper_bound": 0.02639306042365302,
+          "tiers": {
+            "confirm": {
+              "accepted": 112,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 112,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B10": {
+          "both_valid": 112,
+          "agreed": 112,
+          "accepted": 112,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 224,
+          "error_weight": 0,
+          "upper_bound": 0.02639306042365302,
+          "tiers": {
+            "confirm": {
+              "accepted": 112,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 112,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 112,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        }
+      },
+      "ablation": {
+        "1": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        },
+        "10": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        }
+      },
+      "judge_invalid": [
+        {
+          "participant": "judge_a",
+          "invalid": 0,
+          "total": 112,
+          "share": 0,
+          "passed": true
+        },
+        {
+          "participant": "judge_b",
+          "invalid": 0,
+          "total": 112,
+          "share": 0,
+          "passed": true
+        }
+      ]
+    },
+    "b.latn": {
+      "holdout": 75,
+      "dev": 5,
+      "gold": 75,
+      "combos": {
+        "A1": {
+          "both_valid": 75,
+          "agreed": 75,
+          "accepted": 75,
+          "errors": 2,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 149,
+          "error_weight": 3,
+          "upper_bound": 0.04020679425316585,
+          "tiers": {
+            "confirm": {
+              "accepted": 73,
+              "errors": 0
+            },
+            "restructure": {
+              "accepted": 2,
+              "errors": 2
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 73,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "A10": {
+          "both_valid": 75,
+          "agreed": 75,
+          "accepted": 75,
+          "errors": 2,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 149,
+          "error_weight": 3,
+          "upper_bound": 0.04020679425316585,
+          "tiers": {
+            "confirm": {
+              "accepted": 73,
+              "errors": 0
+            },
+            "restructure": {
+              "accepted": 2,
+              "errors": 2
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 73,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B1": {
+          "both_valid": 75,
+          "agreed": 75,
+          "accepted": 75,
+          "errors": 2,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 149,
+          "error_weight": 3,
+          "upper_bound": 0.04020679425316585,
+          "tiers": {
+            "confirm": {
+              "accepted": 73,
+              "errors": 0
+            },
+            "restructure": {
+              "accepted": 2,
+              "errors": 2
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 73,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B10": {
+          "both_valid": 75,
+          "agreed": 75,
+          "accepted": 75,
+          "errors": 2,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 149,
+          "error_weight": 3,
+          "upper_bound": 0.04020679425316585,
+          "tiers": {
+            "confirm": {
+              "accepted": 73,
+              "errors": 0
+            },
+            "restructure": {
+              "accepted": 2,
+              "errors": 2
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 73,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 75,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        }
+      },
+      "ablation": {
+        "1": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        },
+        "10": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        }
+      },
+      "judge_invalid": [
+        {
+          "participant": "judge_a",
+          "invalid": 0,
+          "total": 75,
+          "share": 0,
+          "passed": true
+        },
+        {
+          "participant": "judge_b",
+          "invalid": 0,
+          "total": 75,
+          "share": 0,
+          "passed": true
+        }
+      ]
+    },
+    "c.cyrl": {
+      "holdout": 56,
+      "dev": 4,
+      "gold": 52,
+      "combos": {
+        "A1": {
+          "both_valid": 56,
+          "agreed": 56,
+          "accepted": 52,
+          "errors": 0,
+          "contested": 4,
+          "contested_share": 0.07142857142857142,
+          "accepted_weight": 101,
+          "error_weight": 0,
+          "upper_bound": 0.055982180126235556,
+          "tiers": {
+            "confirm": {
+              "accepted": 52,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 52,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "A10": {
+          "both_valid": 56,
+          "agreed": 56,
+          "accepted": 52,
+          "errors": 0,
+          "contested": 4,
+          "contested_share": 0.07142857142857142,
+          "accepted_weight": 101,
+          "error_weight": 0,
+          "upper_bound": 0.055982180126235556,
+          "tiers": {
+            "confirm": {
+              "accepted": 52,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 52,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B1": {
+          "both_valid": 56,
+          "agreed": 56,
+          "accepted": 52,
+          "errors": 0,
+          "contested": 4,
+          "contested_share": 0.07142857142857142,
+          "accepted_weight": 101,
+          "error_weight": 0,
+          "upper_bound": 0.055982180126235556,
+          "tiers": {
+            "confirm": {
+              "accepted": 52,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 52,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B10": {
+          "both_valid": 56,
+          "agreed": 56,
+          "accepted": 52,
+          "errors": 0,
+          "contested": 4,
+          "contested_share": 0.07142857142857142,
+          "accepted_weight": 101,
+          "error_weight": 0,
+          "upper_bound": 0.055982180126235556,
+          "tiers": {
+            "confirm": {
+              "accepted": 52,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 52,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 56,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        }
+      },
+      "ablation": {
+        "1": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        },
+        "10": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        }
+      },
+      "judge_invalid": [
+        {
+          "participant": "judge_a",
+          "invalid": 0,
+          "total": 56,
+          "share": 0,
+          "passed": true
+        },
+        {
+          "participant": "judge_b",
+          "invalid": 0,
+          "total": 56,
+          "share": 0,
+          "passed": true
+        }
+      ]
+    },
+    "d.cyrl": {
+      "holdout": 47,
+      "dev": 3,
+      "gold": 47,
+      "combos": {
+        "A1": {
+          "both_valid": 42,
+          "agreed": 42,
+          "accepted": 39,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 78,
+          "error_weight": 0,
+          "upper_bound": 0.07393758892668656,
+          "tiers": {
+            "confirm": {
+              "accepted": 39,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 39,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 47,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 5,
+              "total": 47,
+              "share": 0.10638297872340426,
+              "passed": false
+            }
+          ],
+          "invalid_passed": false
+        },
+        "A10": {
+          "both_valid": 42,
+          "agreed": 37,
+          "accepted": 34,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 68,
+          "error_weight": 0,
+          "upper_bound": 0.0843396433506254,
+          "tiers": {
+            "confirm": {
+              "accepted": 34,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 34,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 47,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 5,
+              "total": 47,
+              "share": 0.10638297872340426,
+              "passed": false
+            }
+          ],
+          "invalid_passed": false
+        },
+        "B1": {
+          "both_valid": 42,
+          "agreed": 42,
+          "accepted": 39,
+          "errors": 7,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 78,
+          "error_weight": 15,
+          "upper_bound": 0.31084136709594096,
+          "tiers": {
+            "case": {
+              "accepted": 7,
+              "errors": 7
+            },
+            "confirm": {
+              "accepted": 32,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "case",
+            "confirm"
+          ],
+          "allowed_accepted": 39,
+          "allowed_errors": 7,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 47,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 5,
+              "total": 47,
+              "share": 0.10638297872340426,
+              "passed": false
+            }
+          ],
+          "invalid_passed": false
+        },
+        "B10": {
+          "both_valid": 42,
+          "agreed": 37,
+          "accepted": 34,
+          "errors": 7,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 68,
+          "error_weight": 15,
+          "upper_bound": 0.3521612169861835,
+          "tiers": {
+            "case": {
+              "accepted": 7,
+              "errors": 7
+            },
+            "confirm": {
+              "accepted": 27,
+              "errors": 0
+            }
+          },
+          "passed": false,
+          "errors_passed": false,
+          "allowed_tiers": [
+            "case",
+            "confirm"
+          ],
+          "allowed_accepted": 34,
+          "allowed_errors": 7,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 47,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 5,
+              "total": 47,
+              "share": 0.10638297872340426,
+              "passed": false
+            }
+          ],
+          "invalid_passed": false
+        }
+      },
+      "ablation": {
+        "1": {
+          "gain": 0,
+          "delta": [
+            3,
+            10,
+            17,
+            24,
+            31,
+            38,
+            45
+          ],
+          "delta_errors": 7,
+          "chose_b": false
+        },
+        "10": {
+          "gain": 0,
+          "delta": [
+            3,
+            10,
+            17,
+            24,
+            31,
+            38,
+            45
+          ],
+          "delta_errors": 7,
+          "chose_b": false
+        }
+      },
+      "judge_invalid": [
+        {
+          "participant": "judge_a",
+          "invalid": 0,
+          "total": 47,
+          "share": 0,
+          "passed": true
+        },
+        {
+          "participant": "judge_b",
+          "invalid": 0,
+          "total": 47,
+          "share": 0,
+          "passed": true
+        }
+      ]
+    },
+    "e.cyrl": {
+      "holdout": 658,
+      "dev": 42,
+      "gold": 658,
+      "combos": {
+        "A1": {
+          "both_valid": 658,
+          "agreed": 658,
+          "accepted": 658,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 1315,
+          "error_weight": 0,
+          "upper_bound": 0.0045424363967628365,
+          "tiers": {
+            "confirm": {
+              "accepted": 658,
+              "errors": 0
+            }
+          },
+          "passed": true,
+          "errors_passed": true,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 658,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "A10": {
+          "both_valid": 658,
+          "agreed": 655,
+          "accepted": 655,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 1309,
+          "error_weight": 0,
+          "upper_bound": 0.004563193908014781,
+          "tiers": {
+            "confirm": {
+              "accepted": 655,
+              "errors": 0
+            }
+          },
+          "passed": true,
+          "errors_passed": true,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 655,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B1": {
+          "both_valid": 658,
+          "agreed": 658,
+          "accepted": 658,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 1315,
+          "error_weight": 0,
+          "upper_bound": 0.0045424363967628365,
+          "tiers": {
+            "confirm": {
+              "accepted": 658,
+              "errors": 0
+            }
+          },
+          "passed": true,
+          "errors_passed": true,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 658,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        },
+        "B10": {
+          "both_valid": 658,
+          "agreed": 655,
+          "accepted": 655,
+          "errors": 0,
+          "contested": 0,
+          "contested_share": 0,
+          "accepted_weight": 1309,
+          "error_weight": 0,
+          "upper_bound": 0.004563193908014781,
+          "tiers": {
+            "confirm": {
+              "accepted": 655,
+              "errors": 0
+            }
+          },
+          "passed": true,
+          "errors_passed": true,
+          "allowed_tiers": [
+            "confirm"
+          ],
+          "allowed_accepted": 655,
+          "allowed_errors": 0,
+          "invalid": [
+            {
+              "participant": "production_a",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            },
+            {
+              "participant": "production_b",
+              "invalid": 0,
+              "total": 658,
+              "share": 0,
+              "passed": true
+            }
+          ],
+          "invalid_passed": true
+        }
+      },
+      "ablation": {
+        "1": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        },
+        "10": {
+          "gain": 0,
+          "delta": null,
+          "delta_errors": 0,
+          "chose_b": false
+        }
+      },
+      "judge_invalid": [
+        {
+          "participant": "judge_a",
+          "invalid": 0,
+          "total": 658,
+          "share": 0,
+          "passed": true
+        },
+        {
+          "participant": "judge_b",
+          "invalid": 0,
+          "total": 658,
+          "share": 0,
+          "passed": true
+        }
+      ]
+    }
+  },
+  "anchor": [
+    {
+      "participant": "production_a",
+      "matched": 300,
+      "total": 300
+    },
+    {
+      "participant": "production_b",
+      "matched": 297,
+      "total": 300
+    },
+    {
+      "participant": "judge_a",
+      "matched": 300,
+      "total": 300
+    },
+    {
+      "participant": "judge_b",
+      "matched": 300,
+      "total": 300
+    }
+  ],
+  "repeat": [
+    {
+      "participant": "production_a",
+      "matched": 200,
+      "total": 200
+    },
+    {
+      "participant": "production_b",
+      "matched": 200,
+      "total": 200
+    },
+    {
+      "participant": "judge_a",
+      "matched": 200,
+      "total": 200
+    },
+    {
+      "participant": "judge_b",
+      "matched": 188,
+      "total": 200
+    }
+  ],
+  "repeat_change": [
+    {
+      "participant": "production_a",
+      "changed": 0,
+      "total": 200,
+      "share": 0
+    },
+    {
+      "participant": "production_b",
+      "changed": 0,
+      "total": 200,
+      "share": 0
+    },
+    {
+      "participant": "judge_a",
+      "changed": 0,
+      "total": 200,
+      "share": 0
+    },
+    {
+      "participant": "judge_b",
+      "changed": 12,
+      "total": 200,
+      "share": 0.06
+    }
+  ],
+  "invalid": [
+    {
+      "participant": "production_a",
+      "matched": 1,
+      "total": 400
+    },
+    {
+      "participant": "production_b",
+      "matched": 9,
+      "total": 400
+    }
+  ],
+  "provider_rejected": [
+    {
+      "participant": "production_b",
+      "matched": 2,
+      "total": 400
+    }
+  ],
+  "fingerprint": {
+    "ok": true
+  },
+  "pooled_repeat": {
+    "strata": [
+      "e.cyrl"
+    ],
+    "participants": [
+      {
+        "participant": "production_a",
+        "reproduced": 700,
+        "total": 700,
+        "by_stratum": [
+          {
+            "stratum": "e.cyrl",
+            "reproduced": 700,
+            "total": 700
+          }
+        ],
+        "passed": true
+      },
+      {
+        "participant": "production_b",
+        "reproduced": 700,
+        "total": 700,
+        "by_stratum": [
+          {
+            "stratum": "e.cyrl",
+            "reproduced": 700,
+            "total": 700
+          }
+        ],
+        "passed": true
+      },
+      {
+        "participant": "judge_a",
+        "reproduced": 700,
+        "total": 700,
+        "by_stratum": [
+          {
+            "stratum": "e.cyrl",
+            "reproduced": 700,
+            "total": 700
+          }
+        ],
+        "passed": true
+      },
+      {
+        "participant": "judge_b",
+        "reproduced": 700,
+        "total": 700,
+        "by_stratum": [
+          {
+            "stratum": "e.cyrl",
+            "reproduced": 700,
+            "total": 700
+          }
+        ],
+        "passed": true
+      }
+    ]
+  },
+  "decision": {
+    "registrable": true,
+    "strata": [
+      {
+        "stratum": "a.cyrl",
+        "passed": false,
+        "reason": "gate: no combo passed"
+      },
+      {
+        "stratum": "b.latn",
+        "passed": false,
+        "reason": "gate: no combo passed"
+      },
+      {
+        "stratum": "c.cyrl",
+        "passed": false,
+        "reason": "gate: no combo passed"
+      },
+      {
+        "stratum": "d.cyrl",
+        "passed": false,
+        "reason": "gate: no combo passed"
+      },
+      {
+        "stratum": "e.cyrl",
+        "passed": true,
+        "arm": "A",
+        "items_per_request": 10,
+        "tiers": [
+          "confirm"
+        ]
+      }
+    ]
+  }
+}

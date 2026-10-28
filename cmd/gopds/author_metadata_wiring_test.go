@@ -427,3 +427,26 @@ func TestAuthorDisplayModelRunsWhateverTheSwitchSays(t *testing.T) {
 	defer cancel()
 	require.NoError(t, runner.Shutdown(shutdown))
 }
+
+// With the LLM layer on, the wiring starts the name normalization's worker
+// with its eval and resolve drivers and the merge configuration's worker
+// (E4c), each under its own stored configuration on the one endpoint.
+func TestTheWiringStartsBothLLMWorkers(t *testing.T) {
+	db := scratchDB(t)
+	c := wiringConfig()
+	c.LLM = config.DefaultAuthorLLMConfig()
+	c.LLM.Models = config.AuthorLLMModels{ProductionA: "gpt-6-luna", ProductionB: "deepseek-v4.1-flash",
+		JudgeA: "gpt-6-sol", JudgeB: "glm-5.3-zai"}
+	workers, err := buildAuthorMetadataWorkersOn(db, t.TempDir(), &c, config.LLMConfig{BaseURL: "http://127.0.0.1:1/v1"})
+	require.NoError(t, err)
+	var names []string
+	for _, w := range workers {
+		names = append(names, w.Name())
+	}
+	assert.Contains(t, names, "author_llm")
+	assert.Contains(t, names, "author_llm_merge")
+	var configs []string
+	_, err = db.Query(&configs, `SELECT coalesce(identity ->> 'task', '') FROM author_llm_config ORDER BY 1`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"", "merge"}, configs, "one stored configuration each")
+}

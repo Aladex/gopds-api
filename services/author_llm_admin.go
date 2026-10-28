@@ -208,6 +208,22 @@ func NewAuthorLLMAdmin(db *pg.DB, version, disabled string, settings *config.Aut
 func NewAuthorLLMAdminFromConfig(
 	ctx context.Context, db *pg.DB, c *config.AuthorMetadataConfig, shared config.LLMConfig,
 ) (*AuthorLLMAdmin, error) {
+	return newAuthorLLMAdminFromConfig(ctx, db, c, shared, llmreq.NewIdentity)
+}
+
+// NewAuthorLLMMergeAdminFromConfig builds the admin of the merge
+// configuration (E4c): the merge identity and its version, or the reason
+// the layer is off. The name normalization's admin is untouched.
+func NewAuthorLLMMergeAdminFromConfig(
+	ctx context.Context, db *pg.DB, c *config.AuthorMetadataConfig, shared config.LLMConfig,
+) (*AuthorLLMAdmin, error) {
+	return newAuthorLLMAdminFromConfig(ctx, db, c, shared, llmreq.NewMergeIdentity)
+}
+
+func newAuthorLLMAdminFromConfig(
+	ctx context.Context, db *pg.DB, c *config.AuthorMetadataConfig, shared config.LLMConfig,
+	newIdentity authorLLMIdentityFunc,
+) (*AuthorLLMAdmin, error) {
 	if !c.Enabled {
 		return NewAuthorLLMAdmin(db, "", AuthorLLMDisabledWorkersOff, &c.LLM), nil
 	}
@@ -215,9 +231,7 @@ func NewAuthorLLMAdminFromConfig(
 	if !status.Enabled {
 		return NewAuthorLLMAdmin(db, "", status.Reason, &c.LLM), nil
 	}
-	identity, err := llmreq.NewIdentity(shared.BaseURL, authorLLMParticipants(&c.LLM), llmreq.OutputLimits{
-		Field: c.LLM.OutputLimitField, PerCall: c.LLM.MaxOutput.PerCallTokens, PerItem: c.LLM.MaxOutput.PerItemTokens,
-	})
+	identity, err := authorLLMIdentity(&c.LLM, shared, newIdentity)
 	if err != nil {
 		return NewAuthorLLMAdmin(db, "", config.AuthorLLMDisabledModels, &c.LLM), nil
 	}

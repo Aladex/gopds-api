@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"gopds-api/config"
+	"gopds-api/internal/authorentity"
 	"gopds-api/internal/authornorm/llmres"
 )
 
@@ -69,7 +70,15 @@ type Identity struct {
 	ValidatorVersion string        `json:"validator_version"`
 	TokenizerVersion string        `json:"tokenizer_version"`
 	ContextVersion   string        `json:"context_version"`
+	// Task names what the configuration asks (E4c): empty for the name
+	// normalization, whose canonical JSON stays byte-for-byte what it was
+	// (omitted, and the last field, so no other field moves); TaskMerge for
+	// the merge question.
+	Task string `json:"task,omitempty"`
 }
+
+// TaskMerge is the task of the merge configuration: "is this one person?".
+const TaskMerge = "merge"
 
 // NormalizeBaseURL reduces an endpoint to what identifies it: http or https,
 // lower-case scheme and host, the path without a trailing slash. User info,
@@ -94,43 +103,9 @@ func NormalizeBaseURL(raw string) (string, error) {
 // non-empty trimmed model, all four models distinct, and parameters inside
 // their closed ranges.
 func NewIdentity(baseURL string, participants []Participant, output OutputLimits) (Identity, error) {
-	base, err := NormalizeBaseURL(baseURL)
+	base, ordered, err := validParticipants(baseURL, participants, output)
 	if err != nil {
 		return Identity{}, err
-	}
-	if outErr := output.validate(); outErr != nil {
-		return Identity{}, outErr
-	}
-	if len(participants) != len(Slots()) {
-		return Identity{}, errors.New("llmreq: a configuration has exactly four participants")
-	}
-	bySlot := make(map[Slot]Participant, len(participants))
-	models := make(map[string]bool, len(participants))
-	for _, p := range participants {
-		if !p.Slot.Valid() {
-			return Identity{}, fmt.Errorf("llmreq: unknown slot %q", p.Slot)
-		}
-		if _, dup := bySlot[p.Slot]; dup {
-			return Identity{}, fmt.Errorf("llmreq: slot %s given twice", p.Slot)
-		}
-		if p.Model == "" || strings.TrimSpace(p.Model) != p.Model {
-			return Identity{}, fmt.Errorf("llmreq: slot %s needs a model id without surrounding space", p.Slot)
-		}
-		if models[p.Model] {
-			return Identity{}, fmt.Errorf("llmreq: slot %s repeats another participant's model", p.Slot)
-		}
-		if !slices.Contains(ReasoningEfforts(), p.ReasoningEffort) {
-			return Identity{}, fmt.Errorf("llmreq: slot %s has an unknown reasoning effort", p.Slot)
-		}
-		if p.Temperature != nil && (*p.Temperature < 0 || *p.Temperature > 2) {
-			return Identity{}, fmt.Errorf("llmreq: slot %s temperature is outside 0..2", p.Slot)
-		}
-		models[p.Model] = true
-		bySlot[p.Slot] = p
-	}
-	ordered := make([]Participant, 0, len(participants))
-	for _, s := range Slots() {
-		ordered = append(ordered, bySlot[s])
 	}
 	prompt, schema := PromptSHA256(), SchemaSHA256()
 	return Identity{
@@ -143,6 +118,76 @@ func NewIdentity(baseURL string, participants []Participant, output OutputLimits
 		TokenizerVersion: TokenizerVersion,
 		ContextVersion:   llmres.ContextVersion,
 	}, nil
+}
+
+// NewMergeIdentity builds the identity of the merge configuration (E4c,
+// plan §4.1) on the same endpoint and participants as NewIdentity checks
+// them: the merge prompt and schema, the merge validator, the card version
+// as its context, and Task merge. Its version therefore differs from the
+// normalization one's, so the jobs, provider state, fingerprints and reports
+// of the two never mix.
+func NewMergeIdentity(baseURL string, participants []Participant, output OutputLimits) (Identity, error) {
+	base, ordered, err := validParticipants(baseURL, participants, output)
+	if err != nil {
+		return Identity{}, err
+	}
+	prompt, schema := MergePromptSHA256(), MergeSchemaSHA256()
+	return Identity{
+		BaseURL:          base,
+		Participants:     ordered,
+		Output:           output,
+		PromptSHA256:     hex.EncodeToString(prompt[:]),
+		SchemaSHA256:     hex.EncodeToString(schema[:]),
+		ValidatorVersion: MergeValidatorVersion,
+		TokenizerVersion: TokenizerVersion,
+		ContextVersion:   authorentity.MergeCardVersion,
+		Task:             TaskMerge,
+	}, nil
+}
+
+// validParticipants checks an endpoint, its four participants and the output
+// limits, and returns the endpoint normalized and the participants in slot
+// order.
+func validParticipants(baseURL string, participants []Participant, output OutputLimits) (string, []Participant, error) {
+	base, err := NormalizeBaseURL(baseURL)
+	if err != nil {
+		return "", nil, err
+	}
+	if outErr := output.validate(); outErr != nil {
+		return "", nil, outErr
+	}
+	if len(participants) != len(Slots()) {
+		return "", nil, errors.New("llmreq: a configuration has exactly four participants")
+	}
+	bySlot := make(map[Slot]Participant, len(participants))
+	models := make(map[string]bool, len(participants))
+	for _, p := range participants {
+		if !p.Slot.Valid() {
+			return "", nil, fmt.Errorf("llmreq: unknown slot %q", p.Slot)
+		}
+		if _, dup := bySlot[p.Slot]; dup {
+			return "", nil, fmt.Errorf("llmreq: slot %s given twice", p.Slot)
+		}
+		if p.Model == "" || strings.TrimSpace(p.Model) != p.Model {
+			return "", nil, fmt.Errorf("llmreq: slot %s needs a model id without surrounding space", p.Slot)
+		}
+		if models[p.Model] {
+			return "", nil, fmt.Errorf("llmreq: slot %s repeats another participant's model", p.Slot)
+		}
+		if !slices.Contains(ReasoningEfforts(), p.ReasoningEffort) {
+			return "", nil, fmt.Errorf("llmreq: slot %s has an unknown reasoning effort", p.Slot)
+		}
+		if p.Temperature != nil && (*p.Temperature < 0 || *p.Temperature > 2) {
+			return "", nil, fmt.Errorf("llmreq: slot %s temperature is outside 0..2", p.Slot)
+		}
+		models[p.Model] = true
+		bySlot[p.Slot] = p
+	}
+	ordered := make([]Participant, 0, len(participants))
+	for _, s := range Slots() {
+		ordered = append(ordered, bySlot[s])
+	}
+	return base, ordered, nil
 }
 
 // Participant returns the participant of a slot.
