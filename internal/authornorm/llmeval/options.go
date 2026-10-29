@@ -13,6 +13,11 @@ type Options struct {
 	// ContestedIsError counts an accepted answer without a gold (the
 	// judges disagree, refuse or did not answer) as an error in |A|.
 	ContestedIsError bool `json:"contested_is_error,omitempty"`
+	// ContestedAdjudicated lets a human clear such an error: a contested
+	// accept adjudicated same or unclear counts as a correct one; pending
+	// or different stays an error (the suite's rule). Contested items are
+	// reported by script with their labels.
+	ContestedAdjudicated bool `json:"contested_adjudicated,omitempty"`
 	// AcceptOnly, when set, is the one canonical answer that accepts: the
 	// pair agreeing on any other accepts nothing and is no error.
 	AcceptOnly string `json:"accept_only,omitempty"`
@@ -21,6 +26,59 @@ type Options struct {
 	AnchorRecall bool `json:"anchor_recall,omitempty"`
 	// ByScript breaks every combo down per item script.
 	ByScript bool `json:"by_script,omitempty"`
+}
+
+// contestedError reports whether a contested accept counts as an error:
+// always, unless a human cleared it (ContestedAdjudicated).
+func (o *Options) contestedError(it *Item) bool {
+	if !o.ContestedAdjudicated {
+		return true
+	}
+	return it.Adjudication != AdjudicatedSame && it.Adjudication != AdjudicatedUnclear
+}
+
+// ContestedMetrics are a combo's contested accepts by their adjudication,
+// and their item ids by script: the items a human is to label. Failed are
+// those still errors (pending or different).
+type ContestedMetrics struct {
+	AdjudicatedSame      int                `json:"adjudicated_same"`
+	AdjudicatedDifferent int                `json:"adjudicated_different"`
+	Unclear              int                `json:"unclear"`
+	Pending              int                `json:"pending"`
+	Failed               int                `json:"failed"`
+	IDs                  map[string][]int64 `json:"ids"`
+}
+
+// add counts one contested accept.
+func (m *ContestedMetrics) add(it *Item) {
+	if m.IDs == nil {
+		m.IDs = map[string][]int64{}
+	}
+	m.IDs[it.Script] = append(m.IDs[it.Script], it.ID)
+	switch it.Adjudication {
+	case AdjudicatedSame:
+		m.AdjudicatedSame++
+	case AdjudicatedUnclear:
+		m.Unclear++
+	case AdjudicatedDifferent:
+		m.AdjudicatedDifferent++
+		m.Failed++
+	default:
+		m.Pending++
+		m.Failed++
+	}
+}
+
+// review is the combo's contested review, made on first use; nil while
+// contested accepts are not adjudicated.
+func (o *Options) review(m **ContestedMetrics) *ContestedMetrics {
+	if !o.ContestedAdjudicated {
+		return nil
+	}
+	if *m == nil {
+		*m = &ContestedMetrics{}
+	}
+	return *m
 }
 
 // accepts reports an agreed answer that accepts: any, or AcceptOnly's.
@@ -73,6 +131,8 @@ type SupplementMetrics struct {
 	Accepted     int `json:"accepted"`
 	Contested    int `json:"contested"`
 	Errors       int `json:"errors"`
+	// ContestedReview is the contested accepts' labels (ContestedAdjudicated).
+	ContestedReview *ContestedMetrics `json:"contested_review,omitempty"`
 }
 
 // measureSupplement counts the items gated outside |A| in a combo.
@@ -89,12 +149,15 @@ func measureSupplement(c Combo, items []*Item, o *Options) *SupplementMetrics {
 		g := gold(it)
 		if g == "" {
 			m.Contested++
+			if r := o.review(&m.ContestedReview); r != nil {
+				r.add(it)
+			}
 			if !o.ContestedIsError {
 				continue
 			}
 		}
 		m.Accepted++
-		if g != answer {
+		if g != answer && (g != "" || o.contestedError(it)) {
 			m.Errors++
 		}
 	}
@@ -240,7 +303,7 @@ func (s *ScriptMetrics) add(it *Item, c Combo, o *Options) {
 		}
 	}
 	s.Accepted++
-	if g != answer {
+	if g != answer && (g != "" || o.contestedError(it)) {
 		s.Errors++
 	}
 }

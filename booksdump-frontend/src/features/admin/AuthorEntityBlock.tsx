@@ -3,13 +3,16 @@ import { useTranslation } from 'react-i18next';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
 import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import { Progress } from '@/shared/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 import { Switch } from '@/shared/ui/switch';
 import * as adminApi from '@/api/admin';
 import type {
     AuthorAutopilotStatus,
+    AuthorMergeApplyReport,
     AuthorMergeDecision,
+    AuthorMergeRegistration,
     AuthorMergeVeto,
     AuthorMergeVetoEntity,
     AuthorMerges,
@@ -47,6 +50,12 @@ import { closedErrorCode } from '@/api/admin';
  * newest pass did with them, and the vetoes revokes left: a revoke splits the
  * pair and keeps it apart; a veto is retired, or re-anchored on the two
  * entities that are its sides now when an extractor rewrite lost its books.
+ *
+ * Its registrations (E4d) are the kinds of merge a merge eval passed: a kind
+ * is registered from the run whose report passed it, its eval applied — the
+ * pairs the model's pair and both judges found to be one person become
+ * decisions — and withdrawn, or one script of it blocked, to split its merges
+ * at the next pass.
  */
 
 /** How often the block re-reads while a pass is active. */
@@ -448,9 +457,42 @@ const mergeKind = (t: T, kind: string): string => {
     return label ? t(label[0], label[1]) : kind;
 };
 
+/** Why a decision is out of date or in conflict, by its closed code; an unknown code shows as it is. */
+const MERGE_REASONS: Record<string, [string, string]> = {
+    input_changed: ['authorEntity.merges.reason.input_changed', 'a card changed'],
+    members_changed: ['authorEntity.merges.reason.members_changed', 'the records changed'],
+    extractor_moved: ['authorEntity.merges.reason.extractor_moved', 're-extracted'],
+    card_failed: ['authorEntity.merges.reason.card_failed', 'the card could not be built'],
+    two_targets: ['authorEntity.merges.reason.two_targets', 'one book, two full names'],
+    d3_disagrees: ['authorEntity.merges.reason.d3_disagrees', 'the book moved elsewhere'],
+    revoked: ['authorEntity.merges.reason.revoked', 'an undone merge'],
+    vetoed: ['authorEntity.merges.reason.vetoed', 'a veto'],
+    not_same: ['authorEntity.merges.reason.not_same', 'the model found another pair different'],
+    withdrawn: ['authorEntity.merges.reason.withdrawn', 'the kind is withdrawn'],
+    script_blocked: ['authorEntity.merges.reason.script_blocked', 'the script is blocked'],
+    unregistered: ['authorEntity.merges.reason.unregistered', 'the kind is not registered'],
+    manual_side: ['authorEntity.merges.reason.manual_side', 'fixed by hand'],
+    revoked_pair: ['authorEntity.merges.reason.revoked_pair', 'an undone pair'],
+    bucket_side: ['authorEntity.merges.reason.bucket_side', 'a short name'],
+    co_credited: ['authorEntity.merges.reason.co_credited', 'co-authors of one book'],
+    namesake_tag: ['authorEntity.merges.reason.namesake_tag', 'a namesake'],
+    pseudonym_key: ['authorEntity.merges.reason.pseudonym_key', 'a pen name'],
+    partner_cap: ['authorEntity.merges.reason.partner_cap', 'too many similar names'],
+    initials_side_gt10: ['authorEntity.merges.reason.initials_side_gt10', 'too many books'],
+    mixed_script: ['authorEntity.merges.reason.mixed_script', 'mixed scripts'],
+    no_family_or_given: ['authorEntity.merges.reason.no_family_or_given', 'no surname or name'],
+    loose_script_only: ['authorEntity.merges.reason.loose_script_only', 'a loose transliteration'],
+    precedence: ['authorEntity.merges.reason.precedence', 'another kind of pair'],
+};
+
+const mergeReason = (t: T, reason: string): string => {
+    const label = MERGE_REASONS[reason];
+    return label ? t(label[0], label[1]) : reason;
+};
+
 /** A decision's state in the newest pass, as one phrase. */
 const decisionState = (t: T, d: AuthorMergeDecision): string => {
-    const reason = d.reason ?? '';
+    const reason = mergeReason(t, d.reason ?? '');
     switch (d.state) {
         case 'applied':
             return t('authorEntity.merges.state.applied', 'merged');
@@ -499,6 +541,44 @@ const describeMergeError = (t: T, error: unknown): string => {
                 'authorEntity.merges.error.sides',
                 'The chosen entities are not the two sides of the veto.',
             );
+        case 'merge_report_invalid':
+            return t(
+                'authorEntity.merges.error.report',
+                'The run is not a completed merge check with a report.',
+            );
+        case 'merge_gate_invalid':
+            return t(
+                'authorEntity.merges.error.gate',
+                "The report is not checked against the judges' consensus.",
+            );
+        case 'merge_kind_not_passed':
+            return t('authorEntity.merges.error.notPassed', 'The report did not pass this kind.');
+        case 'merge_kind_registered':
+            return t(
+                'authorEntity.merges.error.registered',
+                'The kind is already registered for this configuration.',
+            );
+        case 'registration_not_live':
+            return t('authorEntity.merges.error.withdrawn', 'The registration is withdrawn.');
+        case 'merge_apply_drift_held':
+            return t(
+                'authorEntity.merges.error.drift',
+                'A model of the check changed (fingerprint drift): nothing is applied until it is resumed.',
+            );
+        case 'veto_unanchored':
+            return t(
+                'authorEntity.merges.error.unanchored',
+                'A veto lost its books: nothing is applied until it is re-anchored or retired.',
+            );
+        case 'no_completed_build':
+            return t('authorEntity.merges.error.noBuild', 'Build the entities first.');
+        case 'active_run_exists':
+            return t(
+                'authorEntity.merges.error.buildActive',
+                'A build is running: apply once it is done.',
+            );
+        case 'invalid_request':
+            return t('authorEntity.merges.error.invalid', 'Check the run number and the kind.');
         default:
             return t('authorEntity.error.other', 'The action failed.');
     }
@@ -610,12 +690,173 @@ const VetoItem: React.FC<{
     );
 };
 
+const MERGE_SCRIPTS = ['Cyrl', 'Latn', 'Cyrl-Latn'];
+
+/** One registration: what it is, and its apply, script block and withdrawal. */
+const RegistrationItem: React.FC<{
+    registration: AuthorMergeRegistration;
+    busy: boolean;
+    act: (action: () => Promise<unknown>) => Promise<void>;
+    onApplied: (report: AuthorMergeApplyReport) => void;
+}> = ({ registration: r, busy, act, onApplied }) => {
+    const { t } = useTranslation();
+    const open = MERGE_SCRIPTS.filter((s) => !r.blocked_scripts.includes(s));
+    const [script, setScript] = useState(open[0] ?? '');
+    const withdraw = () => {
+        if (
+            window.confirm(
+                t('authorEntity.merges.withdrawConfirm', {
+                    defaultValue:
+                        'Withdraw {{kind}}? Every merge of this kind splits at the next pass.',
+                    kind: mergeKind(t, r.kind),
+                }),
+            )
+        ) {
+            void act(() => adminApi.withdrawMergeRegistration(r.id));
+        }
+    };
+    const block = () => {
+        if (
+            window.confirm(
+                t('authorEntity.merges.blockConfirm', {
+                    defaultValue:
+                        'Block {{script}} in {{kind}}? Its merges of that script split at the next pass.',
+                    script,
+                    kind: mergeKind(t, r.kind),
+                }),
+            )
+        ) {
+            void act(() => adminApi.blockMergeScript(r.id, script));
+        }
+    };
+    const live = r.withdrawn_at === undefined;
+    return (
+        <li className="flex flex-col gap-1">
+            <p className="text-sm tabular-nums">
+                {t('authorEntity.merges.registration', {
+                    defaultValue:
+                        '{{kind}}: check run {{run}}, report {{report}}{{blocked}}{{withdrawn}}',
+                    kind: mergeKind(t, r.kind),
+                    run: r.run_id,
+                    report: r.evidence_report_id,
+                    blocked:
+                        r.blocked_scripts.length > 0
+                            ? t('authorEntity.merges.blocked', {
+                                  defaultValue: ' · blocked: {{scripts}}',
+                                  scripts: r.blocked_scripts.join(', '),
+                              })
+                            : '',
+                    withdrawn: live ? '' : t('authorEntity.merges.withdrawnMark', ' · withdrawn'),
+                })}
+            </p>
+            {live && (
+                <div className="flex flex-wrap items-end gap-2">
+                    <Button
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                            act(async () => onApplied((await adminApi.applyMergeEval(r.id)).apply))
+                        }
+                    >
+                        {t('authorEntity.merges.apply', 'Apply the check')}
+                    </Button>
+                    {open.length > 0 && (
+                        <>
+                            <Select value={script} onValueChange={setScript}>
+                                <SelectTrigger
+                                    aria-label={t('authorEntity.merges.script', 'Script')}
+                                    className="w-36"
+                                >
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {open.map((s) => (
+                                        <SelectItem key={s} value={s}>
+                                            {s}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Button variant="outline" size="sm" disabled={busy} onClick={block}>
+                                {t('authorEntity.merges.block', 'Block script')}
+                            </Button>
+                        </>
+                    )}
+                    <Button variant="outline" size="sm" disabled={busy} onClick={withdraw}>
+                        {t('authorEntity.merges.withdraw', 'Withdraw')}
+                    </Button>
+                </div>
+            )}
+        </li>
+    );
+};
+
+/** The registration of a kind from a merge check run. */
+const RegisterForm: React.FC<{
+    busy: boolean;
+    act: (action: () => Promise<unknown>) => Promise<void>;
+}> = ({ busy, act }) => {
+    const { t } = useTranslation();
+    const [run, setRun] = useState('');
+    const [kind, setKind] = useState('swap');
+    const runID = Number(run);
+    const valid = Number.isInteger(runID) && runID > 0;
+    return (
+        <div className="flex flex-wrap items-end gap-2">
+            <Input
+                aria-label={t('authorEntity.merges.runLabel', 'Check run')}
+                placeholder={t('authorEntity.merges.runLabel', 'Check run')}
+                inputMode="numeric"
+                className="w-32"
+                value={run}
+                onChange={(e) => setRun(e.target.value.trim())}
+            />
+            <Select value={kind} onValueChange={setKind}>
+                <SelectTrigger
+                    aria-label={t('authorEntity.merges.kindLabel', 'Kind')}
+                    className="w-56"
+                >
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {Object.keys(MERGE_KINDS).map((k) => (
+                        <SelectItem key={k} value={k}>
+                            {mergeKind(t, k)}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Button
+                size="sm"
+                disabled={busy || !valid}
+                onClick={() => act(() => adminApi.registerMergeKind(runID, kind))}
+            >
+                {t('authorEntity.merges.register', 'Register')}
+            </Button>
+        </div>
+    );
+};
+
+/** What the last apply did, as one line. */
+const applyLine = (t: T, a: AuthorMergeApplyReport): string =>
+    t('authorEntity.merges.applied', {
+        defaultValue:
+            '{{kind}}: {{inserted}} merges added of {{accepted}} accepted ({{items}} asked); out of date {{lapsed}}, already there {{already}}',
+        kind: mergeKind(t, a.kind),
+        inserted: formatNumber(a.inserted),
+        accepted: formatNumber(a.accepted),
+        items: formatNumber(a.items),
+        lapsed: formatNumber(a.lapsed_before_apply),
+        already: formatNumber(a.already_decided),
+    });
+
 /** The merges section: the model's decisions and the vetoes of revokes. */
 const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged }) => {
     const { t } = useTranslation();
     const [merges, setMerges] = useState<AuthorMerges | null>(null);
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
+    const [applied, setApplied] = useState<AuthorMergeApplyReport | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -738,6 +979,30 @@ const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged
                     ))}
                 </ul>
             )}
+            <h5 className="text-sm font-medium">
+                {t('authorEntity.merges.registrations', 'Registered kinds')}
+            </h5>
+            <p className="text-sm text-muted-foreground">
+                {t(
+                    'authorEntity.merges.registrationsHint',
+                    "A kind of merge the model's check passed. Applying the check merges the pairs both models and both judges found to be one person; withdrawing the kind, or blocking one script of it, splits its merges at the next pass.",
+                )}
+            </p>
+            {merges !== null && merges.registrations.length > 0 && (
+                <ul className="flex flex-col gap-2">
+                    {merges.registrations.map((r) => (
+                        <RegistrationItem
+                            key={r.id}
+                            registration={r}
+                            busy={busy}
+                            act={act}
+                            onApplied={setApplied}
+                        />
+                    ))}
+                </ul>
+            )}
+            {applied !== null && <p className="text-sm tabular-nums">{applyLine(t, applied)}</p>}
+            <RegisterForm busy={busy} act={act} />
         </div>
     );
 };

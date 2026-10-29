@@ -167,7 +167,13 @@ beforeEach(() => {
     });
     api.getAuthorEntityStatus.mockResolvedValue({ status: { run: null, report: null } });
     api.getAuthorMerges.mockResolvedValue({
-        merges: { decisions: [], decisions_total: 0, vetoes: [], unanchored: false },
+        merges: {
+            decisions: [],
+            decisions_total: 0,
+            vetoes: [],
+            unanchored: false,
+            registrations: [],
+        },
     });
     api.startAuthorMetadataRun.mockResolvedValue({ run: run({ status: 'running' }) });
     api.approveAuthorMetadataFullRun.mockResolvedValue({ run: run({ approved_for_full: true }) });

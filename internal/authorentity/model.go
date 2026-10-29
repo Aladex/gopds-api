@@ -30,6 +30,11 @@ type MergeDecision struct {
 	Credit             *CreditKey
 	// ReportID is the eval report the decision cites; 0 when none.
 	ReportID int64
+	// Withheld is why a model decision does not apply whatever its
+	// candidate (E4d, §4.7): its kind is not registered for its
+	// configuration (unregistered), the registration is withdrawn, or the
+	// decision's script is blocked (script_blocked). Empty when it may.
+	Withheld string
 }
 
 // States of a decision in a pass.
@@ -61,6 +66,9 @@ const (
 	// ConflictVetoed: the union crosses a live veto (a decision older than
 	// the veto, E4b-3).
 	ConflictVetoed = "vetoed"
+	// ConflictNotSame: the union would join the two sides of a pair the
+	// production pair answered other than same (E4d, §4.2).
+	ConflictNotSame = "not_same"
 )
 
 // DecisionState is what a pass did with one decision.
@@ -239,6 +247,10 @@ func (m *modelStep) evaluate() {
 		m.rep.Decisions++
 		si := m.byDigest[d.Digest]
 		switch reason := ""; {
+		case d.Withheld != "":
+			// The registration gate comes first: a withdrawn kind or a
+			// blocked script never applies, whatever the candidate.
+			m.set(d.ID, DecisionLapsed, d.Withheld)
 		case si == nil:
 			// A candidate a live veto excludes is the decision's own pair
 			// across the veto: a conflict, not a lapse (§4.11 step 4).
@@ -258,11 +270,18 @@ func (m *modelStep) evaluate() {
 	for _, e := range m.entityDecs {
 		uf.union(e.si.sideA.root, e.si.sideB.root)
 	}
-	held := map[int]bool{}
-	for digest := range revoked {
-		if si := m.byDigest[digest]; si != nil && si.credit == nil &&
-			uf.find(si.sideA.root) == uf.find(si.sideB.root) {
-			held[uf.find(si.sideA.root)] = true
+	held := map[int]string{}
+	for _, against := range []struct {
+		digests map[[32]byte]bool
+		reason  string
+	}{{revoked, ConflictRevoked}, {m.b.in.NotSame, ConflictNotSame}} {
+		for _, digest := range sortedDigests(against.digests) {
+			if si := m.byDigest[digest]; si != nil && si.credit == nil &&
+				uf.find(si.sideA.root) == uf.find(si.sideB.root) {
+				if root := uf.find(si.sideA.root); held[root] == "" {
+					held[root] = against.reason
+				}
+			}
 		}
 	}
 	vetoed := m.vetoedUnions(uf)
@@ -270,8 +289,8 @@ func (m *modelStep) evaluate() {
 	var applied []decided
 	for _, e := range m.entityDecs {
 		switch root := uf.find(e.si.sideA.root); {
-		case held[root]:
-			m.set(e.d.ID, DecisionConflict, ConflictRevoked)
+		case held[root] != "":
+			m.set(e.d.ID, DecisionConflict, held[root])
 		case vetoed[root]:
 			m.set(e.d.ID, DecisionConflict, ConflictVetoed)
 			// One refused union, however many decisions proposed it.
@@ -284,6 +303,16 @@ func (m *modelStep) evaluate() {
 		}
 	}
 	m.entityDecs = applied
+}
+
+// sortedDigests are a set's digests in byte order.
+func sortedDigests(set map[[32]byte]bool) [][32]byte {
+	out := make([][32]byte, 0, len(set))
+	for d := range set {
+		out = append(out, d)
+	}
+	slices.SortFunc(out, func(x, y [32]byte) int { return bytes.Compare(x[:], y[:]) })
+	return out
 }
 
 // vetoedUnions are the proposed unions (by root of uf) that would join two

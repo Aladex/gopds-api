@@ -118,6 +118,22 @@ const vetoSides = 2
 // (ErrMergeDecisionSideUnrecorded). InsertMergeDecision calls it; a test
 // that inserts a decision row by hand calls it after.
 func RecordMergeDecisionBooks(ctx context.Context, tx pg.DBI, decisionID int64) error {
+	unrecorded, err := recordMergeDecisionBooks(ctx, tx, []int64{decisionID})
+	if err != nil {
+		return err
+	}
+	if len(unrecorded) > 0 {
+		return ErrMergeDecisionSideUnrecorded
+	}
+	return nil
+}
+
+// recordMergeDecisionBooks records the books of many decisions in two
+// statements and returns the digests of those with a side on no book.
+func recordMergeDecisionBooks(ctx context.Context, tx pg.DBI, ids []int64) ([][]byte, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO public.author_entity_merge_decision_book (decision_id, side, book_id, source_fingerprint)
 		SELECT DISTINCT d.id, m.side, s.book_id, c.source_fingerprint
@@ -126,25 +142,24 @@ func RecordMergeDecisionBooks(ctx context.Context, tx pg.DBI, decisionID int64) 
 		JOIN public.book_contributor_credit c ON c.source_fingerprint = m.source_fingerprint AND c.role = 'author'
 		JOIN public.book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current
 			AND s.extractor_version = m.extractor_version
-		WHERE d.id = ?0 AND (d.item_kind = 'entity' OR m.side = 'b')
+		WHERE d.id = ANY(?0::bigint[]) AND (d.item_kind = 'entity' OR m.side = 'b')
 		UNION
 		SELECT d.id, 'a', s.book_id, c.source_fingerprint
 		FROM public.author_entity_merge_decision d
 		JOIN public.book_contributor_credit c ON c.id = d.credit_id
 		JOIN public.book_metadata_snapshot s ON s.id = c.snapshot_id
-		WHERE d.id = ?0 AND d.item_kind = 'book'`, decisionID); err != nil {
-		return fmt.Errorf("recording the merge decision's books: %w", err)
+		WHERE d.id = ANY(?0::bigint[]) AND d.item_kind = 'book'`, pg.Array(ids)); err != nil {
+		return nil, fmt.Errorf("recording the merge decision's books: %w", err)
 	}
-	var sides int
-	if _, err := tx.QueryOneContext(ctx, pg.Scan(&sides), `
-		SELECT count(DISTINCT side) FROM public.author_entity_merge_decision_book WHERE decision_id = ?`,
-		decisionID); err != nil {
-		return fmt.Errorf("checking the merge decision's books: %w", err)
+	var unrecorded [][]byte
+	if _, err := tx.QueryContext(ctx, &unrecorded, `
+		SELECT d.digest FROM public.author_entity_merge_decision d
+		WHERE d.id = ANY(?::bigint[]) AND (SELECT count(DISTINCT b.side)
+			FROM public.author_entity_merge_decision_book b WHERE b.decision_id = d.id) <> ?
+		ORDER BY d.id`, pg.Array(ids), vetoSides); err != nil {
+		return nil, fmt.Errorf("checking the merge decision's books: %w", err)
 	}
-	if sides != vetoSides {
-		return ErrMergeDecisionSideUnrecorded
-	}
-	return nil
+	return unrecorded, nil
 }
 
 // recordMergeVeto records the veto of a revoke, in its transaction (§4.11):

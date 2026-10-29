@@ -21,14 +21,16 @@ import (
 // it writes nothing.
 
 // decideSwap inserts a same decision on the stored swap candidate, the way
-// a merge run will, and returns its id.
+// a merge run will, under a registration of the kind, and returns its id.
 func (c *entityCatalog) decideSwap() int64 {
 	c.t.Helper()
+	version, registration := c.registerFixtureKind("swap")
 	var id int64
 	_, err := c.db.QueryOne(pg.Scan(&id), `INSERT INTO author_entity_merge_decision (digest, kind, script, item_kind,
-			credit_id, credit_ordinal, members_sha256, input_sha256, outcome, source)
-		SELECT digest, kind, script, item_kind, credit_id, credit_ordinal, members_sha256, input_sha256, 'same', 'model'
-		FROM author_entity_merge_candidate WHERE kind = 'swap' RETURNING id`)
+			credit_id, credit_ordinal, members_sha256, input_sha256, outcome, source, config_version, registration_id)
+		SELECT digest, kind, script, item_kind, credit_id, credit_ordinal, members_sha256, input_sha256, 'same', 'model',
+			?, ?
+		FROM author_entity_merge_candidate WHERE kind = 'swap' RETURNING id`, version, registration)
 	require.NoError(c.t, err)
 	c.exec(`INSERT INTO author_entity_merge_decision_member (decision_id, side, source_fingerprint, extractor_version,
 			ordinal)
@@ -49,11 +51,15 @@ func (c *entityCatalog) decideBetween(x, y byte) int64 {
 		WHERE a.source_fingerprint = ? AND b.source_fingerprint = ?`,
 		bytes.Repeat([]byte{x}, 32), bytes.Repeat([]byte{y}, 32))
 	require.NoError(c.t, err)
+	var kind string
+	_, err = c.db.QueryOne(pg.Scan(&kind), `SELECT kind FROM author_entity_merge_candidate WHERE digest = ?`, digest)
+	require.NoError(c.t, err)
+	version, registration := c.registerFixtureKind(kind)
 	var id int64
 	_, err = c.db.QueryOne(pg.Scan(&id), `INSERT INTO author_entity_merge_decision (digest, kind, script, item_kind,
-			members_sha256, input_sha256, outcome, source)
-		SELECT digest, kind, script, item_kind, members_sha256, input_sha256, 'same', 'model'
-		FROM author_entity_merge_candidate WHERE digest = ? RETURNING id`, digest)
+			members_sha256, input_sha256, outcome, source, config_version, registration_id)
+		SELECT digest, kind, script, item_kind, members_sha256, input_sha256, 'same', 'model', ?, ?
+		FROM author_entity_merge_candidate WHERE digest = ? RETURNING id`, version, registration, digest)
 	require.NoError(c.t, err)
 	c.exec(`INSERT INTO author_entity_merge_decision_member (decision_id, side, source_fingerprint, extractor_version,
 			ordinal)

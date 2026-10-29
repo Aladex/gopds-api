@@ -135,7 +135,9 @@ const (
 	// failed the pass).
 	AuthorMetadataEventEntityBuildInputMoved AuthorMetadataEventName = "author_metadata.entity_build_input_moved"
 	// EntityMergeAction: an administrator acted on a model merge (ItemID:
-	// the decision or veto; Status revoked, veto_retired or veto_reanchored).
+	// the decision, veto or registration; Status revoked, veto_retired,
+	// veto_reanchored, kind_registered, kind_withdrawn, script_blocked or
+	// eval_applied).
 	AuthorMetadataEventEntityMergeAction AuthorMetadataEventName = "author_metadata.entity_merge_action"
 
 	// Wikidata reference of the entity build (phase E4w). Started: an

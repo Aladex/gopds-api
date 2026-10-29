@@ -32,6 +32,7 @@ type AuthorLLMAdminService interface {
 	EvalReport(ctx context.Context, id int64, version int) ([]byte, string, error)
 	RecomputeEvalReport(ctx context.Context, id int64) (*services.AuthorLLMRunState, error)
 	AdversarialItems(ctx context.Context, id int64) (*services.AuthorLLMAdversarialReview, error)
+	ContestedItems(ctx context.Context, id int64) (*services.AuthorLLMAdversarialReview, error)
 	Adjudicate(ctx context.Context, itemID int64, label, note, by string) error
 }
 
@@ -155,6 +156,10 @@ func (unavailableAuthorLLMAdmin) AdversarialItems(context.Context, int64) (*serv
 	return nil, errAuthorLLMServiceUnavailable
 }
 
+func (unavailableAuthorLLMAdmin) ContestedItems(context.Context, int64) (*services.AuthorLLMAdversarialReview, error) {
+	return nil, errAuthorLLMServiceUnavailable
+}
+
 func (unavailableAuthorLLMAdmin) Adjudicate(context.Context, int64, string, string, string) error {
 	return errAuthorLLMServiceUnavailable
 }
@@ -176,6 +181,7 @@ func SetupAuthorLLMRoutes(r *gin.RouterGroup, svc AuthorLLMAdminService) {
 	r.GET("/eval-report/:id", h.report)
 	r.POST("/eval-report/:id/recompute", h.recompute)
 	r.GET("/eval-report/:id/adversarial", h.adversarial)
+	r.GET("/eval-report/:id/contested", h.contested)
 	r.PUT("/adjudications/:id", h.adjudicate)
 	r.POST("/participants/:slot/resume", h.resumeParticipant)
 	r.POST("/endpoint/resume", h.resumeEndpoint)
@@ -408,6 +414,31 @@ func (h *authorLLMHandler) adversarial(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"review": review})
 }
 
+// contested godoc
+// @Summary The contested accepts of a merge eval run
+// @Description The census or holdout items the pair agreed same and the judges did not both confirm, as the latest
+// @Description report lists them: each item's two sides, the four answers and its current adjudication (merge routes
+// @Description only). A label same or unclear clears the error the gate counts; none is ever applied.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Run id"
+// @Produce json
+// @Success 200 {object} map[string]services.AuthorLLMAdversarialReview
+// @Router /api/admin/author-metadata/llm/merge/eval-report/{id}/contested [get]
+func (h *authorLLMHandler) contested(c *gin.Context) {
+	id, err := runID(c)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	review, err := h.svc.ContestedItems(c.Request.Context(), id)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"review": review})
+}
+
 // adjudicateRequest is an adjudication's body: label is required, note may
 // be empty.
 type adjudicateRequest struct {
@@ -416,9 +447,9 @@ type adjudicateRequest struct {
 }
 
 // adjudicate godoc
-// @Summary Label an accepted adversarial suite item
-// @Description label same, different or unclear. 409 not_adjudicable: not an adversarial suite item
-// @Description a merge eval accepted.
+// @Summary Label an accepted adversarial suite item or a contested accept
+// @Description label same, different or unclear. 409 not_adjudicable: neither an adversarial suite item nor a
+// @Description contested accept of a merge eval.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Eval item id"

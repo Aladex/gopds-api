@@ -6,6 +6,7 @@ import * as adminApi from '@/api/admin';
 import type {
     AuthorAutopilotStatus,
     AuthorMerges,
+    AuthorMergeRegistration,
     AuthorMergeVeto,
     AuthorEntityReport,
     AuthorEntityRun,
@@ -50,6 +51,10 @@ vi.mock('@/api/admin', async (importOriginal) => {
         revokeMergeDecision: vi.fn(),
         retireMergeVeto: vi.fn(),
         reanchorMergeVeto: vi.fn(),
+        registerMergeKind: vi.fn(),
+        withdrawMergeRegistration: vi.fn(),
+        blockMergeScript: vi.fn(),
+        applyMergeEval: vi.fn(),
     };
 });
 
@@ -164,6 +169,21 @@ const noMerges = (): AuthorMerges => ({
     decisions_total: 0,
     vetoes: [],
     unanchored: false,
+    registrations: [],
+});
+
+const registration = (
+    overrides: Partial<AuthorMergeRegistration> = {},
+): AuthorMergeRegistration => ({
+    id: 4,
+    config_version: 'llm1-merge',
+    kind: 'swap',
+    evidence_report_id: 31,
+    gate: 'judge_consensus',
+    registered_at: new Date().toISOString(),
+    blocked_scripts: [],
+    run_id: 33,
+    ...overrides,
 });
 
 const veto = (overrides: Partial<AuthorMergeVeto> = {}): AuthorMergeVeto => ({
@@ -628,6 +648,93 @@ describe('AuthorEntityBlock', () => {
         expect(
             await screen.findByText('The chosen entities are not the two sides of the veto.'),
         ).toBeInTheDocument();
+    });
+
+    it('says why a decision is out of date in words, not codes', async () => {
+        const merges = oneDecision();
+        merges.decisions[0] = { ...merges.decisions[0], state: 'lapsed', reason: 'withdrawn' };
+        showMerges(merges);
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText(
+                `9: Стивен Кинг (${n(2)}) and Кинг Стивен (${n(1)}) · swapped name parts · out of date (the kind is withdrawn)`,
+            ),
+        ).toBeInTheDocument();
+    });
+
+    it('lists a registration, applies its check and says what the apply did', async () => {
+        showMerges({ ...noMerges(), registrations: [registration({ blocked_scripts: ['Latn'] })] });
+        api.applyMergeEval.mockResolvedValue({
+            apply: {
+                registration_id: 4,
+                kind: 'swap',
+                run_id: 33,
+                report_id: 31,
+                items: 1081,
+                accepted: 900,
+                inserted: 890,
+                lapsed_before_apply: 10,
+                already_decided: 0,
+                build_run_id: 40,
+            },
+        });
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText('swapped name parts: check run 33, report 31 · blocked: Latn'),
+        ).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Apply the check' }));
+        await waitFor(() => expect(api.applyMergeEval).toHaveBeenCalledWith(4));
+        expect(
+            await screen.findByText(
+                `swapped name parts: ${n(890)} merges added of ${n(900)} accepted (${n(1081)} asked); out of date ${n(10)}, already there ${n(0)}`,
+            ),
+        ).toBeInTheDocument();
+        await waitFor(() => expect(api.getAuthorMerges).toHaveBeenCalledTimes(2));
+    });
+
+    it('blocks a script and withdraws a kind once confirmed', async () => {
+        showMerges({ ...noMerges(), registrations: [registration()] });
+        api.blockMergeScript.mockResolvedValue({ registration_id: 4 });
+        api.withdrawMergeRegistration.mockResolvedValue({ registration_id: 4 });
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        render(<AuthorEntityBlock />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Withdraw' }));
+        expect(api.withdrawMergeRegistration).not.toHaveBeenCalled();
+        confirm.mockReturnValue(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Block script' }));
+        await waitFor(() => expect(api.blockMergeScript).toHaveBeenCalledWith(4, 'Cyrl'));
+        fireEvent.click(await screen.findByRole('button', { name: 'Withdraw' }));
+        await waitFor(() => expect(api.withdrawMergeRegistration).toHaveBeenCalledWith(4));
+        confirm.mockRestore();
+    });
+
+    it('offers nothing on a withdrawn registration', async () => {
+        showMerges({
+            ...noMerges(),
+            registrations: [registration({ withdrawn_at: new Date().toISOString() })],
+        });
+        render(<AuthorEntityBlock />);
+        expect(
+            await screen.findByText('swapped name parts: check run 33, report 31 · withdrawn'),
+        ).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Apply the check' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Withdraw' })).not.toBeInTheDocument();
+    });
+
+    it('registers a kind from a run and says why one was refused', async () => {
+        showMerges(noMerges());
+        api.registerMergeKind.mockRejectedValue(
+            new ApiError('conflict', 409, { body: { error: 'merge_kind_not_passed' } }),
+        );
+        render(<AuthorEntityBlock />);
+        const register = await screen.findByRole('button', { name: 'Register' });
+        expect(register).toBeDisabled();
+        fireEvent.change(screen.getByRole('textbox', { name: 'Check run' }), {
+            target: { value: '33' },
+        });
+        fireEvent.click(register);
+        await waitFor(() => expect(api.registerMergeKind).toHaveBeenCalledWith(33, 'swap'));
+        expect(await screen.findByText('The report did not pass this kind.')).toBeInTheDocument();
     });
 
     it('keeps both locales complete', () => {

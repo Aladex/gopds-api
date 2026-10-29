@@ -55,6 +55,10 @@ type Input struct {
 	Reference *Reference
 	// Decisions are the live merge decisions (E4b): same ones and revokes.
 	Decisions []MergeDecision
+	// NotSame are the digests of the candidates the production pair
+	// answered other than same (E4d): no set of unions may join the two
+	// sides of one (§4.2's conflict rule).
+	NotSame map[[32]byte]bool
 	// Vetoes are the live vetoes (E4b-3); VetoBooks the raw fingerprints of
 	// every current author credit of each book a veto recorded (a book
 	// without current credits is absent).

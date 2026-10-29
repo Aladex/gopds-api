@@ -32,6 +32,10 @@ type AuthorEntityAdminService interface {
 	RevokeMergeDecision(ctx context.Context, decisionID, actor int64) (int64, error)
 	RetireMergeVeto(ctx context.Context, vetoID, actor int64) error
 	ReanchorMergeVeto(ctx context.Context, vetoID int64, sideA, sideB uuid.UUID, actor int64) (int64, error)
+	RegisterMergeKind(ctx context.Context, runID int64, kind string, actor int64) (int64, error)
+	WithdrawMergeRegistration(ctx context.Context, id, actor int64) error
+	BlockMergeScript(ctx context.Context, id int64, script string, actor int64) error
+	ApplyMergeEval(ctx context.Context, registrationID, actor int64) (*services.AuthorEntityMergeApplyReport, error)
 }
 
 // codeEntityServiceUnavailable: the entity admin is not wired.
@@ -82,6 +86,24 @@ func (unavailableAuthorEntityAdmin) ReanchorMergeVeto(context.Context, int64, uu
 	return 0, errAuthorEntityServiceUnavailable
 }
 
+func (unavailableAuthorEntityAdmin) RegisterMergeKind(context.Context, int64, string, int64) (int64, error) {
+	return 0, errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) WithdrawMergeRegistration(context.Context, int64, int64) error {
+	return errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) BlockMergeScript(context.Context, int64, string, int64) error {
+	return errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) ApplyMergeEval(
+	context.Context, int64, int64,
+) (*services.AuthorEntityMergeApplyReport, error) {
+	return nil, errAuthorEntityServiceUnavailable
+}
+
 // authorEntityHandler serves the entity routes.
 type authorEntityHandler struct {
 	svc func() AuthorEntityAdminService
@@ -100,6 +122,10 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	r.POST("/merges/decisions/:id/revoke", h.revoke)
 	r.POST("/merges/vetoes/:id/retire", h.retire)
 	r.POST("/merges/vetoes/:id/reanchor", h.reanchor)
+	r.POST("/merges/registrations", h.register)
+	r.POST("/merges/registrations/:id/withdraw", h.withdraw)
+	r.POST("/merges/registrations/:id/block", h.blockScript)
+	r.POST("/merges/registrations/:id/apply", h.apply)
 }
 
 // abortEntityError answers an error with its closed code; anything unknown
@@ -118,6 +144,24 @@ func abortEntityError(c *gin.Context, err error) {
 		abortRun(c, http.StatusConflict, codeVetoSideUnrecorded)
 	case errors.Is(err, database.ErrMergeVetoSides):
 		abortRun(c, http.StatusUnprocessableEntity, codeVetoSidesInvalid)
+	case errors.Is(err, services.ErrAuthorEntityMergeReportInvalid):
+		abortRun(c, http.StatusUnprocessableEntity, codeMergeReportInvalid)
+	case errors.Is(err, services.ErrAuthorEntityMergeGate):
+		abortRun(c, http.StatusUnprocessableEntity, codeMergeGateInvalid)
+	case errors.Is(err, services.ErrAuthorEntityMergeNotPassed):
+		abortRun(c, http.StatusConflict, codeMergeKindUnproven)
+	case errors.Is(err, database.ErrMergeRegistrationExists):
+		abortRun(c, http.StatusConflict, codeMergeKindRegistered)
+	case errors.Is(err, database.ErrMergeRegistrationNotLive), errors.Is(err, services.ErrAuthorEntityMergeNotRegistered):
+		abortRun(c, http.StatusConflict, codeRegistrationNotLive)
+	case errors.Is(err, services.ErrAuthorEntityMergeDriftHeld):
+		abortRun(c, http.StatusConflict, codeMergeApplyDriftHeld)
+	case errors.Is(err, database.ErrAuthorEntityVetoUnanchored):
+		abortRun(c, http.StatusConflict, codeVetoUnanchored)
+	case errors.Is(err, database.ErrAuthorEntityNoCompletedBuild):
+		abortRun(c, http.StatusConflict, codeNoCompletedBuild)
+	case errors.Is(err, database.ErrMergeRegistrationInvalid):
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
 	default:
 		abortRun(c, http.StatusInternalServerError, codeInternalError)
 	}
@@ -347,7 +391,7 @@ type reanchorRequest struct {
 func (h *authorEntityHandler) reanchor(c *gin.Context) {
 	id, ok := pathID(c)
 	var req reanchorRequest
-	if !ok || c.ShouldBindJSON(&req) != nil || req.SideA == nil || req.SideB == nil {
+	if !ok || decodeStrict(c, &req) != nil || req.SideA == nil || req.SideB == nil {
 		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
 		return
 	}
@@ -362,4 +406,158 @@ func (h *authorEntityHandler) reanchor(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{jsonKeyVeto: newID})
+}
+
+// Registration of a merge stratum (E4d): register a kind from a completed
+// merge eval whose latest report passed it, withdraw it or block one script
+// of it (the next build splits their merges), and apply its eval's accepted
+// items as decisions. Closed codes: merge_report_invalid and
+// merge_gate_invalid (422), merge_kind_not_passed, merge_kind_registered,
+// registration_not_live, merge_apply_drift_held, veto_unanchored,
+// no_completed_build and active_run_exists (409).
+const (
+	codeMergeReportInvalid  = "merge_report_invalid"
+	codeMergeGateInvalid    = "merge_gate_invalid"
+	codeMergeKindUnproven   = "merge_kind_not_passed"
+	codeMergeKindRegistered = "merge_kind_registered"
+	codeRegistrationNotLive = "registration_not_live"
+	codeMergeApplyDriftHeld = "merge_apply_drift_held"
+	codeVetoUnanchored      = "veto_unanchored"
+	codeNoCompletedBuild    = "no_completed_build"
+)
+
+// JSON keys of the registration routes.
+const (
+	jsonKeyRegistration = "registration_id"
+	jsonKeyApply        = "apply"
+)
+
+// registerRequest names the merge eval run and the kind it passed.
+type registerRequest struct {
+	RunID *int64  `json:"run_id"`
+	Kind  *string `json:"kind"`
+}
+
+// register godoc
+// @Summary Register a merge kind from a merge eval report
+// @Description The run's latest report must be a merge report gated against judge_consensus that passed the kind.
+// @Description 422 merge_report_invalid, merge_gate_invalid; 409 merge_kind_not_passed, merge_kind_registered.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param body body registerRequest true "The run and the kind"
+// @Accept json
+// @Produce json
+// @Success 201 {object} map[string]int64
+// @Router /api/admin/author-metadata/entities/merges/registrations [post]
+func (h *authorEntityHandler) register(c *gin.Context) {
+	var req registerRequest
+	if decodeStrict(c, &req) != nil || req.RunID == nil || *req.RunID <= 0 || req.Kind == nil ||
+		!database.ValidMergeKind(*req.Kind) {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	id, err := h.svc().RegisterMergeKind(c.Request.Context(), *req.RunID, *req.Kind, actor)
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{jsonKeyRegistration: id})
+}
+
+// withdraw godoc
+// @Summary Withdraw a merge registration
+// @Description The kill switch of a kind: from the next build on its merges split, the absorbed IDs revived.
+// @Description 409 registration_not_live.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Registration ID"
+// @Produce json
+// @Success 200 {object} map[string]int64
+// @Router /api/admin/author-metadata/entities/merges/registrations/{id}/withdraw [post]
+func (h *authorEntityHandler) withdraw(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	if err := h.svc().WithdrawMergeRegistration(c.Request.Context(), id, actor); err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyRegistration: id})
+}
+
+// blockRequest names the script to block.
+type blockRequest struct {
+	Script *string `json:"script"`
+}
+
+// blockScript godoc
+// @Summary Block one script of a merge registration
+// @Description From the next build on the kind's merges of that script split. 409 registration_not_live.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Registration ID"
+// @Param body body blockRequest true "The script: Cyrl, Latn or Cyrl-Latn"
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]int64
+// @Router /api/admin/author-metadata/entities/merges/registrations/{id}/block [post]
+func (h *authorEntityHandler) blockScript(c *gin.Context) {
+	id, ok := pathID(c)
+	var req blockRequest
+	if !ok || decodeStrict(c, &req) != nil || req.Script == nil || !database.ValidMergeScript(*req.Script) {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	if err := h.svc().BlockMergeScript(c.Request.Context(), id, *req.Script, actor); err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyRegistration: id})
+}
+
+// apply godoc
+// @Summary Apply a registered merge eval
+// @Description Inserts a decision for every census or holdout item of the kind the pair and both judges answered
+// @Description same, compared with the stored candidates; the next build merges them. 409 registration_not_live,
+// @Description merge_apply_drift_held, veto_unanchored, no_completed_build, active_run_exists.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Registration ID"
+// @Produce json
+// @Success 200 {object} map[string]services.AuthorEntityMergeApplyReport
+// @Router /api/admin/author-metadata/entities/merges/registrations/{id}/apply [post]
+func (h *authorEntityHandler) apply(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	rep, err := h.svc().ApplyMergeEval(c.Request.Context(), id, actor)
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyApply: rep})
 }

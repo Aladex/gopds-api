@@ -858,6 +858,15 @@ func (a *AuthorLLMAdmin) AdversarialItems(ctx context.Context, id int64) (*Autho
 	return AuthorLLMAdversarialItems(ctx, a.db, id)
 }
 
+// ContestedItems are a merge eval run's contested accepts to adjudicate;
+// the name normalization's admin has none.
+func (a *AuthorLLMAdmin) ContestedItems(ctx context.Context, id int64) (*AuthorLLMAdversarialReview, error) {
+	if !a.merge {
+		return nil, ErrAuthorLLMInvalidRun
+	}
+	return AuthorLLMContestedItems(ctx, a.db, id)
+}
+
 // Adjudicate labels an accepted suite item (merge configuration only).
 func (a *AuthorLLMAdmin) Adjudicate(ctx context.Context, itemID int64, label, note, by string) error {
 	if !a.merge {

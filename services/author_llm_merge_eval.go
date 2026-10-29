@@ -953,7 +953,7 @@ type mergeTokenCount struct {
 // mergeOptions are the merge gate's options (§3.1, §4.5).
 func mergeOptions() llmeval.Options {
 	return llmeval.Options{MaxErrorShare: mergeEvalMaxErrorShare, ContestedIsError: true,
-		AcceptOnly: mergeSameCanonical, AnchorRecall: true, ByScript: true}
+		ContestedAdjudicated: true, AcceptOnly: mergeSameCanonical, AnchorRecall: true, ByScript: true}
 }
 
 // mergeReport computes the report, stores it with its digest and completes
@@ -997,7 +997,9 @@ func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) 
 	if err != nil {
 		return nil, err
 	}
-	adjudications, err := database.AuthorLLMAdjudications(ctx, d.db, itemIDs(suite))
+	// The suite's labels and the contested accepts' (any measured item may
+	// be one).
+	adjudications, err := database.AuthorLLMAdjudications(ctx, d.db, itemIDs(slices.Concat(holdout, suite)))
 	if err != nil {
 		return nil, err
 	}

@@ -28,9 +28,11 @@ func ValidAdjudicationLabel(label string) bool {
 	return label == AdjudicationSame || label == AdjudicationDifferent || label == AdjudicationUnclear
 }
 
-// ErrAuthorLLMNotAdjudicable is an item that is not an adversarial suite
-// item the production rule accepted in a merge eval run.
-var ErrAuthorLLMNotAdjudicable = errors.New("database: the eval item is not an accepted adversarial suite item")
+// ErrAuthorLLMNotAdjudicable is an item that is neither an adversarial
+// suite item the production rule accepted in a merge eval run nor a
+// contested accept of one.
+var ErrAuthorLLMNotAdjudicable = errors.New(
+	"database: the eval item is neither an accepted adversarial suite item nor a contested accept")
 
 // AuthorLLMAdjudication is an item's current label.
 type AuthorLLMAdjudication struct {
@@ -45,8 +47,10 @@ type AuthorLLMAdjudication struct {
 var mergeSameSHA256 = sha256.Sum256(llmreq.MergeCanonical(llmreq.MergeSame))
 
 // AdjudicateAuthorLLMEvalItem records a label of an adversarial suite item
-// the production rule accepted in some merge eval run: both production
-// participants and both judges answered "same" in one run.
+// the production rule accepted in some merge eval run (both production
+// participants and both judges answered "same" in one run), or of a
+// contested accept (author_llm_eval_item_contested, migration 68: the pair
+// answered same, the judges did not both confirm it).
 // ErrAuthorLLMNotAdjudicable otherwise.
 func AdjudicateAuthorLLMEvalItem(ctx context.Context, db pg.DBI, itemID int64, label, note, by string) error {
 	if !ValidAdjudicationLabel(label) {
@@ -55,7 +59,7 @@ func AdjudicateAuthorLLMEvalItem(ctx context.Context, db pg.DBI, itemID int64, l
 	res, err := db.ExecContext(ctx, `
 		INSERT INTO author_llm_eval_adjudication (eval_item_id, label, note, adjudicated_by)
 		SELECT e.id, ?1, ?2, ?3 FROM author_llm_eval_item e
-		WHERE e.id = ?0 AND e.item_set = 'adversarial'
+		WHERE e.id = ?0 AND ((e.item_set = 'adversarial'
 			AND EXISTS (
 				SELECT 1 FROM author_llm_job j
 				JOIN author_llm_run r ON r.id = j.run_id AND r.kind = 'eval' AND r.mode LIKE 'merge%'
@@ -63,7 +67,8 @@ func AdjudicateAuthorLLMEvalItem(ctx context.Context, db pg.DBI, itemID int64, l
 				WHERE j.eval_item_id = e.id AND j.status = 'answered' AND j.repeat_no = 0
 					AND j.purpose IN ('eval_candidate', 'eval_judge') AND a.canonical_sha256 = ?4
 				GROUP BY j.run_id
-				HAVING count(DISTINCT j.slot) = 4)`,
+				HAVING count(DISTINCT j.slot) = 4))
+			OR public.author_llm_eval_item_contested(e.id))`,
 		itemID, label, note, by, mergeSameSHA256[:])
 	if err != nil {
 		return fmt.Errorf("recording an adjudication: %w", err)

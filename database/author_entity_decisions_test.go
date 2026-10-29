@@ -77,12 +77,13 @@ func TestMergeDecisionsAreHistory(t *testing.T) {
 	c := decisionCandidate(0x10)
 	assert.Equal(t, authorentity.MergeDecision{ID: id, Digest: c.Digest, Kind: c.Kind, Script: c.Script,
 		ItemKind: c.ItemKind, Outcome: authorentity.DecisionSame, MembersSHA256: c.MembersSHA256,
-		MembersA: c.MembersA, MembersB: c.MembersB}, live[0])
+		MembersA: c.MembersA, MembersB: c.MembersB, Withheld: MergeWithheldUnregistered}, live[0])
 
 	// A model decision of a merge configuration (E4d writes it); an
 	// administrator's revoke carries no configuration version.
 	f.exec(`ALTER TABLE author_entity_merge_decision DISABLE TRIGGER author_entity_merge_decision_history`)
-	f.exec(`UPDATE author_entity_merge_decision SET config_version = 'merge-config-v1' WHERE id = ?`, id)
+	mergeVersion, _, _ := mergeEvalReportOn(t, f.tx, 'a')
+	f.exec(`UPDATE author_entity_merge_decision SET config_version = ? WHERE id = ?`, mergeVersion, id)
 	f.exec(`ALTER TABLE author_entity_merge_decision ENABLE TRIGGER author_entity_merge_decision_history`)
 	revoke, err := RevokeMergeDecision(ctx, f.tx, id, 0)
 	require.NoError(t, err)
@@ -199,4 +200,35 @@ func TestADecisionsBooksAreItsMembersVersion(t *testing.T) {
 		WHERE decision_id = ? AND side = 'a' ORDER BY book_id`, id)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{v1}, books, "the v2 book of another component is a book of the decision")
+}
+
+// E4b-3b review (P2): the display name of a decision's side never crosses
+// its member key. One raw fingerprint is current under v1 and v2 and
+// selected to two names; the side whose member is (F, v1) shows the v1
+// name, though the v2 one sorts first.
+func TestADecisionSideIsNamedByItsMembersVersion(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	f.registerPair("4", "structured_person", "normalizer-v1")
+	ctx := context.Background()
+	selectUnder := func(extractor, name string) {
+		credit := f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: extractor}), "author", 0,
+			"fixture", 0x30)
+		row := autoRow(fingerprint(32, 0x30), "structured_person", "normalizer-v1")
+		row.extractor, row.key, row.display = &extractor, keyFor(string(fingerprint(32, 0x30)), extractor,
+			"normalizer-v1"), &name
+		f.exec(selectionInsert, credit, fingerprint(32, 0x30), "selected", f.result(row), "automatic", nil, "4", nil,
+			nil)
+	}
+	selectUnder("extractor-v1", "Омега Первая")
+	selectUnder("extractor-v2", "Альфа Вторая")
+	f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "extractor-v1"}), "author", 0, "fixture", 0x31)
+	c := decisionCandidate(0x30)
+	c.MembersA[0].ExtractorVersion, c.MembersB[0].ExtractorVersion = "extractor-v1", "extractor-v1"
+	_, err := InsertMergeDecision(ctx, f.tx, &MergeDecisionInput{Candidate: c, Source: authorentity.MethodModel})
+	require.NoError(t, err)
+	v, err := ReadMergeDecisions(ctx, f.tx)
+	require.NoError(t, err)
+	require.Len(t, v.Decisions, 1)
+	assert.Equal(t, "Омега Первая", v.Decisions[0].SideA.DisplayName)
+	assert.Empty(t, v.Registrations)
 }

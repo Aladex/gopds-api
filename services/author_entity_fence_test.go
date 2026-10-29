@@ -251,6 +251,40 @@ func TestFenceDecisionRevoke(t *testing.T) {
 	assert.Equal(t, 1, f.count(`SELECT count(*) FROM author_entity_revival WHERE outcome = 'exact'`))
 }
 
+// Test 4 (E4d): a withdrawal of the decision's kind, or a block of its
+// script, committed between the plan and the first write stops the
+// attempt; the next attempt lapses the decision and splits the pair.
+func TestFenceRegistrationWithdrawal(t *testing.T) {
+	f := newFencedCatalog(t)
+	f.build()
+	require.Equal(t, f.bigID, f.mergedInto(f.smallID))
+	_, registration := f.registerFixtureKind("swap")
+	run, loop := f.start(services.AuthorEntityBuildConfig{})
+	f.refused(run, loop, func() {
+		require.NoError(t, database.WithdrawMergeRegistration(context.Background(), f.db, registration, 0))
+	}, nil)
+	assert.Equal(t, f.bigID, f.mergedInto(f.smallID), "the refused attempt split the pair")
+	f.completes(run, loop)
+	assert.Equal(t, "lapsed/withdrawn", f.state())
+	assert.Equal(t, f.smallID, f.entityOf(f.small))
+	assert.Empty(t, f.mergedInto(f.smallID))
+}
+
+func TestFenceScriptBlock(t *testing.T) {
+	f := newFencedCatalog(t)
+	f.build()
+	require.Equal(t, f.bigID, f.mergedInto(f.smallID))
+	_, registration := f.registerFixtureKind("swap")
+	run, loop := f.start(services.AuthorEntityBuildConfig{})
+	f.refused(run, loop, func() {
+		require.NoError(t, database.BlockMergeScript(context.Background(), f.db, registration, "Cyrl", 0))
+	}, nil)
+	f.completes(run, loop)
+	assert.Equal(t, "lapsed/script_blocked", f.state())
+	assert.Equal(t, f.smallID, f.entityOf(f.small))
+	assert.Empty(t, f.mergedInto(f.smallID))
+}
+
 // The flip lands either after the plan or between the plan's first load and
 // the next one: the snapshot is the plan's first statement, so both stop it.
 func TestFenceSnapshotFlip(t *testing.T) {

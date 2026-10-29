@@ -631,7 +631,30 @@ var ErrAuthorEntityLeaseLost = errors.New("database: the author entity build lea
 // StartAuthorEntityBuild records a new pending pass; one already pending or
 // running refuses it. In the same statement the pass takes every autopilot
 // mark visible then (migration 62): the selection changes it is to build.
+// It holds the build start lock to its commit (a transaction of its own
+// when db is a pool): a decision insert past its active-build check holds
+// the start back until it commits, so the pass sees its decisions (§4.4).
 func StartAuthorEntityBuild(ctx context.Context, db pg.DBI, actor int64) (*AuthorEntityBuildRun, error) {
+	var run *AuthorEntityBuildRun
+	err := inTx(ctx, db, func(tx pg.DBI) error {
+		if err := lockEntityBuildStart(ctx, tx); err != nil {
+			return err
+		}
+		if TestHookBuildStartLocked != nil {
+			TestHookBuildStartLocked()
+		}
+		var err error
+		run, err = startAuthorEntityBuild(ctx, tx, actor)
+		return err
+	})
+	return run, err
+}
+
+// TestHookBuildStartLocked runs in a start's transaction once it holds the start
+// lock (a test seam).
+var TestHookBuildStartLocked func()
+
+func startAuthorEntityBuild(ctx context.Context, db pg.DBI, actor int64) (*AuthorEntityBuildRun, error) {
 	var by interface{}
 	if actor > 0 {
 		by = actor

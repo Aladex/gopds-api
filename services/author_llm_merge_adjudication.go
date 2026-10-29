@@ -150,6 +150,49 @@ func acceptedSuiteIDs(report string) ([]int64, error) {
 	return slices.Compact(ids), nil
 }
 
+// contestedIDs are the contested accepts a stored merge report lists —
+// the census's or holdout's and the extra questions' — in id order
+// without repeats.
+func contestedIDs(report string) ([]int64, error) {
+	type review struct {
+		IDs map[string][]int64 `json:"ids"`
+	}
+	var doc struct {
+		Evaluation struct {
+			Strata map[string]struct {
+				Combos map[string]struct {
+					ContestedReview *review `json:"contested_review"`
+					Supplement      *struct {
+						ContestedReview *review `json:"contested_review"`
+					} `json:"supplement"`
+				} `json:"combos"`
+			} `json:"strata"`
+		} `json:"evaluation"`
+	}
+	if err := json.Unmarshal([]byte(report), &doc); err != nil {
+		return nil, fmt.Errorf("reading a merge eval report: %w", err)
+	}
+	var ids []int64
+	add := func(r *review) {
+		if r == nil {
+			return
+		}
+		for _, byScript := range r.IDs {
+			ids = append(ids, byScript...)
+		}
+	}
+	for _, stratum := range doc.Evaluation.Strata {
+		for _, combo := range stratum.Combos {
+			add(combo.ContestedReview)
+			if combo.Supplement != nil {
+				add(combo.Supplement.ContestedReview)
+			}
+		}
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids), nil
+}
+
 // mergeAnswerInvalid is an answer that ended without a valid one.
 const mergeAnswerInvalid = "invalid"
 
@@ -191,6 +234,23 @@ func mergeVerdicts(answers []database.AuthorLLMEvalAnswer) map[int64]map[string]
 // report accepted, with their sides, the four answers and the current
 // labels.
 func AuthorLLMAdversarialItems(ctx context.Context, db pg.DBI, runID int64) (*AuthorLLMAdversarialReview, error) {
+	return mergeReviewItems(ctx, db, runID, acceptedSuiteIDs)
+}
+
+// AuthorLLMContestedItems are the contested accepts a merge eval run's
+// latest report lists — the pair agreed same, the judges did not both
+// confirm it — in the suite review's shape: a human labels them, and a
+// label same or unclear clears the error the gate counts (they are never
+// applied either way).
+func AuthorLLMContestedItems(ctx context.Context, db pg.DBI, runID int64) (*AuthorLLMAdversarialReview, error) {
+	return mergeReviewItems(ctx, db, runID, contestedIDs)
+}
+
+// mergeReviewItems are the items ids picks from a merge eval run's latest
+// report, with their sides, the four answers and the current labels.
+func mergeReviewItems(
+	ctx context.Context, db pg.DBI, runID int64, idsOf func(report string) ([]int64, error),
+) (*AuthorLLMAdversarialReview, error) {
 	row, err := database.GetAuthorLLMRunByID(ctx, db, runID)
 	if err != nil {
 		return nil, err
@@ -205,7 +265,7 @@ func AuthorLLMAdversarialItems(ctx context.Context, db pg.DBI, runID int64) (*Au
 	if err != nil {
 		return nil, err
 	}
-	ids, err := acceptedSuiteIDs(report.Report)
+	ids, err := idsOf(report.Report)
 	if err != nil {
 		return nil, err
 	}

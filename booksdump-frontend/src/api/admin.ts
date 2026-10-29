@@ -688,6 +688,43 @@ export interface AuthorMerges {
     vetoes: AuthorMergeVeto[];
     /** A live veto the last completed build found unanchored. */
     unanchored: boolean;
+    /** The merge strata registered (E4d), newest first. */
+    registrations: AuthorMergeRegistration[];
+}
+
+/** A kind of merge registered for the merge configuration from an eval report (E4d). */
+export interface AuthorMergeRegistration {
+    id: number;
+    config_version: string;
+    kind: string;
+    evidence_report_id: number;
+    gate: string;
+    registered_at: string;
+    /** Set once: the kind's merges split at the next pass. */
+    withdrawn_at?: string;
+    /** Scripts whose merges of the kind no longer apply. */
+    blocked_scripts: string[];
+    /** The eval run of the evidence report. */
+    run_id: number;
+}
+
+/** What an apply of a registered eval did. */
+export interface AuthorMergeApplyReport {
+    registration_id: number;
+    kind: string;
+    run_id: number;
+    report_id: number;
+    /** The eval's census or holdout items of the kind. */
+    items: number;
+    /** Those the pair and both judges answered same. */
+    accepted: number;
+    inserted: number;
+    /** Changed since asked: left to be asked again. */
+    lapsed_before_apply: number;
+    already_decided: number;
+    withheld?: Record<string, number>;
+    side_unrecorded?: number;
+    build_run_id: number;
 }
 
 export const getAuthorMerges = () => http.get<{ merges: AuthorMerges }>(`${entityBase}/merges`);
@@ -705,6 +742,27 @@ export const reanchorMergeVeto = (id: number, sideA: string, sideB: string) =>
         side_a: sideA,
         side_b: sideB,
     });
+
+/** registerMergeKind registers a kind from a merge eval run whose latest report passed it. */
+export const registerMergeKind = (runID: number, kind: string) =>
+    http.post<{ registration_id: number }>(`${entityBase}/merges/registrations`, {
+        run_id: runID,
+        kind,
+    });
+
+/** withdrawMergeRegistration splits the kind's merges at the next pass. */
+export const withdrawMergeRegistration = (id: number) =>
+    http.post<{ registration_id: number }>(`${entityBase}/merges/registrations/${id}/withdraw`);
+
+/** blockMergeScript splits the kind's merges of one script at the next pass. */
+export const blockMergeScript = (id: number, script: string) =>
+    http.post<{ registration_id: number }>(`${entityBase}/merges/registrations/${id}/block`, {
+        script,
+    });
+
+/** applyMergeEval inserts the registered eval's accepted items as decisions. */
+export const applyMergeEval = (id: number) =>
+    http.post<{ apply: AuthorMergeApplyReport }>(`${entityBase}/merges/registrations/${id}/apply`);
 
 const llmBase = '/admin/author-metadata/llm';
 

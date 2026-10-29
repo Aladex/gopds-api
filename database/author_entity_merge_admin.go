@@ -76,6 +76,8 @@ type MergeDecisionsView struct {
 	Vetoes         []MergeVetoView     `json:"vetoes"`
 	// Unanchored: a live veto the last completed build found unanchored.
 	Unanchored bool `json:"unanchored"`
+	// Registrations are the merge strata registered (E4d), newest first.
+	Registrations []MergeRegistration `json:"registrations"`
 }
 
 const (
@@ -133,11 +135,20 @@ func ReadMergeDecisions(ctx context.Context, db pg.DBI) (*MergeDecisionsView, er
 		return nil, err
 	}
 	v.Unanchored = unanchored
+	if v.Registrations, err = MergeRegistrations(ctx, db); err != nil {
+		return nil, err
+	}
+	if v.Registrations == nil {
+		v.Registrations = []MergeRegistration{}
+	}
 	return v, nil
 }
 
 // readDecisionSide reads one side of a decision: the entity of its member
-// keys, the smallest display name its selected credits go by, its books.
+// keys, the smallest display name its current credits of the member's own
+// extractor version are selected to, its books. The name never crosses a
+// member key: one raw fingerprint current under two versions may be
+// selected to two names.
 func readDecisionSide(ctx context.Context, db pg.DBI, decisionID int64, side string, out *MergeSideView) error {
 	if _, err := db.QueryOneContext(ctx, out, `
 		SELECT (SELECT a.entity_id FROM public.author_entity_merge_decision_member m
@@ -145,8 +156,11 @@ func readDecisionSide(ctx context.Context, db pg.DBI, decisionID int64, side str
 					AND a.extractor_version = m.extractor_version AND a.ordinal = m.ordinal
 				WHERE m.decision_id = ?0 AND m.side = ?1 ORDER BY a.entity_id LIMIT 1) AS entity,
 			coalesce((SELECT min(r.display_name) FROM public.author_entity_merge_decision_member m
-				JOIN public.book_contributor_credit_selection sel ON sel.source_fingerprint = m.source_fingerprint
-					AND sel.state = 'selected'
+				JOIN public.book_contributor_credit c ON c.source_fingerprint = m.source_fingerprint
+					AND c.role = 'author'
+				JOIN public.book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current
+					AND s.extractor_version = m.extractor_version
+				JOIN public.book_contributor_credit_selection sel ON sel.credit_id = c.id AND sel.state = 'selected'
 				JOIN public.contributor_normalization_result r ON r.id = sel.result_id
 				WHERE m.decision_id = ?0 AND m.side = ?1), '') AS display_name,
 			(SELECT count(DISTINCT b.book_id) FROM public.author_entity_merge_decision_book b

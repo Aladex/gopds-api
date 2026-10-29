@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,8 @@ import (
 	"slices"
 
 	"gopds-api/internal/authorentity"
+	"gopds-api/internal/authornorm/llmreq"
+	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
@@ -31,6 +34,7 @@ type mergeDecisionRow struct {
 	MembersSHA256 []byte `pg:"members_sha256"`
 	Outcome       string `pg:"outcome"`
 	ReportID      int64  `pg:"report_id,use_zero"`
+	Withheld      string `pg:"withheld"`
 }
 
 // mergeMemberRow is one member key of a decision side.
@@ -43,13 +47,25 @@ type mergeMemberRow struct {
 }
 
 // LoadMergeDecisions reads the live decisions — same ones and revokes — with
-// their members.
+// their members. A model decision whose registration is missing or
+// withdrawn, or whose script it blocks, is withheld with that reason
+// (§4.7): the build lapses it whatever its candidate.
 func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDecision, error) {
 	var rows []mergeDecisionRow
 	if _, err := db.QueryContext(ctx, &rows, `
-		SELECT id, digest, kind, script, item_kind, credit_id, credit_ordinal, members_sha256, outcome,
-			coalesce(eval_report_id, 0) AS report_id
-		FROM public.author_entity_merge_decision WHERE revoked_at IS NULL ORDER BY id`); err != nil {
+		SELECT d.id, d.digest, d.kind, d.script, d.item_kind, d.credit_id, d.credit_ordinal, d.members_sha256,
+			d.outcome, coalesce(d.eval_report_id, 0) AS report_id,
+			CASE WHEN d.source <> 'model' THEN ''
+				WHEN r.id IS NULL THEN ?0
+				WHEN r.withdrawn_at IS NOT NULL THEN ?1
+				WHEN EXISTS (SELECT 1 FROM public.author_entity_merge_script_block b
+					WHERE b.registration_id = r.id AND b.script = d.script) THEN ?2
+				ELSE '' END AS withheld
+		FROM public.author_entity_merge_decision d
+		LEFT JOIN public.author_entity_merge_registration r ON r.id = d.registration_id AND r.kind = d.kind
+			AND r.config_version = d.config_version
+		WHERE d.revoked_at IS NULL ORDER BY d.id`,
+		MergeWithheldUnregistered, MergeWithheldWithdrawn, MergeWithheldScriptBlocked); err != nil {
 		return nil, fmt.Errorf("reading the merge decisions: %w", err)
 	}
 	if len(rows) == 0 {
@@ -71,7 +87,7 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 	for i := range rows {
 		r := &rows[i]
 		d := authorentity.MergeDecision{ID: r.ID, Kind: r.Kind, Script: r.Script, ItemKind: r.ItemKind,
-			Outcome: r.Outcome, ReportID: r.ReportID}
+			Outcome: r.Outcome, ReportID: r.ReportID, Withheld: r.Withheld}
 		copy(d.Digest[:], r.Digest)
 		copy(d.MembersSHA256[:], r.MembersSHA256)
 		if r.CreditID != nil {
@@ -86,6 +102,38 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 			d.MembersA = append(d.MembersA, k)
 		} else {
 			d.MembersB = append(d.MembersB, k)
+		}
+	}
+	return out, nil
+}
+
+// LoadMergeNotSame reads the digests of the merge candidates the production
+// pair answered other than same (different or cannot_tell, by either of
+// the two, first answers of a merge eval): the build's conflict rule
+// (§4.2) refuses a union that would join the two sides of such a pair.
+func LoadMergeNotSame(ctx context.Context, db pg.DBI) ([][32]byte, error) {
+	var notSame []string
+	for _, answer := range []string{llmreq.MergeDifferent, llmreq.MergeCannotTell} {
+		sum := sha256.Sum256(llmreq.MergeCanonical(answer))
+		notSame = append(notSame, hex.EncodeToString(sum[:]))
+	}
+	var digests [][]byte
+	if _, err := db.QueryContext(ctx, &digests, `
+		SELECT DISTINCT i.source_fingerprint
+		FROM public.author_llm_eval_item i
+		JOIN public.author_llm_job j ON j.eval_item_id = i.id AND j.purpose = ? AND j.repeat_no = 0
+			AND j.status = 'answered'
+		JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
+		WHERE i.extractor_version = ? AND encode(a.canonical_sha256, 'hex') = ANY(?::text[])
+		ORDER BY 1`, string(models.AuthorLLMPurposeEvalCandidate), authorentity.MergeCandidateVersion,
+		pg.Array(notSame)); err != nil {
+		return nil, fmt.Errorf("reading the merge answers other than same: %w", err)
+	}
+	out := make([][32]byte, 0, len(digests))
+	for _, d := range digests {
+		var k [32]byte
+		if copy(k[:], d) == len(k) {
+			out = append(out, k)
 		}
 	}
 	return out, nil

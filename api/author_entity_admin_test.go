@@ -86,9 +86,11 @@ func (f *fakeEntityAdmin) MergeDecisions(context.Context) (*database.MergeDecisi
 	}
 	state := "applied"
 	return &database.MergeDecisionsView{Decisions: []database.MergeDecisionView{{ID: 9, Kind: "swap", Script: "Cyrl",
-		ItemKind: "entity", Outcome: "same", State: &state, SideA: database.MergeSideView{DisplayName: "Стивен Кинг",
-			Books: 2}, SideB: database.MergeSideView{DisplayName: "Кинг Стивен", Books: 1}}}, DecisionsTotal: 1,
-		Vetoes: []database.MergeVetoView{}}, nil
+			ItemKind: "entity", Outcome: "same", State: &state, SideA: database.MergeSideView{DisplayName: "Стивен Кинг",
+				Books: 2}, SideB: database.MergeSideView{DisplayName: "Кинг Стивен", Books: 1}}}, DecisionsTotal: 1,
+			Vetoes: []database.MergeVetoView{}, Registrations: []database.MergeRegistration{{ID: 4, ConfigVersion: "llm1-m",
+				Kind: "swap", EvidenceReportID: 31, Gate: "judge_consensus", BlockedScripts: []string{"Latn"}, RunID: 33}}},
+		nil
 }
 
 func (f *fakeEntityAdmin) RevokeMergeDecision(_ context.Context, id, actor int64) (int64, error) {
@@ -107,6 +109,35 @@ func (f *fakeEntityAdmin) ReanchorMergeVeto(_ context.Context, id int64, a, b uu
 	f.record(fmt.Sprintf("reanchor %d %s %s", id, a, b))
 	f.actor = actor
 	return 12, f.err
+}
+
+func (f *fakeEntityAdmin) RegisterMergeKind(_ context.Context, run int64, kind string, actor int64) (int64, error) {
+	f.record(fmt.Sprintf("register %d %s", run, kind))
+	f.actor = actor
+	return 4, f.err
+}
+
+func (f *fakeEntityAdmin) WithdrawMergeRegistration(_ context.Context, id, actor int64) error {
+	f.record(fmt.Sprintf("withdraw %d", id))
+	f.actor = actor
+	return f.err
+}
+
+func (f *fakeEntityAdmin) BlockMergeScript(_ context.Context, id int64, script string, actor int64) error {
+	f.record(fmt.Sprintf("block %d %s", id, script))
+	f.actor = actor
+	return f.err
+}
+
+func (f *fakeEntityAdmin) ApplyMergeEval(_ context.Context, id, actor int64) (*services.AuthorEntityMergeApplyReport, error) {
+	f.record(fmt.Sprintf("apply %d", id))
+	f.actor = actor
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &services.AuthorEntityMergeApplyReport{RegistrationID: id, Kind: "swap", RunID: 33, ReportID: 31,
+		Items: 1081, Accepted: 900, MergeInsertReport: database.MergeInsertReport{Inserted: 890, LapsedBeforeApply: 10,
+			BuildRunID: 40}}, nil
 }
 
 const entityBase = "/api/admin/author-metadata/entities"
@@ -141,7 +172,11 @@ func TestAuthorEntityRoutesRequireAnAdministrator(t *testing.T) {
 		{http.MethodPost, entityBase + "/merges/decisions/9/revoke", ""},
 		{http.MethodPost, entityBase + "/merges/vetoes/3/retire", ""},
 		{http.MethodPost, entityBase + "/merges/vetoes/3/reanchor",
-			`{"side_a":"01a17dc0-a8b4-7706-b3db-57951f632b68","side_b":"01a17dc0-a91f-737c-9c41-3ed188ad408f"}`}}
+			`{"side_a":"01a17dc0-a8b4-7706-b3db-57951f632b68","side_b":"01a17dc0-a91f-737c-9c41-3ed188ad408f"}`},
+		{http.MethodPost, entityBase + "/merges/registrations", `{"run_id":33,"kind":"swap"}`},
+		{http.MethodPost, entityBase + "/merges/registrations/4/withdraw", ""},
+		{http.MethodPost, entityBase + "/merges/registrations/4/block", `{"script":"Latn"}`},
+		{http.MethodPost, entityBase + "/merges/registrations/4/apply", ""}}
 	for _, route := range routes {
 		assert.Equal(t, http.StatusUnauthorized, runsRequest(t, r, route.method, route.path, route.body).Code)
 		req := httptest.NewRequestWithContext(context.Background(), route.method, route.path, strings.NewReader(route.body))
@@ -252,7 +287,9 @@ func TestTheModelMergeRoutes(t *testing.T) {
 	assert.JSONEq(t, `{"merges":{"decisions":[{"id":9,"kind":"swap","script":"Cyrl","item_kind":"entity",
 		"outcome":"same","created_at":"0001-01-01T00:00:00Z","state":"applied",
 		"side_a":{"display_name":"Стивен Кинг","books":2},"side_b":{"display_name":"Кинг Стивен","books":1}}],
-		"decisions_total":1,"vetoes":[],"unanchored":false}}`, rec.Body.String())
+		"decisions_total":1,"vetoes":[],"unanchored":false,"registrations":[{"id":4,"config_version":"llm1-m",
+		"kind":"swap","evidence_report_id":31,"gate":"judge_consensus","registered_at":"0001-01-01T00:00:00Z",
+		"blocked_scripts":["Latn"],"run_id":33}]}}`, rec.Body.String())
 
 	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/decisions/9/revoke", "")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -296,4 +333,97 @@ func TestTheModelMergeRoutes(t *testing.T) {
 		assert.Equal(t, tc.code, rec.Code, tc.want)
 		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want), rec.Body.String())
 	}
+}
+
+// The registration routes (E4d): register a kind from a run, withdraw it,
+// block a script, apply its eval. Malformed requests never reach the
+// service; refusals map to closed codes.
+func TestTheMergeRegistrationRoutes(t *testing.T) {
+	svc := &fakeEntityAdmin{}
+	r := entityRouter(svc)
+	rec := runsRequest(t, r, http.MethodPost, entityBase+"/merges/registrations", `{"run_id":33,"kind":"swap"}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.JSONEq(t, `{"registration_id":4}`, rec.Body.String())
+	assert.Equal(t, adminActorID, svc.actor)
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/registrations/4/withdraw", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/registrations/4/block", `{"script":"Cyrl-Latn"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/registrations/4/apply", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"apply":{"registration_id":4,"kind":"swap","run_id":33,"report_id":31,"items":1081,
+		"accepted":900,"inserted":890,"lapsed_before_apply":10,"already_decided":0,"build_run_id":40}}`,
+		rec.Body.String())
+	assert.Equal(t, []string{"register 33 swap", "withdraw 4", "block 4 Cyrl-Latn", "apply 4"}, svc.calls)
+
+	svc.calls = nil
+	for _, bad := range []struct{ path, body string }{
+		{"/merges/registrations", ""}, {"/merges/registrations", `{"run_id":33}`},
+		{"/merges/registrations", `{"run_id":0,"kind":"swap"}`}, {"/merges/registrations", `{"run_id":33,"kind":"other"}`},
+		{"/merges/registrations", `{"run_id":33,"kind":"swap","gate":"pair_agreement"}`},
+		{"/merges/registrations", `{"run_id":33,"kind":"swap","kind":"bucket"}`},
+		{"/merges/registrations/0/withdraw", ""}, {"/merges/registrations/x/apply", ""},
+		{"/merges/registrations/4/block", `{"script":"Grek"}`}, {"/merges/registrations/4/block", `{}`},
+		{"/merges/registrations/4/block", `{"Script":"Latn"}`},
+	} {
+		rec = runsRequest(t, r, http.MethodPost, entityBase+bad.path, bad.body)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, bad.path+" "+bad.body)
+	}
+	assert.Empty(t, svc.calls, "a malformed request reached the service")
+
+	for _, tc := range []struct {
+		err        error
+		path, body string
+		code       int
+		want       string
+	}{
+		{services.ErrAuthorEntityMergeReportInvalid, "/merges/registrations", `{"run_id":33,"kind":"swap"}`,
+			http.StatusUnprocessableEntity, "merge_report_invalid"},
+		{services.ErrAuthorEntityMergeGate, "/merges/registrations", `{"run_id":33,"kind":"swap"}`,
+			http.StatusUnprocessableEntity, "merge_gate_invalid"},
+		{services.ErrAuthorEntityMergeNotPassed, "/merges/registrations", `{"run_id":33,"kind":"swap"}`,
+			http.StatusConflict, "merge_kind_not_passed"},
+		{database.ErrMergeRegistrationExists, "/merges/registrations", `{"run_id":33,"kind":"swap"}`,
+			http.StatusConflict, "merge_kind_registered"},
+		{database.ErrMergeRegistrationNotLive, "/merges/registrations/4/withdraw", "", http.StatusConflict,
+			"registration_not_live"},
+		{services.ErrAuthorEntityMergeNotRegistered, "/merges/registrations/4/apply", "", http.StatusConflict,
+			"registration_not_live"},
+		{services.ErrAuthorEntityMergeDriftHeld, "/merges/registrations/4/apply", "", http.StatusConflict,
+			"merge_apply_drift_held"},
+		{database.ErrAuthorEntityVetoUnanchored, "/merges/registrations/4/apply", "", http.StatusConflict,
+			"veto_unanchored"},
+		{database.ErrAuthorEntityNoCompletedBuild, "/merges/registrations/4/apply", "", http.StatusConflict,
+			"no_completed_build"},
+		{database.ErrAuthorEntityBuildActive, "/merges/registrations/4/apply", "", http.StatusConflict,
+			"active_run_exists"},
+	} {
+		svc.err = tc.err
+		rec = runsRequest(t, r, http.MethodPost, entityBase+tc.path, tc.body)
+		assert.Equal(t, tc.code, rec.Code, tc.want)
+		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want), rec.Body.String())
+	}
+}
+
+// E4b-3b review (P2): a re-anchor body is read strictly — a repeated,
+// unknown, case-variant or null field and trailing content are refused
+// before the service.
+func TestTheReanchorBodyIsStrict(t *testing.T) {
+	svc := &fakeEntityAdmin{}
+	r := entityRouter(svc)
+	a, b := uuid.New(), uuid.New()
+	for _, body := range []string{
+		fmt.Sprintf(`{"side_a":%q,"side_a":%q,"side_b":%q}`, a, b, b),
+		fmt.Sprintf(`{"side_a":%q,"side_b":%q,"note":"x"}`, a, b),
+		fmt.Sprintf(`{"Side_A":%q,"side_b":%q}`, a, b),
+		fmt.Sprintf(`{"side_a":null,"side_b":%q}`, b),
+		fmt.Sprintf(`{"side_a":%q,"side_b":%q} {}`, a, b),
+	} {
+		rec := runsRequest(t, r, http.MethodPost, entityBase+"/merges/vetoes/3/reanchor", body)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+	}
+	assert.Empty(t, svc.calls, "an ambiguous body reached the service")
+	rec := runsRequest(t, r, http.MethodPost, entityBase+"/merges/vetoes/3/reanchor",
+		fmt.Sprintf(`{"side_a":%q,"side_b":%q}`, a, b))
+	require.Equal(t, http.StatusOK, rec.Code)
 }

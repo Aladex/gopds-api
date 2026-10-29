@@ -95,7 +95,9 @@ type Item struct {
 	// counts toward the bound (merge3's extra Latin questions, §3.5).
 	Supplement bool
 	// Adjudication is a suite item's human label: AdjudicatedSame and
-	// AdjudicatedUnclear clear its accept; "different" or none fails.
+	// AdjudicatedUnclear clear its accept; "different" or none fails. A
+	// contested measured item's label clears it the same way
+	// (Options.ContestedAdjudicated).
 	Adjudication string
 }
 
@@ -158,12 +160,15 @@ type ComboMetrics struct {
 	// Contested counts the items the pair agreed on without a gold (the
 	// judges disagreed, refused or did not answer); ContestedShare is their
 	// share of the items the pair agreed on.
-	Contested      int                  `json:"contested"`
-	ContestedShare float64              `json:"contested_share"`
-	AcceptedWeight int                  `json:"accepted_weight"`
-	ErrorWeight    int                  `json:"error_weight"`
-	UpperBound     float64              `json:"upper_bound"`
-	Tiers          map[string]TierCount `json:"tiers"`
+	Contested      int     `json:"contested"`
+	ContestedShare float64 `json:"contested_share"`
+	// ContestedReview is the contested accepts' labels and ids by script
+	// (Options.ContestedAdjudicated).
+	ContestedReview *ContestedMetrics    `json:"contested_review,omitempty"`
+	AcceptedWeight  int                  `json:"accepted_weight"`
+	ErrorWeight     int                  `json:"error_weight"`
+	UpperBound      float64              `json:"upper_bound"`
+	Tiers           map[string]TierCount `json:"tiers"`
 	// Passed is the gate on the allowed tiers (AllowedTiers); Allowed* are
 	// the accepted items and errors in those tiers — what the stratum would
 	// actually accept.
@@ -703,11 +708,14 @@ func measure(c Combo, scope []*Item, o *Options) ComboMetrics {
 			// accepted nor an error; it is reported as contested. Where a
 			// contested accept is an error (Options), it counts as one.
 			m.Contested++
+			if r := o.review(&m.ContestedReview); r != nil {
+				r.add(it)
+			}
 			if !o.ContestedIsError {
 				continue
 			}
 		}
-		isErr := g != answer
+		isErr := g != answer && (g != "" || o.contestedError(it))
 		acc = append(acc, acceptedItem{tier: ans[0].Tier, weight: max(it.Weight, 1), err: isErr})
 		tc := m.Tiers[ans[0].Tier]
 		tc.Accepted++

@@ -443,6 +443,16 @@ func (l *AuthorEntityBuildLoop) readPlan(ctx context.Context) (*planInput, error
 			if in.Decisions, err = database.LoadMergeDecisions(ctx, tx); err != nil {
 				return err
 			}
+			if len(in.Decisions) > 0 {
+				notSame, nsErr := database.LoadMergeNotSame(ctx, tx)
+				if nsErr != nil {
+					return nsErr
+				}
+				in.NotSame = make(map[[32]byte]bool, len(notSame))
+				for _, d := range notSame {
+					in.NotSame[d] = true
+				}
+			}
 			loaded(AuthorEntityLoadDecisions)
 			if in.Vetoes, in.VetoBooks, err = database.LoadMergeVetoes(ctx, tx); err != nil {
 				return err
