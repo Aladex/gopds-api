@@ -1011,7 +1011,7 @@ func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) 
 		return nil, err
 	}
 	fingerprints, fpResult := d.fingerprintResult(answers)
-	in := mergeEvalInput(answers, holdout, suite, adjudications)
+	in := mergeEvalInput(run.Mode, answers, holdout, suite, adjudications)
 	in.Fingerprint = fpResult
 	recall, anchorCount := mergeRecallOf(anchors, answers.byItem)
 	in.Anchor = anchorCount
@@ -1030,14 +1030,15 @@ func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) 
 
 // mergeEvalInput is the llmeval input of the measured items: the holdout
 // and the suite with its adjudications, one combo (arm A, one per request),
-// strata the kinds.
+// strata the kinds. A report of the mode may back a registration as K's
+// may (evalRegistrable): only a dev run's never does.
 func mergeEvalInput(
-	answers *evalAnswers, holdout, suite []database.AuthorLLMEvalItemRow,
+	mode string, answers *evalAnswers, holdout, suite []database.AuthorLLMEvalItemRow,
 	adjudications map[int64]database.AuthorLLMAdjudication,
 ) llmeval.Input {
 	combos := []llmeval.Combo{{Arm: llmeval.ArmA, Batch: 1}}
 	in := llmeval.Input{Combos: combos, Invalid: sortedCounts(answers.invalid),
-		ProviderRejected: sortedCounts(answers.rejected)}
+		ProviderRejected: sortedCounts(answers.rejected), Registrable: evalRegistrable(mode)}
 	repeat := map[string]*llmeval.ParticipantCount{}
 	for _, rows := range [][]database.AuthorLLMEvalItemRow{holdout, suite} {
 		for i := range rows {

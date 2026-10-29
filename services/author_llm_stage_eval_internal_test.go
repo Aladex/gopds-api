@@ -213,3 +213,18 @@ func TestPlanAuthorLLMResolveFromRefusesADriftedReference(t *testing.T) {
 		})
 	}
 }
+
+// A merge eval's report is registrable as K's is: every merge mode's may
+// back a registration, a dev run's never does (the merge report builder
+// left it unset, and no merge report was ever registrable).
+func TestMergeEvalReportsAreRegistrable(t *testing.T) {
+	answers := &evalAnswers{byItem: map[int64]map[evalAnswerKey]*database.AuthorLLMEvalAnswer{}}
+	for _, mode := range models.AuthorLLMEvalMergeModes() {
+		if !mergeEvalInput(mode, answers, nil, nil, nil).Registrable {
+			t.Errorf("a merge eval of mode %s is not registrable", mode)
+		}
+	}
+	if mergeEvalInput(models.AuthorLLMEvalModeDev, answers, nil, nil, nil).Registrable {
+		t.Error("a dev eval is registrable")
+	}
+}
