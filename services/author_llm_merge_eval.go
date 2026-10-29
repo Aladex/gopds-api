@@ -26,9 +26,10 @@ import (
 //	freeze      — reads the entity plan in one snapshot (the entity build's
 //	              own read, read only, nothing written) and freezes the
 //	              mode's sets: a random holdout of the stored candidates of
-//	              each kind (their cards exactly as the build hashed them,
-//	              the digest the key), the adversarial suite and the
-//	              known-same anchors; later runs of the mode reuse them;
+//	              each kind, or every one of them (a census), their cards
+//	              exactly as the build hashed them, the digest the key; the
+//	              adversarial suite and the known-same anchors; merge3's
+//	              extra Latin questions; later runs of the mode reuse them;
 //	fingerprint — the merge configuration's fixed request to every
 //	              participant, learned as in K;
 //	anchor      — the known-same anchors to all four: recall, never gated;
@@ -54,9 +55,14 @@ const (
 	mergeEvalSalt           = "e4-merge-eval-v1"
 	// mergeEvalMaxErrorShare is the merge gate's bound (§3.1).
 	mergeEvalMaxErrorShare = 0.001
-	// authorLLMMergeTokensPerJob is the merge eval's token estimate of one
-	// job: K's figure with the cards (§7: ~1k tokens a card).
-	authorLLMMergeTokensPerJob = 5000
+	// The merge eval's token estimate, measured on the merge0 pilot (run
+	// 32, §7): tokens per answer of a holdout or census item and of an
+	// anchor, per suite item (the pair, and the judges where the pair
+	// agreed), and per run for the fingerprint stage and the rest.
+	mergeTokensPerAnswer     = 1520
+	mergeTokensPerAnchor     = 1830
+	mergeTokensPerSuiteItem  = 2950
+	mergeTokensPerRunOverall = 1_450_000
 	// mergeEvalGate is what a merge eval is gated against (§3.4).
 	mergeEvalGate = "judge_consensus"
 	// The fixed request's item: its stratum and extractor version, as K's.
@@ -66,20 +72,46 @@ const (
 	mergeEvalSuitePerShape   = 300
 	mergeEvalSuiteLatin      = 30
 	mergeEvalAnchorsPerShape = 150
+	// merge1..merge4 (§3.3, §3.5): a suite of 1,000 per shape with 100
+	// Latin, merge3's bucket holdout of 6,000 questions and its 1,000 extra
+	// Latin ones.
+	mergeEvalStageSuite      = 1000
+	mergeEvalStageSuiteLatin = 100
+	mergeEvalBucketHoldout   = 6000
+	mergeEvalBucketLatin     = 1000
 )
 
-// mergeEvalKinds are the kinds each merge eval mode measures. E4c-2a
-// builds the pilot; merge1..merge4 come with E4c-2b.
-var mergeEvalKinds = map[string][]string{
-	models.AuthorLLMEvalModeMerge0: {authorentity.CandidateSwap, authorentity.CandidateInitials},
+// mergeEvalMode is what a merge eval mode measures: its kinds; census asks
+// every stored candidate of them instead of a holdout; supplement adds
+// extra Latin questions gated outside |A|; wikidataSuite asks the
+// candidates whose sides name two Wikidata items in the suite instead of
+// the census (they are known to be two people).
+type mergeEvalMode struct {
+	kinds                             []string
+	census, supplement, wikidataSuite bool
+}
+
+// mergeEvalModes are the merge eval modes (§7, §8 E4c): the pilot, then a
+// stage per kind.
+var mergeEvalModes = map[string]mergeEvalMode{
+	models.AuthorLLMEvalModeMerge0: {kinds: []string{authorentity.CandidateSwap, authorentity.CandidateInitials}},
+	models.AuthorLLMEvalModeMerge1: {kinds: []string{authorentity.CandidateSwap}, census: true},
+	models.AuthorLLMEvalModeMerge2: {kinds: []string{authorentity.CandidateInitials}, census: true},
+	models.AuthorLLMEvalModeMerge3: {kinds: []string{authorentity.CandidateBucket}, supplement: true},
+	models.AuthorLLMEvalModeMerge4: {kinds: []string{authorentity.CandidateTranslit}, census: true,
+		wikidataSuite: true},
 }
 
 // AuthorLLMMergeEvalSizes are a merge eval's sizes (§7).
 type AuthorLLMMergeEvalSizes struct {
-	// PerKind is the holdout of each kind; SuitePerShape the suite items
-	// of each kind's shape, SuiteLatinPerShape the Latin ones among them;
-	// AnchorsPerShape the known-same anchors of each kind's shape.
+	// PerKind is the holdout of each kind (a census mode asks every
+	// candidate); SuitePerShape the suite items of each kind's shape,
+	// SuiteLatinPerShape the Latin ones among them (none in the translit
+	// shape, Cyrillic against Latin by definition); AnchorsPerShape the
+	// known-same anchors of each kind's shape; SupplementLatin merge3's
+	// extra Latin questions.
 	PerKind, SuitePerShape, SuiteLatinPerShape, AnchorsPerShape int
+	SupplementLatin                                             int
 	Repeat, FingerprintRepeats                                  int
 }
 
@@ -91,24 +123,53 @@ func DefaultAuthorLLMMergeEvalSizes() AuthorLLMMergeEvalSizes {
 		Repeat: evalRepeatItems, FingerprintRepeats: evalFingerprintRepeats}
 }
 
-// WithMergeSizes sets a merge eval's sizes.
+// DefaultAuthorLLMMergeEvalSizesOf are a mode's sizes: merge0's, or a
+// stage's suite of 1,000 with 100 Latin (merge3: a holdout of 6,000 and
+// 1,000 extra Latin questions).
+func DefaultAuthorLLMMergeEvalSizesOf(mode string) AuthorLLMMergeEvalSizes {
+	s := DefaultAuthorLLMMergeEvalSizes()
+	if mode == models.AuthorLLMEvalModeMerge0 {
+		return s
+	}
+	s.SuitePerShape, s.SuiteLatinPerShape = mergeEvalStageSuite, mergeEvalStageSuiteLatin
+	if mode == models.AuthorLLMEvalModeMerge3 {
+		s.PerKind, s.SupplementLatin = mergeEvalBucketHoldout, mergeEvalBucketLatin
+	}
+	return s
+}
+
+// WithMergeSizes sets a merge eval's sizes, whatever its mode.
 func (d *AuthorLLMEvalDriver) WithMergeSizes(s AuthorLLMMergeEvalSizes) *AuthorLLMEvalDriver {
-	d.mergeSizes = s
+	d.mergeSizes = &s
 	return d
+}
+
+// mergeSizesOf are a merge eval run's sizes: the driver's when set, else the
+// mode's.
+func (d *AuthorLLMEvalDriver) mergeSizesOf(mode string) *AuthorLLMMergeEvalSizes {
+	if d.mergeSizes != nil {
+		return d.mergeSizes
+	}
+	s := DefaultAuthorLLMMergeEvalSizesOf(mode)
+	return &s
 }
 
 // merge reports the driver of a merge configuration.
 func (d *AuthorLLMEvalDriver) merge() bool { return d.identity.Task == llmreq.TaskMerge }
 
-// mergeEvalSets are a mode's frozen set versions.
-type mergeEvalSets struct{ holdout, suite, anchor string }
+// mergeEvalSets are a mode's frozen set versions; supplement holds merge3's
+// extra Latin questions, holdout items gated outside |A| (empty in the
+// other modes).
+type mergeEvalSets struct{ holdout, suite, anchor, supplement string }
 
 func mergeEvalSetsOf(mode string) mergeEvalSets {
 	base := mergeEvalSetPrefix + mode + "."
-	return mergeEvalSets{holdout: base + "holdout", suite: base + "adversarial", anchor: base + "anchor"}
+	return mergeEvalSets{holdout: base + "holdout", suite: base + "adversarial", anchor: base + "anchor",
+		supplement: base + "supplement"}
 }
 
-func (s mergeEvalSets) all() []string { return []string{s.holdout, s.suite, s.anchor} }
+// all are the mode's set versions.
+func (s mergeEvalSets) all() []string { return []string{s.holdout, s.suite, s.anchor, s.supplement} }
 
 // mergeStratum is the stratum name of an item of kind in script.
 func mergeStratum(kind, script string) string { return kind + "." + strings.ToLower(script) }
@@ -134,7 +195,7 @@ func mergeCanonicalHex(answer string) string {
 // StartAuthorLLMMergeEval starts a merge eval run of the merge
 // configuration's version; it returns at once.
 func StartAuthorLLMMergeEval(ctx context.Context, db *pg.DB, version, mode string, adminID *int64) (int64, error) {
-	if _, ok := mergeEvalKinds[mode]; !ok {
+	if _, ok := mergeEvalModes[mode]; !ok {
 		return 0, ErrAuthorLLMInvalidRun
 	}
 	settings := AuthorLLMEvalSettings{OutputModes: map[string]string{}, BatchSizes: []int{1}, NoExcerpt: true}
@@ -149,7 +210,7 @@ func StartAuthorLLMMergeEval(ctx context.Context, db *pg.DB, version, mode strin
 // mergeStage does one stage of a merge eval run; it returns the next stage
 // once this one is done.
 func (d *AuthorLLMEvalDriver) mergeStage(ctx context.Context, run *evalRun) (string, error) {
-	if _, ok := mergeEvalKinds[run.Mode]; !ok {
+	if _, ok := mergeEvalModes[run.Mode]; !ok {
 		// No stage of a mode the merge eval does not build can be done.
 		return "", d.failMergeRun(ctx, run)
 	}
@@ -214,7 +275,8 @@ func (d *AuthorLLMEvalDriver) mergeFreeze(ctx context.Context, run *evalRun) err
 		}
 	}
 	sets := mergeEvalSetsOf(run.Mode)
-	if !frozen[sets.holdout] || !frozen[sets.suite] || !frozen[sets.anchor] {
+	supplement := mergeEvalModes[run.Mode].supplement
+	if !frozen[sets.holdout] || !frozen[sets.suite] || !frozen[sets.anchor] || (supplement && !frozen[sets.supplement]) {
 		src, err := d.readMergeSources(ctx, run)
 		if err != nil {
 			return err
@@ -222,8 +284,10 @@ func (d *AuthorLLMEvalDriver) mergeFreeze(ctx context.Context, run *evalRun) err
 		for _, s := range []struct {
 			version string
 			items   []database.AuthorLLMNewEvalItem
-		}{{sets.holdout, src.holdout}, {sets.suite, src.suite}, {sets.anchor, src.anchor}} {
-			if frozen[s.version] {
+			freeze  bool
+		}{{sets.holdout, src.holdout, true}, {sets.suite, src.suite, true}, {sets.anchor, src.anchor, true},
+			{sets.supplement, src.supplement, supplement}} {
+			if frozen[s.version] || !s.freeze {
 				continue
 			}
 			if err := d.freezeSet(ctx, run, s.version, s.items); err != nil {
@@ -232,7 +296,8 @@ func (d *AuthorLLMEvalDriver) mergeFreeze(ctx context.Context, run *evalRun) err
 		}
 		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
 			Name: AuthorMetadataEventLLMMergeEvalFrozen, Stage: AuthorMetadataStageRunner, RunID: run.ID,
-			Count: len(src.holdout) + len(src.suite) + len(src.anchor), Worker: authorLLMMergeEvalDriverName})
+			Count:  len(src.holdout) + len(src.suite) + len(src.anchor) + len(src.supplement),
+			Worker: authorLLMMergeEvalDriverName})
 	}
 	return d.mergeEstimate(ctx, run)
 }
@@ -252,12 +317,14 @@ func (d *AuthorLLMEvalDriver) freezeMergeFingerprint(ctx context.Context, run *e
 
 // mergeSources are a mode's items, to freeze.
 type mergeSources struct {
-	holdout, suite, anchor []database.AuthorLLMNewEvalItem
+	holdout, suite, anchor, supplement []database.AuthorLLMNewEvalItem
 }
 
 // readMergeSources reads the entity plan in one snapshot, read only, and
-// builds the mode's items from it: the stored candidates of its kinds, the
-// suite and the anchors.
+// builds the mode's items from it: the stored candidates of its kinds (a
+// holdout, or all of them), merge3's extra Latin questions, the suite —
+// merge4's with the candidates whose sides name two Wikidata items — and
+// the anchors.
 func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun) (*mergeSources, error) {
 	loop := NewAuthorEntityBuildLoop(d.db, AuthorEntityBuildConfig{})
 	r, err := loop.readPlan(ctx)
@@ -276,9 +343,14 @@ func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun
 	if err != nil {
 		return nil, err
 	}
-	kinds := mergeEvalKinds[run.Mode]
+	mode := mergeEvalModes[run.Mode]
+	sizes := d.mergeSizesOf(run.Mode)
 	src := &mergeSources{}
-	if src.holdout, err = d.mergeHoldout(ctx, run, plan, stored, kinds); err != nil {
+	natural := map[int]bool{}
+	if mode.wikidataSuite {
+		natural = wikidataDifferent(plan)
+	}
+	if src.holdout, src.supplement, err = d.mergeHoldout(ctx, run, plan, stored, natural); err != nil {
 		return nil, err
 	}
 	exclude := map[uuid.UUID]bool{}
@@ -286,8 +358,12 @@ func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun
 	for i := range cands {
 		exclude[cands[i].SideA], exclude[cands[i].SideB] = true, true
 	}
-	suite := selectSuite(plan.MergeSuitePairs(exclude), kinds, &d.mergeSizes)
-	anchors := selectAnchors(plan.MergeAnchorPairs(nil), kinds, d.mergeSizes.AnchorsPerShape)
+	naturalItems, err := d.naturalSuiteItems(ctx, run, plan, stored, natural)
+	if err != nil {
+		return nil, err
+	}
+	suite := selectSuite(plan.MergeSuitePairs(exclude), mode.kinds, sizes, len(naturalItems))
+	anchors := selectAnchors(mergeAnchorsOf(plan, mode.kinds), mode.kinds, sizes.AnchorsPerShape)
 	pairs := make([]authorentity.MergeSuitePair, 0, len(suite))
 	for _, s := range suite {
 		pairs = append(pairs, s.pair)
@@ -301,6 +377,7 @@ func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun
 	if src.suite, err = d.suiteItems(ctx, run, plan, suite, books); err != nil {
 		return nil, err
 	}
+	src.suite = append(naturalItems, src.suite...)
 	if src.anchor, err = d.anchorItems(ctx, run, plan, anchors, books); err != nil {
 		return nil, err
 	}
@@ -356,12 +433,49 @@ func (d *AuthorLLMEvalDriver) anchorItems(ctx context.Context, run *evalRun, pla
 	return out, nil
 }
 
-// mergeHoldout is a random holdout of each kind: the plan's entity
+// mergeHoldout is the measured items of the mode's kinds: the plan's
 // candidates whose digest a committed pass stored, in a salted digest
-// order, the first PerKind of each kind.
+// order — every one of them in a census mode, else the first PerKind of
+// each kind — and, for a mode with a supplement, the first SupplementLatin
+// Latin ones outside the holdout. A candidate in natural (merge4's
+// Wikidata pairs) is asked in the suite instead.
 func (d *AuthorLLMEvalDriver) mergeHoldout(
-	ctx context.Context, run *evalRun, plan *authorentity.Plan, stored map[string]bool, kinds []string,
-) ([]database.AuthorLLMNewEvalItem, error) {
+	ctx context.Context, run *evalRun, plan *authorentity.Plan, stored map[string]bool, natural map[int]bool,
+) (holdout, supplement []database.AuthorLLMNewEvalItem, err error) {
+	mode := mergeEvalModes[run.Mode]
+	sizes := d.mergeSizesOf(run.Mode)
+	byKind := mergeCandidatesByKind(plan, stored, mode.kinds, natural)
+	for _, kind := range mode.kinds {
+		picks := byKind[kind]
+		limit := len(picks)
+		if !mode.census {
+			limit = sizes.PerKind
+		}
+		var rest []int
+		if holdout, rest, err = d.takeCandidates(ctx, run, plan, picks, limit, holdout); err != nil {
+			return nil, nil, err
+		}
+		if !mode.supplement {
+			continue
+		}
+		var latin []int
+		for _, i := range rest {
+			if plan.MergeCandidates()[i].Script == authorentity.ScriptLatn {
+				latin = append(latin, i)
+			}
+		}
+		if supplement, _, err = d.takeCandidates(ctx, run, plan, latin, sizes.SupplementLatin, supplement); err != nil {
+			return nil, nil, err
+		}
+	}
+	return holdout, supplement, nil
+}
+
+// mergeCandidatesByKind are the plan's candidates of the kinds whose digest
+// a committed pass stored, by kind, in the sampling order; natural ones are
+// left out.
+func mergeCandidatesByKind(plan *authorentity.Plan, stored map[string]bool, kinds []string,
+	natural map[int]bool) map[string][]int {
 	type pick struct {
 		i     int
 		order []byte
@@ -370,36 +484,117 @@ func (d *AuthorLLMEvalDriver) mergeHoldout(
 	cands := plan.MergeCandidates()
 	for i := range cands {
 		c := &cands[i]
-		if c.ItemKind != authorentity.ItemEntity || !slices.Contains(kinds, c.Kind) || !stored[string(c.Digest[:])] {
+		if !slices.Contains(kinds, c.Kind) || !stored[string(c.Digest[:])] || natural[i] {
 			continue
 		}
 		byKind[c.Kind] = append(byKind[c.Kind], pick{i: i, order: mergeEvalOrder(c.Digest[:])})
 	}
-	var out []database.AuthorLLMNewEvalItem
-	for _, kind := range kinds {
-		picks := byKind[kind]
+	out := map[string][]int{}
+	for kind, picks := range byKind {
 		slices.SortFunc(picks, func(x, y pick) int { return bytes.Compare(x.order, y.order) })
-		taken := 0
 		for _, p := range picks {
-			if taken == d.mergeSizes.PerKind {
-				break
-			}
-			c := &cands[p.i]
-			input := plan.MergeInput(p.i)
-			if len(input) > llmreq.MergeItemMaxBytes {
-				if err := d.skip(ctx, run, &database.AuthorLLMEvalSkip{Reason: evalSkipInputTooLong,
-					SourceFingerprint: c.Digest[:]}); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			out = append(out, database.AuthorLLMNewEvalItem{ItemSet: models.AuthorLLMEvalHoldout,
-				Stratum: mergeStratum(c.Kind, c.Script), SourceFingerprint: bytes.Clone(c.Digest[:]),
-				ExtractorVersion: authorentity.MergeCandidateVersion, Input: bytes.Clone(input), Weight: 1})
-			taken++
+			out[kind] = append(out[kind], p.i)
 		}
 	}
+	return out
+}
+
+// takeCandidates appends the first limit of picks as holdout items to out;
+// an input over the bound is skipped, recorded, and does not count. rest
+// are the picks not taken.
+func (d *AuthorLLMEvalDriver) takeCandidates(
+	ctx context.Context, run *evalRun, plan *authorentity.Plan, picks []int, limit int,
+	out []database.AuthorLLMNewEvalItem,
+) (_ []database.AuthorLLMNewEvalItem, rest []int, err error) {
+	cands := plan.MergeCandidates()
+	taken := 0
+	for n, i := range picks {
+		if taken == limit {
+			return out, picks[n:], nil
+		}
+		c := &cands[i]
+		input := plan.MergeInput(i)
+		if len(input) > llmreq.MergeItemMaxBytes {
+			if err := d.skip(ctx, run, &database.AuthorLLMEvalSkip{Reason: evalSkipInputTooLong,
+				SourceFingerprint: c.Digest[:]}); err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
+		out = append(out, database.AuthorLLMNewEvalItem{ItemSet: models.AuthorLLMEvalHoldout,
+			Stratum: mergeStratum(c.Kind, c.Script), SourceFingerprint: bytes.Clone(c.Digest[:]),
+			ExtractorVersion: authorentity.MergeCandidateVersion, Input: bytes.Clone(input), Weight: 1})
+		taken++
+	}
+	return out, nil, nil
+}
+
+// wikidataDifferent are the plan's translit candidates whose two sides
+// name two different Wikidata items: natural namesakes (§3.1, A.11), asked
+// in the suite, never in the census.
+func wikidataDifferent(plan *authorentity.Plan) map[int]bool {
+	out := map[int]bool{}
+	cands := plan.MergeCandidates()
+	for i := range cands {
+		c := &cands[i]
+		if c.Kind != authorentity.CandidateTranslit {
+			continue
+		}
+		a, b := plan.WikidataOf(c.SideA), plan.WikidataOf(c.SideB)
+		if a != "" && b != "" && a != b {
+			out[i] = true
+		}
+	}
+	return out
+}
+
+// naturalSuiteItems are the natural namesake candidates as suite items:
+// their stored cards exactly as the build hashed them, expected different.
+func (d *AuthorLLMEvalDriver) naturalSuiteItems(
+	ctx context.Context, run *evalRun, plan *authorentity.Plan, stored map[string]bool, natural map[int]bool,
+) ([]database.AuthorLLMNewEvalItem, error) {
+	different := json.RawMessage(llmreq.MergeCanonical(llmreq.MergeDifferent))
+	cands := plan.MergeCandidates()
+	var out []database.AuthorLLMNewEvalItem
+	ids := make([]int, 0, len(natural))
+	for i := range natural {
+		ids = append(ids, i)
+	}
+	slices.Sort(ids)
+	for _, i := range ids {
+		c := &cands[i]
+		if !stored[string(c.Digest[:])] {
+			continue
+		}
+		input := plan.MergeInput(i)
+		if len(input) > llmreq.MergeItemMaxBytes {
+			if err := d.skip(ctx, run, &database.AuthorLLMEvalSkip{Reason: evalSkipInputTooLong,
+				SourceFingerprint: c.Digest[:]}); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		out = append(out, database.AuthorLLMNewEvalItem{ItemSet: models.AuthorLLMEvalAdversarial,
+			Stratum: mergeStratum(c.Kind, c.Script), SourceFingerprint: bytes.Clone(c.Digest[:]),
+			ExtractorVersion: authorentity.MergeCandidateVersion, Input: bytes.Clone(input), Weight: 1,
+			Expected: different})
+	}
 	return out, nil
+}
+
+// mergeAnchorsOf are the plan's known-same anchors of the kinds' shapes.
+func mergeAnchorsOf(plan *authorentity.Plan, kinds []string) []authorentity.MergeAnchorPair {
+	var out []authorentity.MergeAnchorPair
+	if slices.Contains(kinds, authorentity.CandidateSwap) || slices.Contains(kinds, authorentity.CandidateInitials) {
+		out = append(out, plan.MergeAnchorPairs(nil)...)
+	}
+	if slices.Contains(kinds, authorentity.CandidateBucket) {
+		out = append(out, plan.MergeBucketAnchorPairs()...)
+	}
+	if slices.Contains(kinds, authorentity.CandidateTranslit) {
+		out = append(out, plan.MergeTranslitAnchorPairs()...)
+	}
+	return out
 }
 
 // mergeEvalOrder is the merge eval's sampling order.
@@ -447,8 +642,11 @@ type suitePick struct {
 
 // selectSuite picks each shape's suite items from distinct pairs (§3.5):
 // SuiteLatinPerShape Latin items — the natural Latin pairs first, then
-// Cyrillic pairs romanized — and the rest Cyrillic.
-func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *AuthorLLMMergeEvalSizes) []suitePick {
+// Cyrillic pairs romanized — and the rest Cyrillic. The translit shape
+// romanizes one side of a Cyrillic pair by itself, so it takes no Latin
+// pair and natural fewer: the natural namesakes asked beside it.
+func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *AuthorLLMMergeEvalSizes,
+	natural int) []suitePick {
 	var latin, cyrl []authorentity.MergeSuitePair
 	for _, p := range pairs {
 		if p.Script == authorentity.ScriptLatn {
@@ -468,9 +666,13 @@ func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *Au
 		return taken
 	}
 	for _, shape := range shapes {
+		if shape == authorentity.CandidateTranslit {
+			take(&cyrl, shape, authorentity.ScriptCyrlLatn, false, sizes.SuitePerShape-natural)
+			continue
+		}
 		latinN := min(sizes.SuiteLatinPerShape, sizes.SuitePerShape)
-		natural := take(&latin, shape, authorentity.ScriptLatn, false, latinN)
-		take(&cyrl, shape, authorentity.ScriptLatn, true, latinN-natural)
+		taken := take(&latin, shape, authorentity.ScriptLatn, false, latinN)
+		take(&cyrl, shape, authorentity.ScriptLatn, true, latinN-taken)
 		take(&cyrl, shape, authorentity.ScriptCyrl, false, sizes.SuitePerShape-latinN)
 	}
 	return out
@@ -498,35 +700,40 @@ func (d *AuthorLLMEvalDriver) mergeItems(
 	return database.AuthorLLMEvalItems(ctx, db, []string{version}, []models.AuthorLLMEvalItemSet{set})
 }
 
-// mergeEstimate records the run's token estimate: every job it can ask at
-// authorLLMMergeTokensPerJob, the judges on every suite item (an upper
-// figure: they are asked only where the pair agreed).
+// mergeEstimate records the run's token estimate from the frozen sets and
+// the pilot's measured figures (an upper one for the suite: the judges are
+// asked only where the pair agreed).
 func (d *AuthorLLMEvalDriver) mergeEstimate(ctx context.Context, run *evalRun) error {
 	sets := mergeEvalSetsOf(run.Mode)
 	count := func(version string, set models.AuthorLLMEvalItemSet) (int, error) {
 		c, err := database.CountAuthorLLMEvalItems(ctx, d.db, []string{version}, []models.AuthorLLMEvalItemSet{set})
 		return c.Items, err
 	}
-	holdout, err := count(sets.holdout, models.AuthorLLMEvalHoldout)
-	if err != nil {
-		return err
+	var n mergeEvalCounts
+	var err error
+	for _, c := range []struct {
+		to      *int
+		version string
+		set     models.AuthorLLMEvalItemSet
+	}{{&n.holdout, sets.holdout, models.AuthorLLMEvalHoldout}, {&n.supplement, sets.supplement, models.AuthorLLMEvalHoldout},
+		{&n.suite, sets.suite, models.AuthorLLMEvalAdversarial}, {&n.anchors, sets.anchor, models.AuthorLLMEvalAnchor}} {
+		if *c.to, err = count(c.version, c.set); err != nil {
+			return err
+		}
 	}
-	suite, err := count(sets.suite, models.AuthorLLMEvalAdversarial)
-	if err != nil {
-		return err
-	}
-	anchors, err := count(sets.anchor, models.AuthorLLMEvalAnchor)
-	if err != nil {
-		return err
-	}
-	return database.SetAuthorLLMRunEstimate(ctx, d.db, run.ID, mergeEstimateTokens(holdout, suite, anchors, &d.mergeSizes))
+	return database.SetAuthorLLMRunEstimate(ctx, d.db, run.ID, mergeEstimateTokens(&n, d.mergeSizesOf(run.Mode)))
 }
 
-// mergeEstimateTokens is a merge eval's token estimate.
-func mergeEstimateTokens(holdout, suite, anchors int, sizes *AuthorLLMMergeEvalSizes) int64 {
-	jobs := evalParticipants*sizes.FingerprintRepeats + evalParticipants*anchors + evalParticipants*holdout +
-		evalParticipants*suite + evalParticipants*min(holdout, sizes.Repeat)
-	return int64(jobs) * authorLLMMergeTokensPerJob
+// mergeEvalCounts are a merge eval's frozen items per set.
+type mergeEvalCounts struct{ holdout, supplement, suite, anchors int }
+
+// mergeEstimateTokens is a merge eval's token estimate: every participant
+// on each holdout, supplement, repeated and anchor item, the suite per
+// item, and the run's fixed part, at the pilot's measured figures.
+func mergeEstimateTokens(n *mergeEvalCounts, sizes *AuthorLLMMergeEvalSizes) int64 {
+	answers := evalParticipants * (n.holdout + n.supplement + min(n.holdout, sizes.Repeat))
+	return int64(answers)*mergeTokensPerAnswer + int64(evalParticipants*n.anchors)*mergeTokensPerAnchor +
+		int64(n.suite)*mergeTokensPerSuiteItem + mergeTokensPerRunOverall
 }
 
 func (d *AuthorLLMEvalDriver) enqueueMergeFingerprint(ctx context.Context, tx *pg.Tx, run *evalRun) error {
@@ -535,7 +742,7 @@ func (d *AuthorLLMEvalDriver) enqueueMergeFingerprint(ctx context.Context, tx *p
 		return err
 	}
 	for _, slot := range llmreq.Slots() {
-		for r := range d.mergeSizes.FingerprintRepeats {
+		for r := range d.mergeSizesOf(run.Mode).FingerprintRepeats {
 			if err := d.enqueue(ctx, tx, &database.AuthorLLMEvalJobSpec{RunID: run.ID, Slot: string(slot),
 				Purpose: models.AuthorLLMPurposeEvalFingerprint, RepeatNo: r, OutputMode: d.mode(run, slot),
 				ItemIDs: itemIDs(items)}); err != nil {
@@ -560,16 +767,36 @@ func (d *AuthorLLMEvalDriver) enqueueMergeAnchor(ctx context.Context, tx *pg.Tx,
 	return nil
 }
 
-// mergeMeasured are the holdout and the suite items of the run.
+// mergeMeasured are the measured items of the run: the holdout with
+// merge3's extra Latin questions, and the suite.
 func (d *AuthorLLMEvalDriver) mergeMeasured(
 	ctx context.Context, db pg.DBI, run *evalRun,
 ) (holdout, suite []database.AuthorLLMEvalItemRow, err error) {
 	sets := mergeEvalSetsOf(run.Mode)
-	if holdout, err = d.mergeItems(ctx, db, sets.holdout, models.AuthorLLMEvalHoldout); err != nil {
+	holdout, err = database.AuthorLLMEvalItems(ctx, db, []string{sets.holdout, sets.supplement},
+		[]models.AuthorLLMEvalItemSet{models.AuthorLLMEvalHoldout})
+	if err != nil {
 		return nil, nil, err
 	}
 	suite, err = d.mergeItems(ctx, db, sets.suite, models.AuthorLLMEvalAdversarial)
 	return holdout, suite, err
+}
+
+// isSupplement reports an extra question, gated outside |A|.
+func isSupplement(row *database.AuthorLLMEvalItemRow) bool {
+	return strings.HasSuffix(row.SetVersion, ".supplement")
+}
+
+// mergeSupplementSet is the report's set name of the extra questions.
+const mergeSupplementSet = "supplement"
+
+// reportSet is an item's set as the report counts it: the extra questions
+// apart from the holdout.
+func reportSet(row *database.AuthorLLMEvalItemRow) string {
+	if isSupplement(row) {
+		return mergeSupplementSet
+	}
+	return row.ItemSet
 }
 
 // enqueueMergeCandidates asks the production pair every holdout and suite
@@ -626,16 +853,18 @@ func (d *AuthorLLMEvalDriver) enqueueMergeJudges(ctx context.Context, tx *pg.Tx,
 }
 
 // enqueueMergeRepeat asks the first Repeat holdout items, in the sampling
-// order, once more of every participant.
+// order, once more of every participant (never the extra questions or the
+// suite: the suite's accepts are decided by adjudication of the first
+// answers, and a repeat there would feed nothing the gate reads).
 func (d *AuthorLLMEvalDriver) enqueueMergeRepeat(ctx context.Context, tx *pg.Tx, run *evalRun) error {
-	holdout, _, err := d.mergeMeasured(ctx, tx, run)
+	holdout, err := d.mergeItems(ctx, tx, mergeEvalSetsOf(run.Mode).holdout, models.AuthorLLMEvalHoldout)
 	if err != nil {
 		return err
 	}
 	slices.SortStableFunc(holdout, func(x, y database.AuthorLLMEvalItemRow) int {
 		return bytes.Compare(mergeEvalOrder(x.SourceFingerprint), mergeEvalOrder(y.SourceFingerprint))
 	})
-	ids := itemIDs(holdout[:min(len(holdout), d.mergeSizes.Repeat)])
+	ids := itemIDs(holdout[:min(len(holdout), d.mergeSizesOf(run.Mode).Repeat)])
 	for _, slot := range llmreq.Slots() {
 		arm := llmeval.ArmA
 		if slot == llmreq.SlotJudgeA || slot == llmreq.SlotJudgeB {
@@ -809,7 +1038,8 @@ func mergeEvalInput(
 			item.Holdout = true
 			item.Adversarial = rows[i].ItemSet == string(models.AuthorLLMEvalAdversarial)
 			item.Adjudication = adjudications[rows[i].ID].Label
-			if !item.Adversarial {
+			item.Supplement = isSupplement(&rows[i])
+			if !item.Adversarial && !item.Supplement {
 				item.Repeated = countRepeats(repeat, jobs)
 			}
 			in.Items = append(in.Items, item)
@@ -927,10 +1157,10 @@ func mergeAnswerCounts(
 				if k.repeat != 0 || !models.AuthorLLMJobStatus(a.Status).IsTerminal() {
 					continue
 				}
-				ck := key{it.ItemSet, it.Stratum, k.slot, k.purpose}
+				ck := key{reportSet(it), it.Stratum, k.slot, k.purpose}
 				c := counts[ck]
 				if c == nil {
-					c = &mergeAnswerCount{ItemSet: it.ItemSet, Stratum: it.Stratum, Participant: k.slot, Purpose: k.purpose}
+					c = &mergeAnswerCount{ItemSet: ck.set, Stratum: it.Stratum, Participant: k.slot, Purpose: k.purpose}
 					counts[ck] = c
 					keys = append(keys, ck)
 				}
@@ -971,10 +1201,10 @@ func mergeTokenCounts(
 	for _, rows := range [][]database.AuthorLLMEvalItemRow{holdout, suite, anchors} {
 		for i := range rows {
 			it := &rows[i]
-			k := key{it.ItemSet, it.Stratum}
+			k := key{reportSet(it), it.Stratum}
 			c := counts[k]
 			if c == nil {
-				c = &mergeTokenCount{ItemSet: it.ItemSet, Stratum: it.Stratum}
+				c = &mergeTokenCount{ItemSet: k.set, Stratum: it.Stratum}
 				counts[k] = c
 				keys = append(keys, k)
 			}

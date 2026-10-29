@@ -51,6 +51,68 @@ func suiteReason(combos []Combo, report *StratumReport) string {
 	return ""
 }
 
+// splitSupplement separates a stratum's items gated outside |A| from the
+// rest.
+func splitSupplement(all []*Item) (rest, supplement []*Item) {
+	for _, it := range all {
+		if it.Supplement {
+			supplement = append(supplement, it)
+		} else {
+			rest = append(rest, it)
+		}
+	}
+	return rest, supplement
+}
+
+// SupplementMetrics is a combo's result on the items gated outside |A|:
+// Errors counts the accepts whose gold differs, and, where a contested
+// accept is an error (Options), the contested ones; any fails the stratum.
+type SupplementMetrics struct {
+	Items        int `json:"items"`
+	PairAccepted int `json:"pair_accepted"`
+	Accepted     int `json:"accepted"`
+	Contested    int `json:"contested"`
+	Errors       int `json:"errors"`
+}
+
+// measureSupplement counts the items gated outside |A| in a combo.
+func measureSupplement(c Combo, items []*Item, o *Options) *SupplementMetrics {
+	m := &SupplementMetrics{}
+	for _, it := range items {
+		m.Items++
+		ans, ok := candidates(it, c)
+		answer := agreed(&ans, ok)
+		if !o.accepts(answer) {
+			continue
+		}
+		m.PairAccepted++
+		g := gold(it)
+		if g == "" {
+			m.Contested++
+			if !o.ContestedIsError {
+				continue
+			}
+		}
+		m.Accepted++
+		if g != answer {
+			m.Errors++
+		}
+	}
+	return m
+}
+
+// supplementReason names the first combo whose items outside |A| failed,
+// or "".
+func supplementReason(combos []Combo, report *StratumReport) string {
+	for _, c := range combos {
+		if s := report.Combos[comboKey(c)].Supplement; s != nil && s.Errors > 0 {
+			return fmt.Sprintf("supplement: %d errors of %d accepted outside |A| in %s (%d contested)",
+				s.Errors, s.Accepted, comboKey(c), s.Contested)
+		}
+	}
+	return ""
+}
+
 func (o *Options) maxErrorShare() float64 {
 	if o.MaxErrorShare > 0 {
 		return o.MaxErrorShare

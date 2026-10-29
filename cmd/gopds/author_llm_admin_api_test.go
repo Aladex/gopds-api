@@ -132,8 +132,10 @@ func TestAuthorLLMAdminWiring(t *testing.T) {
 		assert.True(t, merge.Status.Enabled)
 		assert.True(t, merge.Status.OtherActive)
 		assert.Nil(t, merge.Status.Run, "the merge card showed K's run")
-		require.Len(t, merge.Status.Steps, 1)
-		assert.Equal(t, services.AuthorLLMStepActiveRun, merge.Status.Steps[0].Blocked)
+		require.Len(t, merge.Status.Steps, 5, "merge0 and the four stage modes")
+		for _, step := range merge.Status.Steps {
+			assert.Equal(t, services.AuthorLLMStepActiveRun, step.Blocked, step.Key)
+		}
 		rec = llmCall(t, r, http.MethodPost, "/merge/runs", `{"kind":"eval","mode":"merge0"}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.JSONEq(t, `{"error":"active_run_exists"}`, rec.Body.String())

@@ -90,6 +90,10 @@ type Item struct {
 	// suite (Options): never measured, any accept of one fails its stratum.
 	Script      string
 	Adversarial bool
+	// Supplement marks a measured item gated outside |A| (Options): an
+	// error or a contested accept of one fails its stratum, but it never
+	// counts toward the bound (merge3's extra Latin questions, §3.5).
+	Supplement bool
 	// Adjudication is a suite item's human label: AdjudicatedSame and
 	// AdjudicatedUnclear clear its accept; "different" or none fails.
 	Adjudication string
@@ -177,6 +181,9 @@ type ComboMetrics struct {
 	// report.
 	Scripts     map[string]ScriptMetrics `json:"scripts,omitempty"`
 	Adversarial *AdversarialMetrics      `json:"adversarial,omitempty"`
+	// Supplement is the items gated outside |A| (Options); absent from K's
+	// report.
+	Supplement *SupplementMetrics `json:"supplement,omitempty"`
 }
 
 // AblationResult compares arm B with arm A at one batch size.
@@ -531,17 +538,22 @@ func agreed(ans *[2]Answer, ok bool) string {
 // did.
 func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, StratumDecision) {
 	all, suite := splitSuite(all)
+	all, supplement := splitSupplement(all)
 	scope, report := stratumScope(all)
 	judgesPassed := false
 	report.JudgeInvalid, judgesPassed = judgeInvalid(scope)
 	for _, c := range combos {
 		m := measure(c, scope, o)
 		if o.ByScript {
-			m.Scripts = measureScripts(c, scope, suite, o)
+			m.Scripts = measureScripts(c, append(slices.Clip(scope), supplement...), suite, o)
 		}
 		if len(suite) > 0 {
 			m.Adversarial = measureSuite(c, suite, o)
 			m.Passed = m.Passed && m.Adversarial.Failed == 0
+		}
+		if len(supplement) > 0 {
+			m.Supplement = measureSupplement(c, supplement, o)
+			m.Passed = m.Passed && m.Supplement.Errors == 0
 		}
 		report.Combos[comboKey(c)] = m
 	}
@@ -563,6 +575,9 @@ func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, St
 				decision.Reason = invalidReason(m.Invalid, " in "+comboKey(c))
 				break
 			}
+		}
+		if reason := supplementReason(combos, &report); reason != "" {
+			decision.Reason = reason
 		}
 		if reason := suiteReason(combos, &report); reason != "" {
 			decision.Reason = reason
@@ -701,7 +716,12 @@ func measure(c Combo, scope []*Item, o *Options) ComboMetrics {
 		}
 		m.Tiers[ans[0].Tier] = tc
 	}
-	if agreedTotal := len(acc) + m.Contested; agreedTotal > 0 {
+	// Where a contested accept is an error it is already in acc.
+	agreedTotal := len(acc)
+	if !o.ContestedIsError {
+		agreedTotal += m.Contested
+	}
+	if agreedTotal > 0 {
 		m.ContestedShare = float64(m.Contested) / float64(agreedTotal)
 	}
 	m.AllowedTiers = allowedTiers(m.Tiers)

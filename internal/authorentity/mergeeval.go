@@ -53,11 +53,16 @@ type MergeSuitePair struct {
 	a, b             *candSide
 }
 
-// MergeAnchorPair is one known-same anchor: two key groups of one side.
+// MergeAnchorPair is one known-same anchor: two key groups of one side,
+// or, for a bucket anchor, a book D3 moved out of a bucket and the side it
+// moved to.
 type MergeAnchorPair struct {
 	Kind, Script string
 	Entity       uuid.UUID
 	ka, kb       int
+	// credit is a bucket anchor's moved credit, by index into
+	// Input.Credits, and full the root of the side it moved to.
+	credit, full int
 }
 
 // suiteSide is a side a namesake pair may use, with its root key.
@@ -213,9 +218,13 @@ func SuiteItemKey(pair *MergeSuitePair, shape string, romanized bool) [32]byte {
 // RenderSuiteItem renders a namesake pair in a stratum's shape (§3.2), each
 // person with its own real books: swap — both without the patronymic, one
 // side reordered; initials — the side of fewer books as an initial and the
-// family name against the other's full name. Romanized, both sides' names
-// are in Latin letters by the fixed table, their books unchanged. books are
-// the loaded fields of MergeSuiteBookIDs.
+// family name against the other's full name; translit — both without the
+// patronymic, one side in Latin letters by the fixed table; bucket — one
+// book of one person under the given and family name alone, against the
+// other's card under the full name. Romanized, both sides' names are in
+// Latin letters by the fixed table, their books unchanged (translit
+// romanizes one side whatever the flag). books are the loaded fields of
+// MergeSuiteBookIDs.
 func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized bool,
 	books map[int64]CardBookFields) MergeInput {
 	b := p.cand.b
@@ -233,6 +242,12 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 		first, _ := utf8.DecodeRuneInString(nx.given)
 		nameX = string(first) + ". " + nx.family
 		nameY = ny.given + " " + ny.additional + " " + ny.family
+	case CandidateTranslit:
+		nameX = nx.given + " " + nx.family
+		nameY = Romanize(ny.given + " " + ny.family)
+	case CandidateBucket:
+		nameX = nx.given + " " + nx.family
+		nameY = ny.given + " " + ny.additional + " " + ny.family
 	default:
 		nameX = nx.given + " " + nx.family
 		nameY = ny.family + " " + ny.given
@@ -241,7 +256,12 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 		nameX, nameY = Romanize(nameX), Romanize(nameY)
 	}
 	r := p.renderer(books, p.MergeSuiteBookIDs([]MergeSuitePair{*pair}))
-	a := r.cardOf([]string{nameX}, nil, x.books, x.entity)
+	xBooks := x.books
+	if shape == CandidateBucket {
+		// A bucket question shows one book of the short name.
+		xBooks = x.books[:min(1, len(x.books))]
+	}
+	a := r.cardOf([]string{nameX}, nil, xBooks, x.entity)
 	c := r.cardOf([]string{nameY}, nil, y.books, y.entity)
 	return MergeInput{CardVersion: MergeCardVersion, A: a, B: c}
 }
@@ -367,6 +387,10 @@ func anchorOrder(a *MergeAnchorPair, b *builder) []byte {
 // AnchorItemKey names an anchor item.
 func (p *Plan) AnchorItemKey(a *MergeAnchorPair) [32]byte {
 	var out [32]byte
+	if a.Kind == CandidateBucket {
+		copy(out[:], bucketAnchorOrder(a, p.cand.b))
+		return out
+	}
 	copy(out[:], anchorOrder(a, p.cand.b))
 	return out
 }
@@ -376,6 +400,12 @@ func (p *Plan) MergeAnchorBookIDs(anchors []MergeAnchorPair) []int64 {
 	b := p.cand.b
 	set := map[int64]bool{}
 	for i := range anchors {
+		if anchors[i].Kind == CandidateBucket {
+			for _, id := range p.bucketAnchorBooks(&anchors[i]) {
+				set[id] = true
+			}
+			continue
+		}
 		for _, k := range []int{anchors[i].ka, anchors[i].kb} {
 			books := b.keys[k].books
 			for _, id := range books[:min(mergeCardSample, len(books))] {
@@ -391,6 +421,9 @@ func (p *Plan) MergeAnchorBookIDs(anchors []MergeAnchorPair) []int64 {
 func (p *Plan) RenderAnchor(a *MergeAnchorPair, books map[int64]CardBookFields) MergeInput {
 	b := p.cand.b
 	r := p.renderer(books, p.MergeAnchorBookIDs([]MergeAnchorPair{*a}))
+	if a.Kind == CandidateBucket {
+		return p.renderBucketAnchor(r, a)
+	}
 	card := func(k int) MergeCard {
 		kg := b.keys[k]
 		var names, variants []string

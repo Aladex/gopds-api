@@ -65,9 +65,13 @@ const (
 	AuthorLLMStepSwapEval  = "swap_eval"
 	AuthorLLMStepSwapPilot = "swap_pilot"
 	AuthorLLMStepSwapFull  = "swap_full"
-	// AuthorLLMStepMerge0 is the merge configuration's one step (E4c): the
-	// merge pilot.
+	// The merge configuration's steps (E4c): the merge pilot, then an eval
+	// per kind — swap, initials, bucket, translit (§7).
 	AuthorLLMStepMerge0 = models.AuthorLLMEvalModeMerge0
+	AuthorLLMStepMerge1 = models.AuthorLLMEvalModeMerge1
+	AuthorLLMStepMerge2 = models.AuthorLLMEvalModeMerge2
+	AuthorLLMStepMerge3 = models.AuthorLLMEvalModeMerge3
+	AuthorLLMStepMerge4 = models.AuthorLLMEvalModeMerge4
 )
 
 // Why a step is not enabled.
@@ -397,21 +401,27 @@ func authorLLMSteps(enabled, active bool, completed map[string]bool) []AuthorLLM
 	return steps
 }
 
-// authorLLMMergeSteps is the merge configuration's chain: the merge pilot,
-// enabled when the layer is on and no run is active.
+// authorLLMMergeSteps is the merge configuration's chain: the merge pilot
+// and the eval of each kind, each enabled when the layer is on and no run
+// is active. Their order is the budget's (§7), an operator's decision: no
+// step needs another's data.
 func authorLLMMergeSteps(enabled, active bool, completed map[string]bool) []AuthorLLMStep {
-	mode := models.AuthorLLMEvalModeMerge0
-	s := AuthorLLMStep{Key: AuthorLLMStepMerge0, Kind: string(models.AuthorLLMRunEval), Mode: mode, Available: true,
-		Done: completed[string(models.AuthorLLMRunEval)+"/"+mode]}
-	switch {
-	case !enabled:
-		s.Blocked = AuthorLLMStepNotConfigured
-	case active:
-		s.Blocked = AuthorLLMStepActiveRun
-	default:
-		s.Enabled = true
+	steps := make([]AuthorLLMStep, 0, len(mergeEvalModes))
+	for _, mode := range []string{AuthorLLMStepMerge0, AuthorLLMStepMerge1, AuthorLLMStepMerge2, AuthorLLMStepMerge3,
+		AuthorLLMStepMerge4} {
+		s := AuthorLLMStep{Key: mode, Kind: string(models.AuthorLLMRunEval), Mode: mode, Available: true,
+			Done: completed[string(models.AuthorLLMRunEval)+"/"+mode]}
+		switch {
+		case !enabled:
+			s.Blocked = AuthorLLMStepNotConfigured
+		case active:
+			s.Blocked = AuthorLLMStepActiveRun
+		default:
+			s.Enabled = true
+		}
+		steps = append(steps, s)
 	}
-	return []AuthorLLMStep{s}
+	return steps
 }
 
 // stageEstimates fills each stage eval step's token estimate.

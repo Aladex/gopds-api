@@ -392,8 +392,12 @@ export type AuthorLLMStepKey =
     | 'swap_eval'
     | 'swap_pilot'
     | 'swap_full'
-    // The merge configuration's one step (E4c).
-    | 'merge0';
+    // The merge configuration's steps (E4c): the pilot, then one eval per kind.
+    | 'merge0'
+    | 'merge1'
+    | 'merge2'
+    | 'merge3'
+    | 'merge4';
 
 export interface AuthorLLMStep {
     key: AuthorLLMStepKey;

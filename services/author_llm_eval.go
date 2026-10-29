@@ -284,8 +284,9 @@ type AuthorLLMEvalDriver struct {
 	// rejudged, when set, replaces the stored answers of these jobs: the
 	// re-score preview's answers under this build's validators.
 	rejudged map[int64]rejudgedAnswer
-	// mergeSizes are a merge configuration's eval sizes (E4c).
-	mergeSizes AuthorLLMMergeEvalSizes
+	// mergeSizes are a merge configuration's eval sizes when set (E4c);
+	// nil is each mode's own.
+	mergeSizes *AuthorLLMMergeEvalSizes
 }
 
 // NewAuthorLLMEvalDriver builds the driver of a configuration.
@@ -300,7 +301,7 @@ func NewAuthorLLMEvalDriver(
 		poll = authorLLMPollInterval
 	}
 	return &AuthorLLMEvalDriver{db: db, identity: *identity, version: version, sizes: sizes,
-		archivesDir: archivesDir, archives: archives, poll: poll, mergeSizes: DefaultAuthorLLMMergeEvalSizes()}
+		archivesDir: archivesDir, archives: archives, poll: poll}
 }
 
 // EvalDriver is the eval driver of the worker's configuration, with the

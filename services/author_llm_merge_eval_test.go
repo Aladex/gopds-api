@@ -101,14 +101,24 @@ func (c *entityCatalog) seedMergeFixture() []string {
 		(policy_version, decision_class, script, config_version, evidence_report_sha256, evidence_ref, source)
 		VALUES ('4', 'structured_person', 'Latn', 'normalizer-v1', ?, 'internal/authornorm/policy_evidence/fixture.json',
 		 'shipped')`, bytes.Repeat([]byte{0xee}, 32))
-	genres := map[string]int64{}
+	return c.seedMergePersons(mergeFixture, 0x20)
+}
+
+// seedMergePersons writes persons' books and credits, the i-th person's
+// fingerprint filled with fill+i, and the genre rows not written yet. It
+// returns every name and title.
+func (c *entityCatalog) seedMergePersons(persons []mergePerson, fill byte) []string {
+	c.t.Helper()
 	var secrets []string
-	for i, p := range mergeFixture {
-		gid, ok := genres[p.genre]
-		if !ok {
-			gid = int64(900 + len(genres))
-			genres[p.genre] = gid
-			c.exec(`INSERT INTO opds_catalog_genre (id, genre, title) VALUES (?, ?, '')`, gid, p.genre)
+	for i, p := range persons {
+		var gid int64
+		_, err := c.db.Query(pg.Scan(&gid), `SELECT id FROM opds_catalog_genre WHERE genre = ? AND id >= 900`, p.genre)
+		require.NoError(c.t, err)
+		if gid == 0 {
+			_, err = c.db.QueryOne(pg.Scan(&gid), `INSERT INTO opds_catalog_genre (id, genre, title)
+				SELECT greatest(899, coalesce(max(id), 0)) + 1, ?, '' FROM opds_catalog_genre WHERE id >= 900 RETURNING id`,
+				p.genre)
+			require.NoError(c.t, err)
 		}
 		secrets = append(secrets, p.family, p.given)
 		for b := range p.books {
@@ -124,7 +134,7 @@ func (c *entityCatalog) seedMergeFixture() []string {
 			if p.additional != "" {
 				extra = []string{p.additional}
 			}
-			c.creditIn(snap, byte(0x20+i), p.script, p.family, p.given, extra...)
+			c.creditIn(snap, fill+byte(i), p.script, p.family, p.given, extra...)
 			secrets = append(secrets, title)
 		}
 	}
@@ -297,8 +307,8 @@ func TestTheMergePilotRunsEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	run, err := services.StartAuthorLLMMergeEval(ctx, e.db, m.version, models.AuthorLLMEvalModeMerge0, nil)
 	require.NoError(t, err)
-	_, err = services.StartAuthorLLMMergeEval(ctx, e.db, m.version, models.AuthorLLMEvalModeMerge1, nil)
-	require.ErrorIs(t, err, services.ErrAuthorLLMInvalidRun, "merge1 is E4c-2b")
+	_, err = services.StartAuthorLLMMergeEval(ctx, e.db, m.version, models.AuthorLLMEvalModeMerge, nil)
+	require.ErrorIs(t, err, services.ErrAuthorLLMInvalidRun, "no merge eval of that mode")
 
 	e.fake.setRespond(mergeStub)
 	driver := e.mergeWorker(m).EvalDriver().WithMergeSizes(mergeEvalSizes)
@@ -390,9 +400,11 @@ func TestEachCardShowsItsOwnConfigurationsRun(t *testing.T) {
 
 	st, err := merge.Status(ctx)
 	require.NoError(t, err)
-	require.Len(t, st.Steps, 1)
-	assert.Equal(t, "merge0", st.Steps[0].Key)
-	assert.True(t, st.Steps[0].Enabled)
+	require.Len(t, st.Steps, 5)
+	for i, step := range st.Steps {
+		assert.Equal(t, fmt.Sprintf("merge%d", i), step.Key)
+		assert.True(t, step.Enabled, step.Key)
+	}
 
 	_, err = k.Start(ctx, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeMerge0, 1)
 	require.ErrorIs(t, err, services.ErrAuthorLLMInvalidRun)
@@ -416,7 +428,9 @@ func TestEachCardShowsItsOwnConfigurationsRun(t *testing.T) {
 	require.NotNil(t, st.Run)
 	assert.Equal(t, started.ID, st.Run.ID)
 	assert.True(t, st.Run.CurrentConfig)
-	assert.Equal(t, services.AuthorLLMStepActiveRun, st.Steps[0].Blocked)
+	for _, step := range st.Steps {
+		assert.Equal(t, services.AuthorLLMStepActiveRun, step.Blocked, step.Key)
+	}
 
 	// A merge report is never recomputed with K's gate.
 	_, _, err = services.RecomputeAuthorLLMEvalReport(ctx, e.db, m.version, started.ID)

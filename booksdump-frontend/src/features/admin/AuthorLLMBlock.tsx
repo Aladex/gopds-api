@@ -64,6 +64,10 @@ const stepLabels = (t: T): Record<string, string> => ({
     swap_pilot: t('authorLLM.step.swap_pilot', 'Swaps: pilot 500'),
     swap_full: t('authorLLM.step.swap_full', 'Swap everything'),
     merge0: t('authorLLM.step.merge0', 'Start the merge pilot (merge0)'),
+    merge1: t('authorLLM.step.merge1', 'Check swaps, every candidate (merge1)'),
+    merge2: t('authorLLM.step.merge2', 'Check initials, every candidate (merge2)'),
+    merge3: t('authorLLM.step.merge3', 'Check short-name books (merge3)'),
+    merge4: t('authorLLM.step.merge4', 'Check transliterations, every candidate (merge4)'),
 });
 
 const stageLabels = (t: T): Record<string, string> => ({
@@ -83,7 +87,12 @@ const runLabel = (t: T, run: AuthorLLMRun): string => {
         if (run.mode === 'dev') return t('authorLLM.run.eval_dev', 'Model settings check');
         if (run.mode === 'full') return t('authorLLM.run.eval_full', 'Full check');
         if (run.mode === 'swap') return t('authorLLM.run.eval_swap', 'Swaps check');
-        if (run.mode.startsWith('merge')) return t('authorLLM.run.merge0', 'Merge pilot');
+        if (run.mode === 'merge0') return t('authorLLM.run.merge0', 'Merge pilot');
+        if (run.mode.startsWith('merge'))
+            return t('authorLLM.run.merge', {
+                defaultValue: 'Merge check {{mode}}',
+                mode: run.mode,
+            });
         if (run.mode.startsWith('stage'))
             return t('authorLLM.run.eval_stage', {
                 defaultValue: 'Stage {{stage}} check',
