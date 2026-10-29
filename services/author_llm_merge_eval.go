@@ -950,10 +950,17 @@ type mergeTokenCount struct {
 	TokensPerItem float64 `json:"tokens_per_item"`
 }
 
-// mergeOptions are the merge gate's options (§3.1, §4.5).
-func mergeOptions() llmeval.Options {
+// mergeOptions are the merge gate's options (§3.1, §3.3, §4.5): a census
+// mode's strata pass on no error and every candidate settled; a holdout's
+// (merge0, merge3's bucket) on the bound.
+func mergeOptions(mode string) llmeval.Options {
+	rule := llmeval.GateRuleHoldout
+	if mergeEvalModes[mode].census {
+		rule = llmeval.GateRuleCensus
+	}
 	return llmeval.Options{MaxErrorShare: mergeEvalMaxErrorShare, ContestedIsError: true,
-		ContestedAdjudicated: true, AcceptOnly: mergeSameCanonical, AnchorRecall: true, ByScript: true}
+		ContestedAdjudicated: true, AcceptOnly: mergeSameCanonical, AnchorRecall: true, ByScript: true,
+		GateRule: rule}
 }
 
 // mergeReport computes the report, stores it with its digest and completes
@@ -1008,7 +1015,7 @@ func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) 
 	in.Fingerprint = fpResult
 	recall, anchorCount := mergeRecallOf(anchors, answers.byItem)
 	in.Anchor = anchorCount
-	opts := mergeOptions()
+	opts := mergeOptions(run.Mode)
 	evaluation := llmeval.EvaluateWith(&in, &opts)
 	doc := &mergeEvalReportDoc{ReportVersion: 1, RunID: run.ID, Mode: run.Mode, ConfigVersion: d.version,
 		Task: llmreq.TaskMerge, Gate: mergeEvalGate, Options: opts, Settings: d.reportSettings(run, answers),

@@ -189,6 +189,9 @@ type ComboMetrics struct {
 	// Supplement is the items gated outside |A| (Options); absent from K's
 	// report.
 	Supplement *SupplementMetrics `json:"supplement,omitempty"`
+	// Census is the completeness of a census (GateRuleCensus); absent
+	// otherwise.
+	Census *CensusMetrics `json:"census,omitempty"`
 }
 
 // AblationResult compares arm B with arm A at one batch size.
@@ -215,7 +218,10 @@ type StratumReport struct {
 
 // StratumDecision is what the run decides for a stratum.
 type StratumDecision struct {
-	Stratum         string   `json:"stratum"`
+	Stratum string `json:"stratum"`
+	// Rule is the error gate applied (Options.GateRule); absent from K's
+	// report.
+	Rule            string   `json:"rule,omitempty"`
 	Passed          bool     `json:"passed"`
 	Arm             string   `json:"arm,omitempty"`
 	ItemsPerRequest int      `json:"items_per_request,omitempty"`
@@ -335,7 +341,7 @@ func EvaluateWith(in *Input, o *Options) Report {
 	reasons = append(reasons, pooledReasons...)
 	if len(reasons) > 0 {
 		for i := range r.Decision.Strata {
-			r.Decision.Strata[i] = StratumDecision{Stratum: r.Decision.Strata[i].Stratum}
+			r.Decision.Strata[i] = StratumDecision{Stratum: r.Decision.Strata[i].Stratum, Rule: o.GateRule}
 		}
 	}
 	r.Decision.Reasons = reasons
@@ -570,9 +576,10 @@ func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, St
 		}
 	}
 	if !judgesPassed {
-		return report, StratumDecision{Reason: invalidReason(report.JudgeInvalid, "")}
+		return report, StratumDecision{Rule: o.GateRule, Reason: invalidReason(report.JudgeInvalid, "")}
 	}
 	decision := chooseBatch(batches, options)
+	decision.Rule = o.GateRule
 	if !decision.Passed {
 		decision.Reason = "gate: no combo passed"
 		for _, c := range combos {
@@ -580,6 +587,9 @@ func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, St
 				decision.Reason = invalidReason(m.Invalid, " in "+comboKey(c))
 				break
 			}
+		}
+		if reason := censusReason(combos, &report); reason != "" {
+			decision.Reason = reason
 		}
 		if reason := supplementReason(combos, &report); reason != "" {
 			decision.Reason = reason
@@ -743,6 +753,13 @@ func measure(c Combo, scope []*Item, o *Options) ComboMetrics {
 	}
 	g := gate(acc, m.AllowedTiers, o.maxErrorShare())
 	m.UpperBound, m.ErrorsPassed, m.AllowedAccepted, m.AllowedErrors = g.upper, g.passed, g.accepted, g.errors
+	if o.GateRule == GateRuleCensus {
+		// Every candidate was asked: the gate is no error among the
+		// accepts and none left unsettled; the bound is only reported.
+		// A census that accepted nothing passes nothing, as the bound.
+		m.Census = measureCensus(c, scope)
+		m.ErrorsPassed = g.accepted > 0 && g.errors == 0 && m.Census.Complete
+	}
 	m.Invalid, m.InvalidPassed = comboInvalid(c, scope)
 	m.Passed = m.ErrorsPassed && m.InvalidPassed
 	return m

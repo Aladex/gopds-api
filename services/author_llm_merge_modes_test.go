@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/database"
 	"gopds-api/internal/authorentity"
 	"gopds-api/models"
 	"gopds-api/services"
@@ -258,6 +259,20 @@ func TestEachStageModeFreezesAndRunsEndToEnd(t *testing.T) {
 		assert.Equal(t, len(sets["holdout"]), stratum.Holdout, "%s: |A| is over the holdout alone", tc.mode)
 		require.NotNil(t, combo.Adversarial, tc.mode)
 		assert.Equal(t, len(sets["adversarial"]), combo.Adversarial.Items, tc.mode)
+		// A census mode's stratum is gated as a census (§3.3), merge3's
+		// bucket holdout on the bound; the report says which.
+		rule := "holdout"
+		if tc.census {
+			rule = "census"
+			require.NotNil(t, combo.Census, tc.mode)
+			assert.Equal(t, len(sets["holdout"]), combo.Census.Candidates, "%s: the census is every frozen candidate", tc.mode)
+			assert.Equal(t, combo.Census.Candidates, combo.Census.Settled+len(combo.Census.Unsettled), tc.mode)
+		} else {
+			assert.Nil(t, combo.Census, tc.mode)
+		}
+		assert.Equal(t, rule, r.Options.GateRule, tc.mode)
+		require.Len(t, r.Evaluation.Decision.Strata, 1, tc.mode)
+		assert.Equal(t, rule, r.Evaluation.Decision.Strata[0].Rule, tc.mode)
 		if tc.mode == models.AuthorLLMEvalModeMerge3 {
 			require.NotNil(t, combo.Supplement)
 			assert.Equal(t, len(sets["supplement"]), combo.Supplement.Items)
@@ -286,7 +301,10 @@ func TestEachStageModeFreezesAndRunsEndToEnd(t *testing.T) {
 
 // stageReport is the part of a stage report the tests read.
 type stageReport struct {
-	Mode   string `json:"mode"`
+	Mode    string `json:"mode"`
+	Options struct {
+		GateRule string `json:"gate_rule"`
+	} `json:"options"`
 	Recall []struct {
 		Kind string `json:"kind"`
 	} `json:"recall"`
@@ -302,8 +320,19 @@ type stageReport struct {
 					Items    int `json:"items"`
 					Accepted int `json:"accepted"`
 				} `json:"supplement"`
+				Census *struct {
+					Candidates int     `json:"candidates"`
+					Settled    int     `json:"settled"`
+					Unsettled  []int64 `json:"unsettled"`
+				} `json:"census"`
 			} `json:"combos"`
 		} `json:"strata"`
+		Decision struct {
+			Strata []struct {
+				Stratum string `json:"stratum"`
+				Rule    string `json:"rule"`
+			} `json:"strata"`
+		} `json:"decision"`
 	} `json:"evaluation"`
 }
 
@@ -406,4 +435,47 @@ func TestAnIdleMergeWorkerMakesNoProviderCall(t *testing.T) {
 	_, err := e.worker().RunOnce(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, e.fake.served(), "K's run had nothing to ask")
+}
+
+// A merge1 report stored under the rule before the census gate (no rule,
+// no census, the bound) is recomputed under the census rule as the run's
+// next version (run 33's case, §3.3).
+func TestARecomputeAppliesTheCensusRule(t *testing.T) {
+	e, m, _, _ := stageEnv(t)
+	ctx := context.Background()
+	run, err := services.StartAuthorLLMMergeEval(ctx, e.db, m.version, models.AuthorLLMEvalModeMerge1, nil)
+	require.NoError(t, err)
+	stepMergeEval(t, e, m, run, stageEvalSizes, false)
+
+	latest, err := database.GetAuthorLLMEvalReport(ctx, e.db, run)
+	require.NoError(t, err)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(latest.Report), &doc))
+	delete(doc["options"].(map[string]any), "gate_rule")
+	evaluation := doc["evaluation"].(map[string]any)
+	for _, s := range evaluation["strata"].(map[string]any) {
+		for _, c := range s.(map[string]any)["combos"].(map[string]any) {
+			delete(c.(map[string]any), "census")
+		}
+	}
+	for _, d := range evaluation["decision"].(map[string]any)["strata"].([]any) {
+		delete(d.(map[string]any), "rule")
+	}
+	old, err := json.Marshal(doc)
+	require.NoError(t, err)
+	_, err = e.db.Exec(`INSERT INTO author_llm_eval_report (run_id, config_version, version, report, report_sha256)
+		SELECT ?0, ?1, ?2, ?3::jsonb, sha256(convert_to(?3::jsonb::text, 'UTF8'))`,
+		run, latest.ConfigVersion, latest.Version+1, string(old))
+	require.NoError(t, err)
+
+	next, stored, err := services.RecomputeAuthorLLMMergeEvalReport(ctx, e.db, &m.identity, m.version, run)
+	require.NoError(t, err)
+	require.True(t, stored, "the census rule changes the report")
+	assert.Equal(t, latest.Version+2, next.Version)
+	var r stageReport
+	require.NoError(t, json.Unmarshal([]byte(next.Report), &r))
+	assert.Equal(t, "census", r.Options.GateRule)
+	require.Len(t, r.Evaluation.Decision.Strata, 1)
+	assert.Equal(t, "census", r.Evaluation.Decision.Strata[0].Rule)
+	assert.NotNil(t, r.Evaluation.Strata["swap"].Combos["A1"].Census)
 }

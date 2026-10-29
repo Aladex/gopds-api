@@ -26,6 +26,66 @@ type Options struct {
 	AnchorRecall bool `json:"anchor_recall,omitempty"`
 	// ByScript breaks every combo down per item script.
 	ByScript bool `json:"by_script,omitempty"`
+	// GateRule names the error gate of every stratum, and the report says
+	// it per stratum: empty (K) and GateRuleHoldout bound the error share
+	// of a sample; GateRuleCensus is for a run that asked every candidate.
+	GateRule string `json:"gate_rule,omitempty"`
+}
+
+// The error gates of a stratum (Options.GateRule).
+const (
+	// GateRuleHoldout: the one-sided bound and the weighted share at most
+	// the largest error share.
+	GateRuleHoldout = "holdout"
+	// GateRuleCensus: every candidate asked has a settled pair answer, and
+	// no accept is an error (a contested one included, until a human
+	// clears it). Nothing is estimated, so no bound applies.
+	GateRuleCensus = "census"
+)
+
+// CensusMetrics is a census combo's completeness: Settled counts the
+// candidates both production participants answered validly (a refusal
+// included); Unsettled lists the others — not asked, failed, rejected by
+// the provider or by the validators. Complete is none unsettled.
+type CensusMetrics struct {
+	Candidates int     `json:"candidates"`
+	Settled    int     `json:"settled"`
+	Unsettled  []int64 `json:"unsettled"`
+	Complete   bool    `json:"complete"`
+}
+
+// measureCensus counts a combo's settled candidates.
+func measureCensus(c Combo, scope []*Item) *CensusMetrics {
+	m := &CensusMetrics{Unsettled: []int64{}}
+	for _, it := range scope {
+		m.Candidates++
+		ans, ok := candidates(it, c)
+		if ok && ans[0].Valid && ans[1].Valid {
+			m.Settled++
+		} else {
+			m.Unsettled = append(m.Unsettled, it.ID)
+		}
+	}
+	m.Complete = len(m.Unsettled) == 0
+	return m
+}
+
+// censusReason names the first combo whose census gate failed, or "".
+func censusReason(combos []Combo, report *StratumReport) string {
+	for _, c := range combos {
+		m := report.Combos[comboKey(c)]
+		switch {
+		case m.Census == nil || m.ErrorsPassed:
+		case !m.Census.Complete:
+			return fmt.Sprintf("census: %d of %d candidates without a settled pair answer in %s",
+				len(m.Census.Unsettled), m.Census.Candidates, comboKey(c))
+		case m.AllowedErrors > 0:
+			return fmt.Sprintf("census: %d errors of %d accepted in %s", m.AllowedErrors, m.AllowedAccepted, comboKey(c))
+		default:
+			return "census: nothing accepted in " + comboKey(c)
+		}
+	}
+	return ""
 }
 
 // contestedError reports whether a contested accept counts as an error:
