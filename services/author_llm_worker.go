@@ -328,7 +328,8 @@ func (w *AuthorLLMWorker) Process(ctx context.Context, slot llmreq.Slot, claim *
 	}
 	settlement := &database.AuthorLLMSettlement{
 		CallID: claim.CallID, Owner: w.owner,
-		MaxAttempts: w.cfg.Settings.MaxAttempts, ConcurrencyMax: w.cfg.Settings.ConcurrencyMax,
+		MaxAttempts:    w.cfg.Settings.MaxAttempts,
+		ConcurrencyMin: w.cfg.Settings.ConcurrencyMin, ConcurrencyMax: w.cfg.Settings.ConcurrencyMax,
 		BaseBackoff: w.cfg.BaseBackoff, MaxBackoff: w.cfg.MaxBackoff, TransientWindow: w.cfg.TransientWindow,
 		TimeoutStep: claim.TimeoutStep, TimeoutSteps: len(w.cfg.Settings.TimeoutEscalation),
 		ItemTimeoutLimit: w.cfg.Settings.ItemTimeoutLimit,

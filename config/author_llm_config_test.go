@@ -32,6 +32,9 @@ func TestLoadAuthorLLMDefaults(t *testing.T) {
 	if got.ItemsPerRequest != 1 || got.ConcurrencyStart != 4 || got.ConcurrencyMax != 16 || got.ConcurrencyTotal != 32 {
 		t.Errorf("batching/concurrency = %d/%d/%d/%d", got.ItemsPerRequest, got.ConcurrencyStart, got.ConcurrencyMax, got.ConcurrencyTotal)
 	}
+	if got.ConcurrencyMin != 1 {
+		t.Errorf("concurrency floor = %d, want 1", got.ConcurrencyMin)
+	}
 	if got.RequestTimeout != 120*time.Second || got.RequestTimeoutPerItem != 30*time.Second {
 		t.Errorf("timeouts = %v/%v", got.RequestTimeout, got.RequestTimeoutPerItem)
 	}
@@ -96,6 +99,7 @@ func TestLoadAuthorLLMEnvOverridesParticipants(t *testing.T) {
 		"GOPDS_AUTHOR_METADATA_LLM_BUDGET_ONE_OFF_TOKENS":                "1000",
 		"GOPDS_AUTHOR_METADATA_LLM_REQUEST_TIMEOUT_PER_ITEM":             "45s",
 		"GOPDS_AUTHOR_METADATA_LLM_CONCURRENCY_TOTAL":                    "8",
+		"GOPDS_AUTHOR_METADATA_LLM_CONCURRENCY_MIN":                      "6",
 		"GOPDS_AUTHOR_METADATA_LLM_OUTPUT_LIMIT_FIELD":                   "max_tokens",
 		"GOPDS_AUTHOR_METADATA_LLM_ITEM_TIMEOUT_LIMIT":                   "5",
 		"GOPDS_AUTHOR_METADATA_LLM_TIMEOUT_ESCALATION":                   "200s,400s,800s",
@@ -116,7 +120,8 @@ func TestLoadAuthorLLMEnvOverridesParticipants(t *testing.T) {
 		t.Errorf("efforts = %q/%q", got.Params.JudgeA.ReasoningEffort, got.Params.ProductionA.ReasoningEffort)
 	}
 	if got.ItemsPerRequest != 10 || got.Budget.OneOffTokens != 1000 || got.RequestTimeoutPerItem != 45*time.Second ||
-		got.ConcurrencyTotal != 8 || got.OutputLimitField != AuthorLLMOutputMaxTokens || got.ItemTimeoutLimit != 5 ||
+		got.ConcurrencyTotal != 8 || got.ConcurrencyMin != 6 || got.OutputLimitField != AuthorLLMOutputMaxTokens ||
+		got.ItemTimeoutLimit != 5 ||
 		len(got.TimeoutEscalation) != 3 || got.TimeoutEscalation[2] != 800*time.Second {
 		t.Errorf("overrides = %+v", got)
 	}
@@ -156,6 +161,7 @@ func TestLoadAuthorLLMRefusesBadLimits(t *testing.T) {
 		"GOPDS_AUTHOR_METADATA_LLM_ITEMS_PER_REQUEST":          "0",
 		"GOPDS_AUTHOR_METADATA_LLM_CONCURRENCY_START":          "0",
 		"GOPDS_AUTHOR_METADATA_LLM_CONCURRENCY_MAX":            "2",
+		"GOPDS_AUTHOR_METADATA_LLM_CONCURRENCY_MIN":            "0",
 		"GOPDS_AUTHOR_METADATA_LLM_CONCURRENCY_TOTAL":          "0",
 		"GOPDS_AUTHOR_METADATA_LLM_REQUEST_TIMEOUT":            "0s",
 		"GOPDS_AUTHOR_METADATA_LLM_REQUEST_TIMEOUT_PER_ITEM":   "-1s",
@@ -180,6 +186,19 @@ func TestLoadAuthorLLMRefusesBadLimits(t *testing.T) {
 				t.Errorf("error %q does not name the key", err)
 			}
 		})
+	}
+}
+
+// The floor of the window is at most its ceiling.
+func TestAuthorLLMConcurrencyFloorIsAtMostTheMax(t *testing.T) {
+	c := DefaultAuthorLLMConfig()
+	c.ConcurrencyMin = c.ConcurrencyMax
+	if err := c.validate(); err != nil {
+		t.Errorf("a floor at the max was refused: %v", err)
+	}
+	c.ConcurrencyMin = c.ConcurrencyMax + 1
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "author_metadata.llm.concurrency_min") {
+		t.Errorf("a floor above the max: %v", err)
 	}
 }
 

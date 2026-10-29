@@ -80,6 +80,7 @@ redis:
 #     request_timeout: 120s         # one-name call; each further name adds
 #     request_timeout_per_item: 30s
 #     concurrency_start: 4          # per model, grows to concurrency_max
+#     concurrency_min: 1            # floor of the window after a 429 or 5xx
 #     concurrency_max: 16
 #     concurrency_total: 32         # all models together, every replica
 #     max_attempts: 5

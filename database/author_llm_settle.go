@@ -100,7 +100,11 @@ type AuthorLLMSettlement struct {
 	// CheckPassed is the result of an answered fingerprint call.
 	CheckPassed *bool
 
-	MaxAttempts    int
+	MaxAttempts int
+	// ConcurrencyMin and ConcurrencyMax bound the AIMD window: no halving
+	// goes below the floor (0 is 1), and a window found below it is lifted
+	// to it by the participant's next settled answer or failure.
+	ConcurrencyMin int
 	ConcurrencyMax int
 	// BaseBackoff and MaxBackoff shape the retry delay of a failed job.
 	BaseBackoff time.Duration
@@ -156,7 +160,8 @@ func SettleAuthorLLMCall(ctx context.Context, db *pg.DB, s *AuthorLLMSettlement)
 	if !validOwner(s.Owner) {
 		return nil, ErrInvalidLeaseOwner
 	}
-	if s.MaxAttempts < 1 || s.ConcurrencyMax < 1 || s.BaseBackoff <= 0 || s.MaxBackoff < s.BaseBackoff ||
+	if s.MaxAttempts < 1 || s.ConcurrencyMax < 1 || s.ConcurrencyMin < 0 || s.ConcurrencyMin > s.ConcurrencyMax ||
+		s.BaseBackoff <= 0 || s.MaxBackoff < s.BaseBackoff ||
 		s.TransientWindow < 0 || s.ItemTimeoutLimit < 0 || s.TimeoutSteps < 0 || s.TimeoutStep < 0 {
 		return nil, ErrInvalidLeaseOptions
 	}
@@ -883,23 +888,26 @@ func isEndpointStateClass(class string) bool {
 // shared state: the AIMD window (+1 per authorLLMAIMDStep answered calls in a
 // row, halved by a 429, with its Retry-After as a throttle, and halved by a
 // transient failure, with a backoff as a throttle — a participant failing
-// across items slows down instead of failing them one by one), the pauses (402
+// across items slows down instead of failing them one by one; never below
+// the floor, and lifted to it when below), the pauses (402
 // pauses every participant of the endpoint, 401/403 and 400 the participant,
 // repeated model_mismatch the participant), and the answers since the last
 // fingerprint check.
 func adjustAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement,
 	now time.Time, answered int, report *AuthorLLMSettleReport) error {
+	floor := max(1, s.ConcurrencyMin)
 	switch {
 	case s.Outcome == models.AuthorLLMCallAnswered && s.ModelMismatch:
 		return countAuthorLLMMismatch(ctx, tx, call, now, report)
 	case s.Outcome == models.AuthorLLMCallAnswered:
 		return execAuthorLLM(ctx, tx, `
 			UPDATE author_llm_provider_state
-			SET concurrency = CASE WHEN success_streak + 1 >= ?3 THEN least(concurrency + 1, ?4) ELSE concurrency END,
+			SET concurrency = greatest(?5,
+					CASE WHEN success_streak + 1 >= ?3 THEN least(concurrency + 1, ?4) ELSE concurrency END),
 				success_streak = CASE WHEN success_streak + 1 >= ?3 THEN 0 ELSE success_streak + 1 END,
 				answered_since_check = answered_since_check + ?2
 			WHERE config_version = ?0 AND slot = ?1`,
-			call.ConfigVersion, call.Slot, answered, authorLLMAIMDStep, s.ConcurrencyMax)
+			call.ConfigVersion, call.Slot, answered, authorLLMAIMDStep, s.ConcurrencyMax, floor)
 	}
 	switch s.ErrorClass {
 	case authorLLMClassRateLimited:
@@ -909,9 +917,9 @@ func adjustAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCal
 		}
 		return execAuthorLLM(ctx, tx, `
 			UPDATE author_llm_provider_state
-			SET concurrency = greatest(1, concurrency / 2), success_streak = 0,
+			SET concurrency = greatest(?3, concurrency / 2), success_streak = 0,
 				throttled_until = coalesce(?2::timestamptz, throttled_until)
-			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, until)
+			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, until, floor)
 	case authorLLMClassQuotaExhausted:
 		return pauseAuthorLLMEndpoint(ctx, tx, call, now, report)
 	case authorLLMClassAuth:
@@ -925,20 +933,20 @@ func adjustAuthorLLMParticipant(ctx context.Context, tx *pg.Tx, call *settledCal
 		// the participant to the long calls of one name.
 		return execAuthorLLM(ctx, tx, `
 			UPDATE author_llm_provider_state
-			SET success_streak = 0,
+			SET concurrency = greatest(?4, concurrency), success_streak = 0,
 				throttled_until = greatest(throttled_until, ?2::timestamptz + ?3 * interval '1 microsecond')
-			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now, micros(s.BaseBackoff))
+			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now, micros(s.BaseBackoff), floor)
 	}
 	if isTransientCall(s) {
 		return execAuthorLLM(ctx, tx, `
 			UPDATE author_llm_provider_state
-			SET concurrency = greatest(1, concurrency / 2), success_streak = 0,
+			SET concurrency = greatest(?4, concurrency / 2), success_streak = 0,
 				throttled_until = greatest(throttled_until, ?2::timestamptz + ?3 * interval '1 microsecond')
-			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now, micros(s.BaseBackoff))
+			WHERE config_version = ?0 AND slot = ?1`, call.ConfigVersion, call.Slot, now, micros(s.BaseBackoff), floor)
 	}
-	return execAuthorLLM(ctx, tx,
-		`UPDATE author_llm_provider_state SET success_streak = 0 WHERE config_version = ?0 AND slot = ?1`,
-		call.ConfigVersion, call.Slot)
+	return execAuthorLLM(ctx, tx, `UPDATE author_llm_provider_state
+		SET concurrency = greatest(?2, concurrency), success_streak = 0 WHERE config_version = ?0 AND slot = ?1`,
+		call.ConfigVersion, call.Slot, floor)
 }
 
 // execAuthorLLM runs one participant-state statement.

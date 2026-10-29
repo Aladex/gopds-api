@@ -84,8 +84,11 @@ type AuthorLLMConfig struct {
 	RequestTimeoutPerItem time.Duration `mapstructure:"request_timeout_per_item" yaml:"request_timeout_per_item"`
 	// ConcurrencyStart and ConcurrencyMax bound each participant's AIMD
 	// window of calls in flight; ConcurrencyTotal bounds all participants
-	// together, across replicas.
+	// together, across replicas. ConcurrencyMin is the floor no halving
+	// goes below (1 halves down to one call; a gateway with frequent 5xx
+	// keeps more in flight with a higher floor).
 	ConcurrencyStart int `mapstructure:"concurrency_start" yaml:"concurrency_start"`
+	ConcurrencyMin   int `mapstructure:"concurrency_min" yaml:"concurrency_min"`
 	ConcurrencyMax   int `mapstructure:"concurrency_max" yaml:"concurrency_max"`
 	ConcurrencyTotal int `mapstructure:"concurrency_total" yaml:"concurrency_total"`
 	// MaxAttempts is how many calls one job gets before it fails.
@@ -141,6 +144,7 @@ const (
 	authorLLMRequestTimeout        = 120 * time.Second
 	authorLLMRequestTimeoutPerItem = 30 * time.Second
 	authorLLMConcurrencyStart      = 4
+	authorLLMConcurrencyMin        = 1
 	authorLLMConcurrencyMax        = 16
 	authorLLMConcurrencyTotal      = 32
 	authorLLMMaxAttempts           = 5
@@ -183,6 +187,7 @@ func DefaultAuthorLLMConfig() AuthorLLMConfig {
 		RequestTimeout:        authorLLMRequestTimeout,
 		RequestTimeoutPerItem: authorLLMRequestTimeoutPerItem,
 		ConcurrencyStart:      authorLLMConcurrencyStart,
+		ConcurrencyMin:        authorLLMConcurrencyMin,
 		ConcurrencyMax:        authorLLMConcurrencyMax,
 		ConcurrencyTotal:      authorLLMConcurrencyTotal,
 		MaxAttempts:           authorLLMMaxAttempts,
@@ -207,6 +212,7 @@ func setAuthorLLMDefaults() {
 	viper.SetDefault(p+"request_timeout", d.RequestTimeout)
 	viper.SetDefault(p+"request_timeout_per_item", d.RequestTimeoutPerItem)
 	viper.SetDefault(p+"concurrency_start", d.ConcurrencyStart)
+	viper.SetDefault(p+"concurrency_min", d.ConcurrencyMin)
 	viper.SetDefault(p+"concurrency_max", d.ConcurrencyMax)
 	viper.SetDefault(p+"concurrency_total", d.ConcurrencyTotal)
 	viper.SetDefault(p+"max_attempts", d.MaxAttempts)
@@ -272,6 +278,8 @@ func (c *AuthorLLMConfig) validate() error {
 		return rangeError(p+"items_per_request", "1..20")
 	case c.ConcurrencyMax < c.ConcurrencyStart:
 		return rangeError(p+"concurrency_max", "at least concurrency_start")
+	case c.ConcurrencyMin < 1 || c.ConcurrencyMin > c.ConcurrencyMax:
+		return rangeError(p+"concurrency_min", "1..concurrency_max")
 	case c.RequestTimeoutPerItem < 0:
 		return rangeError(p+"request_timeout_per_item", "zero or positive")
 	case c.Budget.RunOverrun < 1:
