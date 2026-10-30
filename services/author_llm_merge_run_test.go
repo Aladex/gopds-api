@@ -274,7 +274,7 @@ func judgedApart(req *fakeRequest) fakeReply {
 // Only a pair agreed same and confirmed by both judges is applied: a pair
 // split (llm_disagreement), a judge's doubt (llm_judge_disagreement) and a
 // confirmed different (merge_not_same) are not; the build's conflict rule
-// reads the run's answers other than same.
+// reads the production pair's answers different.
 func TestAMergeRunAppliesOnlyWhatBothJudgesConfirmedSame(t *testing.T) {
 	f := newApplyFixture(t, mergeStub)
 	f.registerSwap()
@@ -300,7 +300,7 @@ func TestAMergeRunAppliesOnlyWhatBothJudgesConfirmedSame(t *testing.T) {
 	}
 	assert.Contains(t, got, hex.EncodeToString(asimov))
 	assert.Contains(t, got, hex.EncodeToString(latin))
-	assert.NotContains(t, got, hex.EncodeToString(bradbury), "the pair agreed same")
+	assert.NotContains(t, got, hex.EncodeToString(bradbury), "only judge_b answered different")
 	f.c.build()
 	assert.True(t, f.together(fillKing, fillKing+1))
 	for _, fill := range []byte{fillAsimov, fillBradbury, fillKingLatin} {

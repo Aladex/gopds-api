@@ -108,16 +108,14 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 }
 
 // LoadMergeNotSame reads the digests of the merge candidates the production
-// pair answered other than same (different or cannot_tell, by either of
-// the two: first answers of a merge eval, or the answers of a merge run):
-// the build's conflict rule (§4.2) refuses a union that would join the two
-// sides of such a pair.
+// pair answered different (either of the two: a first answer of a merge
+// eval, or an answer of a merge run): the build's conflict rule (§4.2)
+// refuses a union that would join the two sides of such a pair. A
+// cannot_tell, an invalid or a missing answer blocks nothing — it is no
+// evidence of two people — and neither does a judge's different: a judge
+// gates what is applied, not what other decisions may join.
 func LoadMergeNotSame(ctx context.Context, db pg.DBI) ([][32]byte, error) {
-	var notSame []string
-	for _, answer := range []string{llmreq.MergeDifferent, llmreq.MergeCannotTell} {
-		sum := sha256.Sum256(llmreq.MergeCanonical(answer))
-		notSame = append(notSame, hex.EncodeToString(sum[:]))
-	}
+	different := sha256.Sum256(llmreq.MergeCanonical(llmreq.MergeDifferent))
 	var digests [][]byte
 	if _, err := db.QueryContext(ctx, &digests, `
 		SELECT DISTINCT i.source_fingerprint
@@ -125,17 +123,17 @@ func LoadMergeNotSame(ctx context.Context, db pg.DBI) ([][32]byte, error) {
 		JOIN public.author_llm_job j ON j.eval_item_id = i.id AND j.purpose = ?0 AND j.repeat_no = 0
 			AND j.status = 'answered'
 		JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
-		WHERE i.extractor_version = ?1 AND encode(a.canonical_sha256, 'hex') = ANY(?2::text[])
+		WHERE i.extractor_version = ?1 AND a.canonical_sha256 = ?2
 		UNION
 		SELECT j.source_fingerprint
 		FROM public.author_llm_job j
 		JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
 		WHERE j.purpose = ?3 AND j.slot IN (?4, ?5) AND j.status = 'answered' AND j.eval_item_id IS NULL
-			AND j.extractor_version = ?1 AND encode(a.canonical_sha256, 'hex') = ANY(?2::text[])
+			AND j.extractor_version = ?1 AND a.canonical_sha256 = ?2
 		ORDER BY 1`, string(models.AuthorLLMPurposeEvalCandidate), authorentity.MergeCandidateVersion,
-		pg.Array(notSame), string(models.AuthorLLMPurposeMergeCheck), string(llmreq.SlotProductionA),
+		different[:], string(models.AuthorLLMPurposeMergeCheck), string(llmreq.SlotProductionA),
 		string(llmreq.SlotProductionB)); err != nil {
-		return nil, fmt.Errorf("reading the merge answers other than same: %w", err)
+		return nil, fmt.Errorf("reading the production pair's merge answers different: %w", err)
 	}
 	out := make([][32]byte, 0, len(digests))
 	for _, d := range digests {

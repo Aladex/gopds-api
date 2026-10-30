@@ -268,11 +268,21 @@ type Report struct {
 // passing strata.
 const MinPooledRepeatItems = 50
 
-// PooledRepeat is the reproduction gate over the passing strata.
+// PooledRepeat is the reproduction gate over the passing strata: over
+// every repeated item, or, under the census audit (Gate
+// PooledRepeatApplied), over the applied set's — AllItems is then the
+// figure over every repeated item, reported and not gated.
 type PooledRepeat struct {
 	Strata       []string            `json:"strata"`
 	Participants []PooledRepeatCount `json:"participants"`
+	Gate         string              `json:"gate,omitempty"`
+	AllItems     []PooledRepeatCount `json:"all_items,omitempty"`
 }
+
+// PooledRepeatApplied gates the reproduction on the applied set: the
+// repeats of the items whose first answers were all four the accepting
+// one (GateRuleCensusAudit).
+const PooledRepeatApplied = "applied"
 
 // PooledRepeatCount is one participant's pooled repeats: reproduced of
 // total, per stratum and in all.
@@ -347,7 +357,7 @@ func EvaluateWith(in *Input, o *Options) Report {
 	}
 	// The reproduction is judged on the strata that passed on their own
 	// items: the junk strata's repeats neither help nor sink them.
-	pooled, pooledReasons := pooledRepeat(r.Decision.Strata, byStratum)
+	pooled, pooledReasons := pooledRepeat(r.Decision.Strata, byStratum, o)
 	r.PooledRepeat = pooled
 	reasons = append(reasons, pooledReasons...)
 	if len(reasons) > 0 {
@@ -379,21 +389,91 @@ func runReasons(in *Input, o *Options) []string {
 
 // pooledRepeat is every participant's reproduction over the repeat items of
 // the strata that passed: at least MinPooledRepeatItems of them, at most 10%
-// changed. With no stratum passed there is nothing to register and no
-// reason.
-func pooledRepeat(decisions []StratumDecision, byStratum map[string][]*Item) (pool PooledRepeat, reasons []string) {
-	pool = PooledRepeat{Strata: []string{}, Participants: make([]PooledRepeatCount, 0, len(participants))}
+// changed. Under the census audit it is the applied set's instead — at
+// least one repeated item, at most 10% changed — and the figure over every
+// repeated item is only reported. With no stratum passed there is nothing
+// to register and no reason.
+func pooledRepeat(
+	decisions []StratumDecision, byStratum map[string][]*Item, o *Options,
+) (pool PooledRepeat, reasons []string) {
+	pool = PooledRepeat{Strata: []string{}}
+	passed := map[string]StratumDecision{}
 	for _, d := range decisions {
 		if d.Passed {
 			pool.Strata = append(pool.Strata, d.Stratum)
+			passed[d.Stratum] = d
 		}
 	}
+	every := func(*Item, StratumDecision) bool { return true }
+	if o.GateRule != GateRuleCensusAudit {
+		pool.Participants, reasons = repeatCounts(pool.Strata, byStratum, every, passed, pooledThreshold)
+	} else {
+		pool.Gate = PooledRepeatApplied
+		pool.AllItems, _ = repeatCounts(pool.Strata, byStratum, every, passed, pooledThreshold)
+		applied := func(it *Item, d StratumDecision) bool {
+			return isApplied(it, Combo{Arm: d.Arm, Batch: d.ItemsPerRequest}, o)
+		}
+		pool.Participants, reasons = repeatCounts(pool.Strata, byStratum, applied, passed, appliedThreshold)
+	}
+	if len(pool.Strata) == 0 {
+		return pool, nil
+	}
+	return pool, reasons
+}
+
+// isApplied reports an item the production rule accepts in a combo: the
+// pair agreed on an accepting answer and both judges gave it.
+func isApplied(it *Item, c Combo, o *Options) bool {
+	ans, ok := candidates(it, c)
+	answer := agreed(&ans, ok)
+	return o.accepts(answer) && gold(it) == answer
+}
+
+// repeatThreshold judges one participant's count, or says why it fails.
+type repeatThreshold func(c *PooledRepeatCount) string
+
+// pooledThreshold: at least MinPooledRepeatItems, at most 10% changed.
+func pooledThreshold(c *PooledRepeatCount) string {
+	switch {
+	case c.Total < MinPooledRepeatItems:
+		return fmt.Sprintf("pooled repeat evidence: %s answered %d of the %d items required",
+			c.Participant, c.Total, MinPooledRepeatItems)
+	case changedOver(c):
+		return fmt.Sprintf("pooled repeat: %s reproduced %d of %d", c.Participant, c.Reproduced, c.Total)
+	}
+	return ""
+}
+
+// appliedThreshold: at least one repeated applied item, at most 10%
+// changed.
+func appliedThreshold(c *PooledRepeatCount) string {
+	switch {
+	case c.Total == 0:
+		return fmt.Sprintf("applied repeat evidence: %s answered no repeated applied item", c.Participant)
+	case changedOver(c):
+		return fmt.Sprintf("applied repeat: %s reproduced %d of %d", c.Participant, c.Reproduced, c.Total)
+	}
+	return ""
+}
+
+// changedOver reports more than maxRepeatChangePercent of a count changed.
+func changedOver(c *PooledRepeatCount) bool {
+	return (c.Total-c.Reproduced)*percent > c.Total*maxRepeatChangePercent
+}
+
+// repeatCounts counts every participant's repeats of the items counted
+// picks in the given strata and judges each by threshold.
+func repeatCounts(
+	strata []string, byStratum map[string][]*Item, counted func(*Item, StratumDecision) bool,
+	decisions map[string]StratumDecision, threshold repeatThreshold,
+) (counts []PooledRepeatCount, reasons []string) {
+	counts = make([]PooledRepeatCount, 0, len(participants))
 	for _, p := range participants {
-		c := PooledRepeatCount{Participant: p, ByStratum: make([]StratumRepeat, 0, len(pool.Strata))}
-		for _, name := range pool.Strata {
+		c := PooledRepeatCount{Participant: p, ByStratum: make([]StratumRepeat, 0, len(strata))}
+		for _, name := range strata {
 			sr := StratumRepeat{Stratum: name}
 			for _, it := range byStratum[name] {
-				if reproduced, ok := it.Repeated[p]; ok {
+				if reproduced, ok := it.Repeated[p]; ok && counted(it, decisions[name]) {
 					sr.Total++
 					if reproduced {
 						sr.Reproduced++
@@ -404,21 +484,14 @@ func pooledRepeat(decisions []StratumDecision, byStratum map[string][]*Item) (po
 			c.Total += sr.Total
 			c.ByStratum = append(c.ByStratum, sr)
 		}
-		switch {
-		case c.Total < MinPooledRepeatItems:
-			reasons = append(reasons, fmt.Sprintf("pooled repeat evidence: %s answered %d of the %d items required",
-				p, c.Total, MinPooledRepeatItems))
-		case (c.Total-c.Reproduced)*percent > c.Total*maxRepeatChangePercent:
-			reasons = append(reasons, fmt.Sprintf("pooled repeat: %s reproduced %d of %d", p, c.Reproduced, c.Total))
-		default:
+		if reason := threshold(&c); reason != "" {
+			reasons = append(reasons, reason)
+		} else {
 			c.Passed = true
 		}
-		pool.Participants = append(pool.Participants, c)
+		counts = append(counts, c)
 	}
-	if len(pool.Strata) == 0 {
-		return pool, nil
-	}
-	return pool, reasons
+	return counts, reasons
 }
 
 // countInvalid counts one answer into a participant's invalid share; an
