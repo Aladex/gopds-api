@@ -140,6 +140,9 @@ type Input struct {
 	ProviderRejected []ParticipantCount
 	// Registrable is false for a dev run: its report never registers.
 	Registrable bool
+	// AuditRun is the run whose audit order samples the applied set
+	// (GateRuleCensusAudit, AuditKey).
+	AuditRun int64
 }
 
 // TierCount is accepted items and errors of one tier.
@@ -189,9 +192,12 @@ type ComboMetrics struct {
 	// Supplement is the items gated outside |A| (Options); absent from K's
 	// report.
 	Supplement *SupplementMetrics `json:"supplement,omitempty"`
-	// Census is the completeness of a census (GateRuleCensus); absent
-	// otherwise.
+	// Census is the completeness of a census (GateRuleCensus,
+	// GateRuleCensusAudit); absent otherwise.
 	Census *CensusMetrics `json:"census,omitempty"`
+	// Audit is the audit of a census's applied set (GateRuleCensusAudit);
+	// absent otherwise.
+	Audit *AuditMetrics `json:"audit,omitempty"`
 }
 
 // AblationResult compares arm B with arm A at one batch size.
@@ -314,6 +320,11 @@ func Evaluate(in *Input) Report { return EvaluateWith(in, &Options{}) }
 // EvaluateWith is Evaluate with the gate's options; zero options are K's
 // gate, byte for byte.
 func EvaluateWith(in *Input, o *Options) Report {
+	if in.AuditRun != 0 {
+		local := *o
+		local.auditRun = in.AuditRun
+		o = &local
+	}
 	r := Report{Strata: map[string]StratumReport{}, Anchor: in.Anchor, Repeat: in.Repeat,
 		RepeatChange: RepeatChanges(in.Repeat), Invalid: in.Invalid, ProviderRejected: in.ProviderRejected,
 		Fingerprint: in.Fingerprint}
@@ -759,6 +770,11 @@ func measure(c Combo, scope []*Item, o *Options) ComboMetrics {
 		// A census that accepted nothing passes nothing, as the bound.
 		m.Census = measureCensus(c, scope)
 		m.ErrorsPassed = g.accepted > 0 && g.errors == 0 && m.Census.Complete
+	}
+	if o.GateRule == GateRuleCensusAudit {
+		// The errors are only reported: the audit of the applied set gates.
+		m.Census, m.Audit = measureCensus(c, scope), measureAudit(c, scope, o)
+		m.ErrorsPassed = m.Census.Complete && m.Audit.passed()
 	}
 	m.Invalid, m.InvalidPassed = comboInvalid(c, scope)
 	m.Passed = m.ErrorsPassed && m.InvalidPassed

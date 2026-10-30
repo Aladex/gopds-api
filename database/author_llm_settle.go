@@ -1183,9 +1183,10 @@ func confirmAuthorLLMVerdicts(ctx context.Context, tx *pg.Tx, version string, ru
 			AND sb.config_version = ?0 AND sb.slot = 'production_b'
 			AND sa.check_run_id = v.run_id AND sa.last_check_passed_at >= coalesce(v.answered_a_at, '-infinity')
 			AND sb.check_run_id = v.run_id AND sb.last_check_passed_at >= coalesce(v.answered_b_at, '-infinity')
-			-- An agreed review or swap answer waits for the judges; one they
-			-- confirmed also for their checks covering their answers.
-			AND (v.verdict <> 'agree' OR v.purpose NOT IN ('review', 'swap_check') OR v.judgement IS NOT NULL)
+			-- An agreed review, swap or merge answer waits for the judges;
+			-- one they confirmed also for their checks covering their answers.
+			AND (v.verdict <> 'agree' OR v.purpose NOT IN ('review', 'swap_check', 'merge_check')
+				OR v.judgement IS NOT NULL)
 			AND (v.judgement IS DISTINCT FROM 'confirmed' OR EXISTS (
 				SELECT 1 FROM author_llm_provider_state ja, author_llm_provider_state jb
 				WHERE ja.config_version = ?0 AND ja.slot = 'judge_a' AND jb.config_version = ?0 AND jb.slot = 'judge_b'
@@ -1345,7 +1346,7 @@ func insertAuthorLLMVerdict(ctx context.Context, tx *pg.Tx, a, b *verdictJob, no
 }
 
 // askAuthorLLMJudges asks both judges about the input's current verdict
-// when the pair agreed on a review input or a swap candidate (the run-4
+// when the pair agreed on a review input, a swap or a merge candidate (the run-4
 // rule: an agreed answer is applied only when both judges confirm it). The judges get the pair's
 // input with its excerpt, one item per request, in their negotiated output
 // mode. Judge jobs the input already has — answered before the pair's

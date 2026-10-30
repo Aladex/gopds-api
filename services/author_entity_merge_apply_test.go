@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -544,9 +545,10 @@ func (f *applyFixture) swapContested(t *testing.T) (review llmeval.ContestedMetr
 // A contested accept (the pair agreed same, judge_b answered different on
 // «Брэдбери») is listed for review and errs while pending; labeled
 // different it still errs, labeled same it is cleared in the recomputed
-// report — and it is never applied. An uncontested census item (the pair
-// disagreed on «Азимов»; all four agreed on «Кинг») and an anchor cannot
-// be labeled, by the application or past it.
+// report — and it is never applied. An uncontested census item the pair
+// disagreed on («Азимов») and an anchor cannot be labeled, by the
+// application or past it; those all four agreed on («Кинг») are the
+// census's audit sample (migration 70), labeled like it.
 func TestAContestedAcceptIsAdjudicatedAndNeverApplied(t *testing.T) {
 	f := newApplyFixture(t, spoiled)
 	ctx := context.Background()
@@ -568,6 +570,13 @@ func TestAContestedAcceptIsAdjudicatedAndNeverApplied(t *testing.T) {
 		WHERE item_set = 'holdout' AND stratum LIKE 'swap.%' AND id <> ? ORDER BY id`, contested.EvalItemID)
 	require.NoError(t, err)
 	require.Len(t, uncontested, 3)
+	audit, err := services.AuthorLLMAuditItems(ctx, f.e.db, f.run)
+	require.NoError(t, err)
+	require.Len(t, audit.Items, 2, "the two items all four agreed on")
+	uncontested = slices.DeleteFunc(uncontested, func(id int64) bool {
+		return slices.ContainsFunc(audit.Items, func(it services.AuthorLLMAdversarialItem) bool { return it.EvalItemID == id })
+	})
+	require.Len(t, uncontested, 1, "«Азимов»")
 	var anchor int64
 	_, err = f.e.db.QueryOne(pg.Scan(&anchor), `SELECT min(id) FROM author_llm_eval_item WHERE item_set = 'anchor'`)
 	require.NoError(t, err)

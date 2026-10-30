@@ -17,6 +17,9 @@ const (
 	AuthorLLMRunEval    AuthorLLMRunKind = "eval"
 	AuthorLLMRunResolve AuthorLLMRunKind = "resolve"
 	AuthorLLMRunSwap    AuthorLLMRunKind = "swap"
+	// AuthorLLMRunMerge: the merge configuration's resolve-type run (E4d-2,
+	// migration 69): its merge_check questions become merge decisions.
+	AuthorLLMRunMerge AuthorLLMRunKind = "merge"
 )
 
 // AuthorLLMRunStatus is a run's lifecycle state, the metadata runs' set.
@@ -59,14 +62,15 @@ const (
 	AuthorLLMPurposeCanary          AuthorLLMJobPurpose = "canary"
 	// AuthorLLMPurposeMergeCheck: a merge question of the merge
 	// configuration (E4c, migration 66), keyed by its candidate's digest.
-	// Its verdicts come with E4d; until then its answers only settle.
+	// A merge run asks it (E4d-2, migration 69); its verdicts become
+	// merge decisions.
 	AuthorLLMPurposeMergeCheck AuthorLLMJobPurpose = "merge_check"
 )
 
 // IsResolve reports whether the purpose belongs to the resolve side (an input
 // fingerprint, a verdict of the production pair).
 func (p AuthorLLMJobPurpose) IsResolve() bool {
-	return p == AuthorLLMPurposeReview || p == AuthorLLMPurposeSwapCheck
+	return p == AuthorLLMPurposeReview || p == AuthorLLMPurposeSwapCheck || p == AuthorLLMPurposeMergeCheck
 }
 
 // AuthorLLMJobStatus is a job's state.
@@ -205,6 +209,28 @@ const (
 	AuthorLLMSwapFieldsConfirmed = "swap_fields_confirmed"
 	AuthorLLMSwapStatsDisagree   = "swap_stats_disagree"
 )
+
+// The outcomes of a merge verdict that inserted no decision (migration 69):
+// the pair agreed the two are different, or the compare-and-insert did not
+// take it — the candidate is gone from the stored census, a live decision
+// of it exists, its kind is not registered or withdrawn, its script blocked,
+// or a side is credited on no current book. An applied merge verdict has
+// no outcome reason.
+const (
+	AuthorLLMMergeNotSame           = "merge_not_same"
+	AuthorLLMMergeLapsedBeforeApply = "merge_lapsed_before_apply"
+	AuthorLLMMergeAlreadyDecided    = "merge_already_decided"
+	AuthorLLMMergeUnregistered      = "merge_unregistered"
+	AuthorLLMMergeWithdrawn         = "merge_withdrawn"
+	AuthorLLMMergeScriptBlocked     = "merge_script_blocked"
+	AuthorLLMMergeSideUnrecorded    = "merge_side_unrecorded"
+)
+
+// AuthorLLMMergeOutcomes lists the merge outcomes the schema accepts.
+func AuthorLLMMergeOutcomes() []string {
+	return []string{AuthorLLMMergeNotSame, AuthorLLMMergeLapsedBeforeApply, AuthorLLMMergeAlreadyDecided,
+		AuthorLLMMergeUnregistered, AuthorLLMMergeWithdrawn, AuthorLLMMergeScriptBlocked, AuthorLLMMergeSideUnrecorded}
+}
 
 // AuthorLLMUndecidedOutcomes are the verdict outcomes that decide nothing
 // about the input: the application failed, the input is gone, or the pair or

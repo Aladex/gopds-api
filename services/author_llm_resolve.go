@@ -432,22 +432,35 @@ func (d *AuthorLLMResolveDriver) running(ctx context.Context) (*resolveRun, erro
 	if err = json.Unmarshal(row.Settings, &run.Plan); err != nil {
 		return nil, fmt.Errorf("reading a resolve run's plan: %w", err)
 	}
-	if len(row.Reference) > 0 {
-		if err = json.Unmarshal(row.Reference, &run.Reference); err != nil {
+	if run.Reference, err = productionReference(ctx, d.db, run.ID, row.Reference); err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
+// productionReference is a production run's fingerprint references: those
+// its evidence carried (raw), each replaced by the participant's latest
+// re-learned one.
+func productionReference(
+	ctx context.Context, db pg.DBI, runID int64, raw json.RawMessage,
+) (map[string]database.AuthorLLMFingerprintReference, error) {
+	var reference map[string]database.AuthorLLMFingerprintReference
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &reference); err != nil {
 			return nil, fmt.Errorf("reading a resolve run's reference: %w", err)
 		}
 	}
-	learned, err := database.AuthorLLMLearnedReferences(ctx, d.db, run.ID)
+	learned, err := database.AuthorLLMLearnedReferences(ctx, db, runID)
 	if err != nil {
 		return nil, err
 	}
 	for slot, ref := range learned {
-		if run.Reference == nil {
-			run.Reference = map[string]database.AuthorLLMFingerprintReference{}
+		if reference == nil {
+			reference = map[string]database.AuthorLLMFingerprintReference{}
 		}
-		run.Reference[slot] = ref
+		reference[slot] = ref
 	}
-	return run, nil
+	return reference, nil
 }
 
 // Step does the running resolve run's current stage as far as it can now

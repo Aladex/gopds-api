@@ -88,7 +88,9 @@ func mergeKindPassed(report *database.AuthorLLMEvalReport, kind string) error {
 
 // RegisterMergeKind registers kind for the merge configuration of a
 // completed merge eval run, from the run's latest report, which must have
-// passed the kind. It returns the registration's id.
+// passed the kind and still carry the labels it was computed from
+// (database.ErrMergeRegistrationEvidenceStale otherwise: recompute it). It
+// returns the registration's id.
 func (a *AuthorEntityAdmin) RegisterMergeKind(ctx context.Context, runID int64, kind string, actor int64) (int64, error) {
 	run, err := database.GetAuthorLLMRunByID(ctx, a.db, runID)
 	if errors.Is(err, pg.ErrNoRows) {
@@ -111,9 +113,13 @@ func (a *AuthorEntityAdmin) RegisterMergeKind(ctx context.Context, runID int64, 
 	if passErr := mergeKindPassed(report, kind); passErr != nil {
 		return 0, passErr
 	}
+	binding, err := mergeEvidenceBinding(report)
+	if err != nil {
+		return 0, err
+	}
 	id, err := database.RegisterMergeKind(ctx, a.db, &database.MergeRegistrationInput{
 		ConfigVersion: report.ConfigVersion, Kind: kind, ReportID: report.ID, ReportSHA256: report.ReportSHA256,
-		Gate: database.MergeGateJudgeConsensus, ActorID: actor})
+		Gate: database.MergeGateJudgeConsensus, ActorID: actor, Adjudications: binding})
 	if err == nil {
 		logMergeAction(authorEntityMergeKindRegistered, id)
 	}

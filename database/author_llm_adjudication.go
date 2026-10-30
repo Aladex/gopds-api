@@ -1,10 +1,13 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"time"
 
 	"gopds-api/internal/authornorm/llmreq"
@@ -29,13 +32,15 @@ func ValidAdjudicationLabel(label string) bool {
 }
 
 // ErrAuthorLLMNotAdjudicable is an item that is neither an adversarial
-// suite item the production rule accepted in a merge eval run nor a
-// contested accept of one.
+// suite item the production rule accepted in a merge eval run, a
+// contested accept of one, nor an item of a census's audit sample.
 var ErrAuthorLLMNotAdjudicable = errors.New(
-	"database: the eval item is neither an accepted adversarial suite item nor a contested accept")
+	"database: the eval item is neither an accepted adversarial suite item, a contested accept nor an audited one")
 
 // AuthorLLMAdjudication is an item's current label.
 type AuthorLLMAdjudication struct {
+	// ID is the label's row: a newer label of the item is a newer row.
+	ID            int64     `pg:"id" json:"-"`
 	EvalItemID    int64     `pg:"eval_item_id" json:"eval_item_id"`
 	Label         string    `pg:"label" json:"label"`
 	Note          string    `pg:"note" json:"note"`
@@ -50,8 +55,10 @@ var mergeSameSHA256 = sha256.Sum256(llmreq.MergeCanonical(llmreq.MergeSame))
 // the production rule accepted in some merge eval run (both production
 // participants and both judges answered "same" in one run), or of a
 // contested accept (author_llm_eval_item_contested, migration 68: the pair
-// answered same, the judges did not both confirm it).
-// ErrAuthorLLMNotAdjudicable otherwise.
+// answered same, the judges did not both confirm it), or of an item of a
+// census's audit sample (author_llm_eval_item_audited, migration 70: all
+// four answered same, and it is sampled). ErrAuthorLLMNotAdjudicable
+// otherwise.
 func AdjudicateAuthorLLMEvalItem(ctx context.Context, db pg.DBI, itemID int64, label, note, by string) error {
 	if !ValidAdjudicationLabel(label) {
 		return fmt.Errorf("database: unknown adjudication label %q", label)
@@ -68,7 +75,7 @@ func AdjudicateAuthorLLMEvalItem(ctx context.Context, db pg.DBI, itemID int64, l
 					AND j.purpose IN ('eval_candidate', 'eval_judge') AND a.canonical_sha256 = ?4
 				GROUP BY j.run_id
 				HAVING count(DISTINCT j.slot) = 4))
-			OR public.author_llm_eval_item_contested(e.id))`,
+			OR public.author_llm_eval_item_contested(e.id) OR public.author_llm_eval_item_audited(e.id))`,
 		itemID, label, note, by, mergeSameSHA256[:])
 	if err != nil {
 		return fmt.Errorf("recording an adjudication: %w", err)
@@ -87,7 +94,7 @@ func AuthorLLMAdjudications(ctx context.Context, db pg.DBI, itemIDs []int64) (ma
 	}
 	var rows []AuthorLLMAdjudication
 	if _, err := db.QueryContext(ctx, &rows, `
-		SELECT DISTINCT ON (eval_item_id) eval_item_id, label, note, adjudicated_by, created_at
+		SELECT DISTINCT ON (eval_item_id) id, eval_item_id, label, note, adjudicated_by, created_at
 		FROM author_llm_eval_adjudication WHERE eval_item_id IN (?)
 		ORDER BY eval_item_id, id DESC`, pg.In(itemIDs)); err != nil {
 		return nil, fmt.Errorf("reading the adjudications: %w", err)
@@ -110,4 +117,58 @@ func AuthorLLMEvalItemsByID(ctx context.Context, db pg.DBI, ids []int64) ([]Auth
 		return nil, fmt.Errorf("reading eval items: %w", err)
 	}
 	return rows, nil
+}
+
+// AuthorLLMAdjudicationBinding ties a merge eval report to the labels it
+// was computed from: the items whose labels gate it (the audit samples,
+// the accepted suite items, the contested accepts) and a digest of each
+// one's current label row as read (AuthorLLMAdjudicationDigest).
+type AuthorLLMAdjudicationBinding struct {
+	Items  []int64
+	SHA256 []byte
+}
+
+// AuthorLLMAdjudicationDigest is sha256 over items in id order, each as
+// "<item id>:<its current label's row id, 0 when none>\n". Any label
+// written to one of them after labels were read changes it, whatever the
+// order the labels commit in.
+func AuthorLLMAdjudicationDigest(items []int64, labels map[int64]AuthorLLMAdjudication) []byte {
+	sorted := slices.Compact(slices.Sorted(slices.Values(items)))
+	h := sha256.New()
+	for _, id := range sorted {
+		_, _ = h.Write([]byte(strconv.FormatInt(id, 10) + ":" + strconv.FormatInt(labels[id].ID, 10) + "\n"))
+	}
+	return h.Sum(nil)
+}
+
+// adjudicationsCurrent reports whether the binding's items still carry the
+// labels it was computed from. It takes the adjudication table SHARE until
+// tx ends: a label being written is waited for and seen, and none is
+// written before tx commits what it checked.
+func adjudicationsCurrent(ctx context.Context, tx *pg.Tx, b *AuthorLLMAdjudicationBinding) (bool, error) {
+	if _, err := tx.ExecContext(ctx, `LOCK TABLE public.author_llm_eval_adjudication IN SHARE MODE`); err != nil {
+		return false, fmt.Errorf("locking the adjudications: %w", err)
+	}
+	labels, err := AuthorLLMAdjudications(ctx, tx, b.Items)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(AuthorLLMAdjudicationDigest(b.Items, labels), b.SHA256), nil
+}
+
+// checkAdjudicationBinding refuses with ErrAuthorLLMReportStale a report
+// whose labels changed since they were read; a nil binding (K's reports)
+// checks nothing.
+func checkAdjudicationBinding(ctx context.Context, tx *pg.Tx, b *AuthorLLMAdjudicationBinding) error {
+	if b == nil {
+		return nil
+	}
+	current, err := adjudicationsCurrent(ctx, tx, b)
+	if err != nil {
+		return err
+	}
+	if !current {
+		return ErrAuthorLLMReportStale
+	}
+	return nil
 }

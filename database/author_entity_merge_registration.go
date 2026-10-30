@@ -75,6 +75,10 @@ type MergeRegistrationInput struct {
 	ReportSHA256  []byte
 	Gate          string
 	ActorID       int64
+	// Adjudications, when set, binds the report to the labels it was
+	// computed from: a label written since refuses the registration
+	// (ErrMergeRegistrationEvidenceStale).
+	Adjudications *AuthorLLMAdjudicationBinding
 }
 
 // ValidMergeKind reports a kind a registration may name.
@@ -96,26 +100,57 @@ func ValidMergeScript(script string) bool {
 	return false
 }
 
-// RegisterMergeKind inserts a registration. It touches no other table: no
-// policy version is taken and nothing of K's acceptance is locked.
+// ErrMergeRegistrationEvidenceStale refuses a registration whose report's
+// labels changed since the report was computed: it must be recomputed.
+var ErrMergeRegistrationEvidenceStale = errors.New(
+	"database: a label the merge eval report gates on changed since it was computed")
+
+// RegisterMergeKind inserts a registration. It writes no other table: no
+// policy version is taken and nothing of K's acceptance is locked. With
+// in.Adjudications it first checks, in the same transaction and holding
+// the adjudications SHARE, that the report's labels are still the ones it
+// read.
 func RegisterMergeKind(ctx context.Context, db pg.DBI, in *MergeRegistrationInput) (int64, error) {
 	if !ValidMergeKind(in.Kind) || in.Gate != MergeGateJudgeConsensus || len(in.ReportSHA256) != 32 ||
 		in.ConfigVersion == "" || in.ReportID <= 0 {
 		return 0, ErrMergeRegistrationInvalid
 	}
 	var id int64
-	_, err := db.QueryOneContext(ctx, pg.Scan(&id), `
+	register := func(tx *pg.Tx) error {
+		if in.Adjudications != nil {
+			current, err := adjudicationsCurrent(ctx, tx, in.Adjudications)
+			if err != nil {
+				return err
+			}
+			if !current {
+				return ErrMergeRegistrationEvidenceStale
+			}
+		}
+		return insertMergeRegistration(ctx, tx, in, &id)
+	}
+	// Inside a caller's transaction it is a part of it: RunInTransaction on
+	// a transaction would end it.
+	if tx, ok := db.(*pg.Tx); ok {
+		return id, register(tx)
+	}
+	err := db.RunInTransaction(ctx, register)
+	return id, err
+}
+
+// insertMergeRegistration inserts the registration row.
+func insertMergeRegistration(ctx context.Context, tx *pg.Tx, in *MergeRegistrationInput, id *int64) error {
+	_, err := tx.QueryOneContext(ctx, pg.Scan(id), `
 		INSERT INTO public.author_entity_merge_registration (config_version, kind, evidence_report_id,
 			evidence_report_sha256, gate, registered_by_user_id)
 		VALUES (?, ?, ?, ?, ?, nullif(?, 0)) RETURNING id`,
 		in.ConfigVersion, in.Kind, in.ReportID, in.ReportSHA256, in.Gate, in.ActorID)
 	if pgErrorCode(err) == "23505" {
-		return 0, ErrMergeRegistrationExists
+		return ErrMergeRegistrationExists
 	}
 	if err != nil {
-		return 0, fmt.Errorf("registering a merge kind: %w", err)
+		return fmt.Errorf("registering a merge kind: %w", err)
 	}
-	return id, nil
+	return nil
 }
 
 // WithdrawMergeRegistration withdraws a registration: the next build lapses
@@ -296,11 +331,26 @@ func mergeRefusedReason(err error) string {
 // every transaction refuses (ErrMergeApplyDriftHeld) once
 // MergeApplyDriftHeld holds for them — a drift that came after the apply's
 // own check, or between two chunks, stops the chunks from there on.
+//
+// Settle, when set, runs at the end of each chunk's transaction with what
+// became of every verdict of the chunk, by digest (MergeInsertOutcome*): a
+// merge run settles its verdicts there, so a committed chunk never leaves
+// them unsettled and a refused one settles nothing.
 type MergeInsertOptions struct {
 	ActorID     int64
 	DriftConfig string
 	DriftRunID  int64
+	Settle      func(ctx context.Context, tx *pg.Tx, outcomes map[[32]byte]string) error
 }
+
+// What an insert did with one verdict, as MergeInsertOptions.Settle gets
+// it; the withheld ones carry their MergeWithheld* reason.
+const (
+	MergeInsertOutcomeInserted          = "inserted"
+	MergeInsertOutcomeLapsedBeforeApply = "lapsed_before_apply"
+	MergeInsertOutcomeAlreadyDecided    = "already_decided"
+	MergeInsertOutcomeSideUnrecorded    = "side_unrecorded"
+)
 
 func (r *MergeInsertReport) add(o *MergeInsertReport) {
 	r.Inserted += o.Inserted
@@ -371,11 +421,12 @@ func insertMergeDecisionsTx(
 	actor := opts.ActorID
 	rep := &MergeInsertReport{BuildRunID: latest}
 	skip := map[string]bool{}
+	var inserted []insertedDecision
 	for {
 		if _, err = tx.ExecContext(ctx, `SAVEPOINT merge_insert`); err != nil {
 			return nil, err
 		}
-		inserted, err := insertCurrentDecisions(ctx, tx, verdicts, skip, actor)
+		inserted, err = insertCurrentDecisions(ctx, tx, verdicts, skip, actor)
 		if err != nil {
 			return nil, err
 		}
@@ -404,7 +455,22 @@ func insertMergeDecisionsTx(
 		}
 	}
 	rep.SideUnrecorded = len(skip) - rep.Inserted
-	return rep, countNotInserted(ctx, tx, verdicts, skip, rep)
+	outcomes := make(map[[32]byte]string, len(verdicts))
+	for d := range skip {
+		outcomes[[32]byte([]byte(d))] = MergeInsertOutcomeSideUnrecorded
+	}
+	for i := range inserted {
+		outcomes[[32]byte(inserted[i].Digest)] = MergeInsertOutcomeInserted
+	}
+	if err := countNotInserted(ctx, tx, verdicts, skip, rep, outcomes); err != nil {
+		return nil, err
+	}
+	if opts.Settle != nil {
+		if err := opts.Settle(ctx, tx, outcomes); err != nil {
+			return nil, err
+		}
+	}
+	return rep, nil
 }
 
 // mayInsertMergeDecisions takes the build start lock for tx and checks
@@ -522,9 +588,10 @@ func insertCurrentDecisions(
 // countNotInserted counts why each verdict not inserted (not in skip, which
 // holds the inserted and the side-unrecorded ones) was not: no candidate in
 // the stored census, a live decision already, or the registration of its
-// kind (withheld by reason).
+// kind (withheld by reason); outcomes gets each one's class by digest.
 func countNotInserted(
 	ctx context.Context, tx pg.DBI, verdicts []MergeVerdict, skip map[string]bool, rep *MergeInsertReport,
+	outcomes map[[32]byte]string,
 ) error {
 	var digests, configs, kinds []string
 	for i := range verdicts {
@@ -539,37 +606,39 @@ func countNotInserted(
 		return nil
 	}
 	var rows []struct {
-		Class string `pg:"class"`
-		N     int    `pg:"n"`
+		Digest string `pg:"digest"`
+		Class  string `pg:"class"`
 	}
 	if _, err := tx.QueryContext(ctx, &rows, `
-		SELECT class, count(*) AS n FROM (
-			SELECT CASE
-				WHEN c.digest IS NULL THEN 'lapsed_before_apply'
-				WHEN d.id IS NOT NULL THEN 'already_decided'
+		SELECT u.digest, CASE
+				WHEN c.digest IS NULL THEN ?
+				WHEN d.id IS NOT NULL THEN ?
 				WHEN r.id IS NULL THEN ?
 				WHEN r.withdrawn_at IS NOT NULL THEN ?
 				ELSE ? END AS class
-			FROM unnest(?::text[], ?::text[], ?::text[]) AS u(digest, config, kind)
-			LEFT JOIN public.author_entity_merge_candidate c ON c.digest = decode(u.digest, 'hex') AND c.kind = u.kind
-			LEFT JOIN public.author_entity_merge_decision d ON d.digest = c.digest AND d.revoked_at IS NULL
-			LEFT JOIN public.author_entity_merge_registration r ON r.config_version = u.config AND r.kind = u.kind
-		) classes GROUP BY class`,
+		FROM unnest(?::text[], ?::text[], ?::text[]) AS u(digest, config, kind)
+		LEFT JOIN public.author_entity_merge_candidate c ON c.digest = decode(u.digest, 'hex') AND c.kind = u.kind
+		LEFT JOIN public.author_entity_merge_decision d ON d.digest = c.digest AND d.revoked_at IS NULL
+		LEFT JOIN public.author_entity_merge_registration r ON r.config_version = u.config AND r.kind = u.kind`,
+		MergeInsertOutcomeLapsedBeforeApply, MergeInsertOutcomeAlreadyDecided,
 		MergeWithheldUnregistered, MergeWithheldWithdrawn, MergeWithheldScriptBlocked,
 		pg.Array(digests), pg.Array(configs), pg.Array(kinds)); err != nil {
 		return fmt.Errorf("counting the verdicts not inserted: %w", err)
 	}
 	for _, r := range rows {
+		if raw, err := hex.DecodeString(r.Digest); err == nil && len(raw) == 32 {
+			outcomes[[32]byte(raw)] = r.Class
+		}
 		switch r.Class {
-		case "lapsed_before_apply":
-			rep.LapsedBeforeApply += r.N
-		case "already_decided":
-			rep.AlreadyDecided += r.N
+		case MergeInsertOutcomeLapsedBeforeApply:
+			rep.LapsedBeforeApply++
+		case MergeInsertOutcomeAlreadyDecided:
+			rep.AlreadyDecided++
 		default:
 			if rep.Withheld == nil {
 				rep.Withheld = map[string]int{}
 			}
-			rep.Withheld[r.Class] += r.N
+			rep.Withheld[r.Class]++
 		}
 	}
 	return nil

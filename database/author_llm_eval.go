@@ -499,8 +499,10 @@ func StoreAuthorLLMEvalReport(ctx context.Context, db *pg.DB, runID int64, versi
 
 // ErrAuthorLLMReportStale refuses an eval report whose answers changed while
 // it was computed: a re-learn started or ended since (its participant's
-// answers go back to the queue), or answers are still to come. Nothing is
-// stored; the report stage computes it again.
+// answers go back to the queue), or answers are still to come — or, for a
+// merge report, a label it gates on was written since its labels were read
+// (AuthorLLMAdjudicationBinding). Nothing is stored; the report stage
+// computes it again.
 var ErrAuthorLLMReportStale = errors.New("database: the eval report's answers changed while it was computed")
 
 // AuthorLLMRelearnGeneration is the run's re-learn generation: the latest
@@ -522,6 +524,23 @@ func AuthorLLMRelearnGeneration(ctx context.Context, db pg.DBI, runID int64) (in
 // answer, no re-learn running and the same generation; otherwise it refuses
 // with ErrAuthorLLMReportStale and stores nothing.
 func StoreAuthorLLMEvalReportOf(ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64) error {
+	return storeAuthorLLMEvalReport(ctx, db, runID, version, report, generation, nil)
+}
+
+// StoreAuthorLLMMergeEvalReport is StoreAuthorLLMEvalReportOf for a merge
+// report bound to the labels it read: it refuses with
+// ErrAuthorLLMReportStale when one of them changed since.
+func StoreAuthorLLMMergeEvalReport(
+	ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64,
+	binding *AuthorLLMAdjudicationBinding,
+) error {
+	return storeAuthorLLMEvalReport(ctx, db, runID, version, report, generation, binding)
+}
+
+func storeAuthorLLMEvalReport(
+	ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64,
+	binding *AuthorLLMAdjudicationBinding,
+) error {
 	return RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
 		if _, err := lockAuthorLLM(ctx, tx, nil); err != nil {
 			return err
@@ -539,6 +558,9 @@ func StoreAuthorLLMEvalReportOf(ctx context.Context, db *pg.DB, runID int64, ver
 		}
 		if waits > 0 || (generation >= 0 && current != generation) {
 			return ErrAuthorLLMReportStale
+		}
+		if err := checkAdjudicationBinding(ctx, tx, binding); err != nil {
+			return err
 		}
 		var running bool
 		if _, err := tx.QueryOneContext(ctx, pg.Scan(&running),
@@ -749,6 +771,23 @@ func recomputeFence(ctx context.Context, tx *pg.Tx, runID int64, version string,
 func RecomputeAuthorLLMEvalReport(
 	ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64,
 ) (latest *AuthorLLMEvalReport, stored bool, err error) {
+	return recomputeAuthorLLMEvalReport(ctx, db, runID, version, report, generation, nil)
+}
+
+// RecomputeAuthorLLMMergeEvalReport is RecomputeAuthorLLMEvalReport for a
+// merge report bound to the labels it read: it refuses with
+// ErrAuthorLLMReportStale when one of them changed since.
+func RecomputeAuthorLLMMergeEvalReport(
+	ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64,
+	binding *AuthorLLMAdjudicationBinding,
+) (latest *AuthorLLMEvalReport, stored bool, err error) {
+	return recomputeAuthorLLMEvalReport(ctx, db, runID, version, report, generation, binding)
+}
+
+func recomputeAuthorLLMEvalReport(
+	ctx context.Context, db *pg.DB, runID int64, version string, report []byte, generation int64,
+	binding *AuthorLLMAdjudicationBinding,
+) (latest *AuthorLLMEvalReport, stored bool, err error) {
 	err = RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
 		stored = false
 		if _, lockErr := lockAuthorLLM(ctx, tx, nil); lockErr != nil {
@@ -756,6 +795,9 @@ func RecomputeAuthorLLMEvalReport(
 		}
 		if fenceErr := recomputeFence(ctx, tx, runID, version, generation); fenceErr != nil {
 			return fenceErr
+		}
+		if bindErr := checkAdjudicationBinding(ctx, tx, binding); bindErr != nil {
+			return bindErr
 		}
 		prev, readErr := GetAuthorLLMEvalReport(ctx, tx, runID)
 		if readErr != nil {

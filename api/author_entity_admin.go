@@ -152,6 +152,8 @@ func abortEntityError(c *gin.Context, err error) {
 		abortRun(c, http.StatusConflict, codeMergeKindUnproven)
 	case errors.Is(err, database.ErrMergeRegistrationExists):
 		abortRun(c, http.StatusConflict, codeMergeKindRegistered)
+	case errors.Is(err, database.ErrMergeRegistrationEvidenceStale):
+		abortRun(c, http.StatusConflict, codeMergeEvidenceStale)
 	case errors.Is(err, database.ErrMergeRegistrationNotLive), errors.Is(err, services.ErrAuthorEntityMergeNotRegistered):
 		abortRun(c, http.StatusConflict, codeRegistrationNotLive)
 	case errors.Is(err, services.ErrAuthorEntityMergeDriftHeld):
@@ -413,13 +415,14 @@ func (h *authorEntityHandler) reanchor(c *gin.Context) {
 // of it (the next build splits their merges), and apply its eval's accepted
 // items as decisions. Closed codes: merge_report_invalid and
 // merge_gate_invalid (422), merge_kind_not_passed, merge_kind_registered,
-// registration_not_live, merge_apply_drift_held, veto_unanchored,
-// no_completed_build and active_run_exists (409).
+// merge_evidence_stale, registration_not_live, merge_apply_drift_held,
+// veto_unanchored, no_completed_build and active_run_exists (409).
 const (
 	codeMergeReportInvalid  = "merge_report_invalid"
 	codeMergeGateInvalid    = "merge_gate_invalid"
 	codeMergeKindUnproven   = "merge_kind_not_passed"
 	codeMergeKindRegistered = "merge_kind_registered"
+	codeMergeEvidenceStale  = "merge_evidence_stale"
 	codeRegistrationNotLive = "registration_not_live"
 	codeMergeApplyDriftHeld = "merge_apply_drift_held"
 	codeVetoUnanchored      = "veto_unanchored"
@@ -441,7 +444,8 @@ type registerRequest struct {
 // register godoc
 // @Summary Register a merge kind from a merge eval report
 // @Description The run's latest report must be a merge report gated against judge_consensus that passed the kind.
-// @Description 422 merge_report_invalid, merge_gate_invalid; 409 merge_kind_not_passed, merge_kind_registered.
+// @Description 422 merge_report_invalid, merge_gate_invalid; 409 merge_kind_not_passed, merge_kind_registered,
+// @Description merge_evidence_stale (a label the report gates on changed since it was computed: recompute it).
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param body body registerRequest true "The run and the kind"

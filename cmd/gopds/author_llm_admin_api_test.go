@@ -132,10 +132,12 @@ func TestAuthorLLMAdminWiring(t *testing.T) {
 		assert.True(t, merge.Status.Enabled)
 		assert.True(t, merge.Status.OtherActive)
 		assert.Nil(t, merge.Status.Run, "the merge card showed K's run")
-		require.Len(t, merge.Status.Steps, 5, "merge0 and the four stage modes")
-		for _, step := range merge.Status.Steps {
+		require.Len(t, merge.Status.Steps, 6, "merge0, the four stage modes and the merge run")
+		for _, step := range merge.Status.Steps[:5] {
 			assert.Equal(t, services.AuthorLLMStepActiveRun, step.Blocked, step.Key)
 		}
+		// The merge run follows a registration: none yet.
+		assert.Equal(t, services.AuthorLLMStepPrerequisite, merge.Status.Steps[5].Blocked)
 		rec = llmCall(t, r, http.MethodPost, "/merge/runs", `{"kind":"eval","mode":"merge0"}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.JSONEq(t, `{"error":"active_run_exists"}`, rec.Body.String())
@@ -154,6 +156,11 @@ func TestAuthorLLMAdminWiring(t *testing.T) {
 		assert.JSONEq(t, `{"error":"invalid_run"}`, rec.Body.String())
 		rec = llmCall(t, r, http.MethodGet, "/eval-report/"+jsonNumber(started.Run.ID)+"/contested", "")
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "K's admin served a contested review")
+		rec = llmCall(t, r, http.MethodGet, "/merge/eval-report/"+jsonNumber(started.Run.ID)+"/audit", "")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "a K run has no audit")
+		assert.JSONEq(t, `{"error":"invalid_run"}`, rec.Body.String())
+		rec = llmCall(t, r, http.MethodGet, "/eval-report/"+jsonNumber(started.Run.ID)+"/audit", "")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "K's admin served an audit")
 		rec = llmCall(t, r, http.MethodPut, "/merge/adjudications/999999", `{"label":"same","note":""}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.JSONEq(t, `{"error":"not_adjudicable"}`, rec.Body.String())

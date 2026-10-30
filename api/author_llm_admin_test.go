@@ -134,6 +134,10 @@ func (f *fakeLLMAdmin) ContestedItems(context.Context, int64) (*services.AuthorL
 	return &services.AuthorLLMAdversarialReview{}, nil
 }
 
+func (f *fakeLLMAdmin) AuditItems(context.Context, int64) (*services.AuthorLLMAdversarialReview, error) {
+	return &services.AuthorLLMAdversarialReview{}, nil
+}
+
 func (f *fakeLLMAdmin) Adjudicate(context.Context, int64, string, string, string) error { return nil }
 
 const llmBase = "/api/admin/author-metadata/llm"

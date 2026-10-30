@@ -109,8 +109,9 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 
 // LoadMergeNotSame reads the digests of the merge candidates the production
 // pair answered other than same (different or cannot_tell, by either of
-// the two, first answers of a merge eval): the build's conflict rule
-// (§4.2) refuses a union that would join the two sides of such a pair.
+// the two: first answers of a merge eval, or the answers of a merge run):
+// the build's conflict rule (§4.2) refuses a union that would join the two
+// sides of such a pair.
 func LoadMergeNotSame(ctx context.Context, db pg.DBI) ([][32]byte, error) {
 	var notSame []string
 	for _, answer := range []string{llmreq.MergeDifferent, llmreq.MergeCannotTell} {
@@ -121,12 +122,19 @@ func LoadMergeNotSame(ctx context.Context, db pg.DBI) ([][32]byte, error) {
 	if _, err := db.QueryContext(ctx, &digests, `
 		SELECT DISTINCT i.source_fingerprint
 		FROM public.author_llm_eval_item i
-		JOIN public.author_llm_job j ON j.eval_item_id = i.id AND j.purpose = ? AND j.repeat_no = 0
+		JOIN public.author_llm_job j ON j.eval_item_id = i.id AND j.purpose = ?0 AND j.repeat_no = 0
 			AND j.status = 'answered'
 		JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
-		WHERE i.extractor_version = ? AND encode(a.canonical_sha256, 'hex') = ANY(?::text[])
+		WHERE i.extractor_version = ?1 AND encode(a.canonical_sha256, 'hex') = ANY(?2::text[])
+		UNION
+		SELECT j.source_fingerprint
+		FROM public.author_llm_job j
+		JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
+		WHERE j.purpose = ?3 AND j.slot IN (?4, ?5) AND j.status = 'answered' AND j.eval_item_id IS NULL
+			AND j.extractor_version = ?1 AND encode(a.canonical_sha256, 'hex') = ANY(?2::text[])
 		ORDER BY 1`, string(models.AuthorLLMPurposeEvalCandidate), authorentity.MergeCandidateVersion,
-		pg.Array(notSame)); err != nil {
+		pg.Array(notSame), string(models.AuthorLLMPurposeMergeCheck), string(llmreq.SlotProductionA),
+		string(llmreq.SlotProductionB)); err != nil {
 		return nil, fmt.Errorf("reading the merge answers other than same: %w", err)
 	}
 	out := make([][32]byte, 0, len(digests))

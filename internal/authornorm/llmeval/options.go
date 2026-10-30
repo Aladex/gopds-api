@@ -30,6 +30,8 @@ type Options struct {
 	// it per stratum: empty (K) and GateRuleHoldout bound the error share
 	// of a sample; GateRuleCensus is for a run that asked every candidate.
 	GateRule string `json:"gate_rule,omitempty"`
+	// auditRun is Input.AuditRun, for the audit order.
+	auditRun int64
 }
 
 // The error gates of a stratum (Options.GateRule).
@@ -79,6 +81,8 @@ func censusReason(combos []Combo, report *StratumReport) string {
 		case !m.Census.Complete:
 			return fmt.Sprintf("census: %d of %d candidates without a settled pair answer in %s",
 				len(m.Census.Unsettled), m.Census.Candidates, comboKey(c))
+		case m.Audit != nil:
+			return auditReason(c, m.Audit)
 		case m.AllowedErrors > 0:
 			return fmt.Sprintf("census: %d errors of %d accepted in %s", m.AllowedErrors, m.AllowedAccepted, comboKey(c))
 		default:

@@ -397,7 +397,9 @@ export type AuthorLLMStepKey =
     | 'merge1'
     | 'merge2'
     | 'merge3'
-    | 'merge4';
+    | 'merge4'
+    // The merge run (E4d-2): the registered kinds' candidates no eval asked.
+    | 'merge_run';
 
 export interface AuthorLLMStep {
     key: AuthorLLMStepKey;

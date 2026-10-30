@@ -89,6 +89,11 @@ const (
 	AuthorMetadataEventLLMEvalRunFailed   AuthorMetadataEventName = "author_metadata.llm_eval_run_failed"
 	// A merge eval froze its items (their count; E4c).
 	AuthorMetadataEventLLMMergeEvalFrozen AuthorMetadataEventName = "author_metadata.llm_merge_eval_frozen"
+	// A merge run started (Count: the candidates due; E4d-2), and one held
+	// its decisions back (Status: the insert's refusal code, e.g. a build
+	// running); the held verdicts are tried again on the next step.
+	AuthorMetadataEventLLMMergeRunStarted AuthorMetadataEventName = "author_metadata.llm_merge_run_started"
+	AuthorMetadataEventLLMMergeRunHeld    AuthorMetadataEventName = "author_metadata.llm_merge_run_held"
 	// An administrator labeled a suite item (ItemID; Status: the label).
 	AuthorMetadataEventLLMItemAdjudicated AuthorMetadataEventName = "author_metadata.llm_item_adjudicated"
 	// The LLM block's admin could not be built (its configuration row).

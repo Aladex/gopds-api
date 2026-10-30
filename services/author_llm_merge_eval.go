@@ -915,6 +915,8 @@ type mergeEvalReportDoc struct {
 	Answers    []mergeAnswerCount `json:"answers"`
 	Tokens     []mergeTokenCount  `json:"tokens"`
 	Evaluation llmeval.Report     `json:"evaluation"`
+	// Adjudications binds the report to the labels it read.
+	Adjudications *mergeAdjudicationBinding `json:"adjudications"`
 }
 
 // mergeRecall is the known-same anchors of one kind and script: per
@@ -951,12 +953,12 @@ type mergeTokenCount struct {
 }
 
 // mergeOptions are the merge gate's options (§3.1, §3.3, §4.5): a census
-// mode's strata pass on no error and every candidate settled; a holdout's
-// (merge0, merge3's bucket) on the bound.
+// mode's strata pass on every candidate settled and a clean audit of the
+// applied set; a holdout's (merge0, merge3's bucket) on the bound.
 func mergeOptions(mode string) llmeval.Options {
 	rule := llmeval.GateRuleHoldout
 	if mergeEvalModes[mode].census {
-		rule = llmeval.GateRuleCensus
+		rule = llmeval.GateRuleCensusAudit
 	}
 	return llmeval.Options{MaxErrorShare: mergeEvalMaxErrorShare, ContestedIsError: true,
 		ContestedAdjudicated: true, AcceptOnly: mergeSameCanonical, AnchorRecall: true, ByScript: true,
@@ -982,7 +984,14 @@ func (d *AuthorLLMEvalDriver) mergeReport(ctx context.Context, run *evalRun) err
 	if err != nil {
 		return err
 	}
-	err = database.StoreAuthorLLMEvalReportOf(ctx, d.db, run.ID, d.version, raw, generation)
+	binding, err := doc.Adjudications.stored()
+	if err != nil {
+		return err
+	}
+	if mergeReportComputedHook != nil {
+		mergeReportComputedHook(run.ID)
+	}
+	err = database.StoreAuthorLLMMergeEvalReport(ctx, d.db, run.ID, d.version, raw, generation, binding)
 	if errors.Is(err, database.ErrAuthorLLMReportStale) {
 		return nil
 	}
@@ -990,7 +999,7 @@ func (d *AuthorLLMEvalDriver) mergeReport(ctx context.Context, run *evalRun) err
 }
 
 // mergeReportDoc computes a merge eval's report from the run's stored
-// answers and the suite's current adjudications.
+// answers and the current adjudications, bound to them.
 func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) (*mergeEvalReportDoc, error) {
 	answers, err := d.readEvalAnswers(ctx, run.ID)
 	if err != nil {
@@ -1004,15 +1013,15 @@ func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) 
 	if err != nil {
 		return nil, err
 	}
-	// The suite's labels and the contested accepts' (any measured item may
-	// be one).
+	// The suite's labels, the contested accepts' and the audit sample's
+	// (any measured item may be one).
 	adjudications, err := database.AuthorLLMAdjudications(ctx, d.db, itemIDs(slices.Concat(holdout, suite)))
 	if err != nil {
 		return nil, err
 	}
 	fingerprints, fpResult := d.fingerprintResult(answers)
 	in := mergeEvalInput(run.Mode, answers, holdout, suite, adjudications)
-	in.Fingerprint = fpResult
+	in.Fingerprint, in.AuditRun = fpResult, run.ID
 	recall, anchorCount := mergeRecallOf(anchors, answers.byItem)
 	in.Anchor = anchorCount
 	opts := mergeOptions(run.Mode)
@@ -1021,7 +1030,8 @@ func (d *AuthorLLMEvalDriver) mergeReportDoc(ctx context.Context, run *evalRun) 
 		Task: llmreq.TaskMerge, Gate: mergeEvalGate, Options: opts, Settings: d.reportSettings(run, answers),
 		FailedJobs: answers.failed, Fingerprints: fingerprints,
 		Recall: recall, Answers: mergeAnswerCounts(holdout, suite, anchors, answers.byItem),
-		Tokens: mergeTokenCounts(holdout, suite, anchors, answers.byItem), Evaluation: evaluation}
+		Tokens: mergeTokenCounts(holdout, suite, anchors, answers.byItem), Evaluation: evaluation,
+		Adjudications: bindAdjudications(&evaluation, adjudications)}
 	if setsErr := d.reportSets(ctx, run, doc); setsErr != nil {
 		return nil, setsErr
 	}

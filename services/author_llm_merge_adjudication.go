@@ -31,8 +31,9 @@ const adjudicationNoteMax = 2000
 // again from the run's stored answers and the suite's current
 // adjudications — no model is asked anything — under the merge
 // configuration's identity, and stores it as the run's next report version
-// (an equal report is not stored again). The settings are the stored
-// report's. A K identity, a run that is not a completed merge eval or one
+// (an equal report is not stored again), unless a label it read changed
+// before it is stored (ErrAuthorLLMReportStale). The settings are the
+// stored report's. A K identity, a run that is not a completed merge eval or one
 // of another version is refused.
 func RecomputeAuthorLLMMergeEvalReport(
 	ctx context.Context, db *pg.DB, identity *llmreq.Identity, version string, runID int64,
@@ -76,7 +77,14 @@ func RecomputeAuthorLLMMergeEvalReport(
 	if err != nil {
 		return nil, false, err
 	}
-	return database.RecomputeAuthorLLMEvalReport(ctx, db, runID, version, raw, generation)
+	binding, err := doc.Adjudications.stored()
+	if err != nil {
+		return nil, false, err
+	}
+	if mergeReportComputedHook != nil {
+		mergeReportComputedHook(runID)
+	}
+	return database.RecomputeAuthorLLMMergeEvalReport(ctx, db, runID, version, raw, generation, binding)
 }
 
 // AuthorLLMAdversarialReview is a merge eval run's accepted suite items, to

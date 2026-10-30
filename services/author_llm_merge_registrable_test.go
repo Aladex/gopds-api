@@ -129,6 +129,17 @@ func TestAPassingCensusReportIsRegistrable(t *testing.T) {
 	require.ErrorIs(t, err, services.ErrAuthorEntityMergeNotPassed)
 
 	cloneMergeItems(t, e.db, run, 200)
+	_, stored, err := services.RecomputeAuthorLLMMergeEvalReport(ctx, e.db, &m.identity, m.version, run)
+	require.NoError(t, err)
+	require.True(t, stored)
+	// The census passes once its audit sample is labeled (migration 70).
+	audit, err := services.AuthorLLMAuditItems(ctx, e.db, run)
+	require.NoError(t, err)
+	require.NotEmpty(t, audit.Items)
+	for _, it := range audit.Items {
+		require.NoError(t, services.AdjudicateAuthorLLMEvalItem(ctx, e.db, it.EvalItemID, database.AdjudicationSame, "",
+			"coordinator"))
+	}
 	next, stored, err := services.RecomputeAuthorLLMMergeEvalReport(ctx, e.db, &m.identity, m.version, run)
 	require.NoError(t, err)
 	require.True(t, stored)
@@ -138,7 +149,7 @@ func TestAPassingCensusReportIsRegistrable(t *testing.T) {
 	require.Len(t, r.Evaluation.Decision.Strata, 1)
 	swap := r.Evaluation.Decision.Strata[0]
 	require.True(t, swap.Passed, swap.Reason)
-	assert.Equal(t, "census", swap.Rule)
+	assert.Equal(t, "census_audit", swap.Rule)
 	assert.True(t, r.Evaluation.Decision.Registrable, "a passing census report backs a registration")
 
 	registration, err := admin.RegisterMergeKind(ctx, run, authorentity.CandidateSwap, 0)

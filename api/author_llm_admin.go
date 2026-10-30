@@ -33,6 +33,7 @@ type AuthorLLMAdminService interface {
 	RecomputeEvalReport(ctx context.Context, id int64) (*services.AuthorLLMRunState, error)
 	AdversarialItems(ctx context.Context, id int64) (*services.AuthorLLMAdversarialReview, error)
 	ContestedItems(ctx context.Context, id int64) (*services.AuthorLLMAdversarialReview, error)
+	AuditItems(ctx context.Context, id int64) (*services.AuthorLLMAdversarialReview, error)
 	Adjudicate(ctx context.Context, itemID int64, label, note, by string) error
 }
 
@@ -160,6 +161,10 @@ func (unavailableAuthorLLMAdmin) ContestedItems(context.Context, int64) (*servic
 	return nil, errAuthorLLMServiceUnavailable
 }
 
+func (unavailableAuthorLLMAdmin) AuditItems(context.Context, int64) (*services.AuthorLLMAdversarialReview, error) {
+	return nil, errAuthorLLMServiceUnavailable
+}
+
 func (unavailableAuthorLLMAdmin) Adjudicate(context.Context, int64, string, string, string) error {
 	return errAuthorLLMServiceUnavailable
 }
@@ -182,6 +187,7 @@ func SetupAuthorLLMRoutes(r *gin.RouterGroup, svc AuthorLLMAdminService) {
 	r.POST("/eval-report/:id/recompute", h.recompute)
 	r.GET("/eval-report/:id/adversarial", h.adversarial)
 	r.GET("/eval-report/:id/contested", h.contested)
+	r.GET("/eval-report/:id/audit", h.audit)
 	r.PUT("/adjudications/:id", h.adjudicate)
 	r.POST("/participants/:slot/resume", h.resumeParticipant)
 	r.POST("/endpoint/resume", h.resumeEndpoint)
@@ -217,7 +223,7 @@ type startLLMRunRequest struct {
 // @Description Instant; the stages go on in the background. 409: layer off, a run active, previous step incomplete, kind unavailable.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
-// @Param body body startLLMRunRequest true "kind (eval|resolve|swap), mode (dev|pilot|full; eval also swap, stage0..stage3)"
+// @Param body body startLLMRunRequest true "kind (eval|resolve|swap|merge), mode (dev|pilot|full; eval also swap, stage0..3, merge0..4)"
 // @Produce json
 // @Success 201 {object} map[string]services.AuthorLLMRunState
 // @Router /api/admin/author-metadata/llm/runs [post]
@@ -439,6 +445,31 @@ func (h *authorLLMHandler) contested(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"review": review})
 }
 
+// audit godoc
+// @Summary The audit sample of a merge eval run's census
+// @Description The census items all four participants answered same that the latest report samples for the audit
+// @Description (up to 300 per kind): each item's two sides, the four answers and its current adjudication (merge
+// @Description routes only). A sampled item pending or labeled different fails its kind.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Run id"
+// @Produce json
+// @Success 200 {object} map[string]services.AuthorLLMAdversarialReview
+// @Router /api/admin/author-metadata/llm/merge/eval-report/{id}/audit [get]
+func (h *authorLLMHandler) audit(c *gin.Context) {
+	id, err := runID(c)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	review, err := h.svc.AuditItems(c.Request.Context(), id)
+	if err != nil {
+		abortLLMError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"review": review})
+}
+
 // adjudicateRequest is an adjudication's body: label is required, note may
 // be empty.
 type adjudicateRequest struct {
@@ -447,9 +478,9 @@ type adjudicateRequest struct {
 }
 
 // adjudicate godoc
-// @Summary Label an accepted adversarial suite item or a contested accept
-// @Description label same, different or unclear. 409 not_adjudicable: neither an adversarial suite item nor a
-// @Description contested accept of a merge eval.
+// @Summary Label an accepted adversarial suite item, a contested accept or an audited item
+// @Description label same, different or unclear. 409 not_adjudicable: neither an adversarial suite item, a
+// @Description contested accept nor an item of a census's audit sample of a merge eval.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Eval item id"

@@ -68,6 +68,7 @@ const stepLabels = (t: T): Record<string, string> => ({
     merge2: t('authorLLM.step.merge2', 'Check initials, every candidate (merge2)'),
     merge3: t('authorLLM.step.merge3', 'Check short-name books (merge3)'),
     merge4: t('authorLLM.step.merge4', 'Check transliterations, every candidate (merge4)'),
+    merge_run: t('authorLLM.step.merge_run', 'Merge: ask the new candidates'),
 });
 
 const stageLabels = (t: T): Record<string, string> => ({
@@ -108,6 +109,7 @@ const runLabel = (t: T, run: AuthorLLMRun): string => {
         if (run.mode === 'full') return t('authorLLM.run.swap_full', 'Swap everything');
         return t('authorLLM.run.swap_pilot', 'Swaps pilot');
     }
+    if (run.kind === 'merge') return t('authorLLM.run.merge_run', 'Merge run');
     return t('authorLLM.run.other', 'LLM run');
 };
 

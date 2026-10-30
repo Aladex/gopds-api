@@ -70,7 +70,8 @@ func buildAuthorMetadataWorkersOn(
 		// The merge configuration's worker (E4c) answers the merge questions
 		// on the same endpoint, under its own version; the name
 		// normalization's runs as without it. Its eval driver steps the merge
-		// evals of its version (E4c-2).
+		// evals of its version (E4c-2), its merge run driver the merge runs
+		// (E4d-2).
 		mergeWorker, _, mergeErr := services.NewAuthorLLMMergeWorkerFromConfig(context.Background(), db, c, shared)
 		switch {
 		case mergeErr != nil:
@@ -78,7 +79,7 @@ func buildAuthorMetadataWorkersOn(
 				Name: services.AuthorLLMEventDisabled, SQLState: services.AuthorMetadataSQLState(mergeErr),
 			})
 		case mergeWorker != nil:
-			workers = append(workers, mergeWorker, mergeWorker.EvalDriver())
+			workers = append(workers, mergeWorker, mergeWorker.EvalDriver(), mergeWorker.MergeRunDriver())
 		}
 	}
 	return workers, nil

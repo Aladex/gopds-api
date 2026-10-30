@@ -995,6 +995,8 @@
   "authorLLM.step.merge2": "Проверить инициалы, все кандидаты (merge2)",
   "authorLLM.step.merge3": "Проверить книги коротких имён (merge3)",
   "authorLLM.step.merge4": "Проверить транслитерации, все кандидаты (merge4)",
+  "authorLLM.step.merge_run": "Слияния: спросить новых кандидатов",
+  "authorLLM.run.merge_run": "Слияния: прогон",
   "authorLLM.run.merge": "Проверка слияний {{mode}}",
   "authorLLM.otherActiveNames": "Идёт разбор имён LLM; пилот слияний запустится после него.",
   "authorLLM.otherActiveMerges": "Идёт проверка слияний LLM; следующий шаг запустится после неё.",

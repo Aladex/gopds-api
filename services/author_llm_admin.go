@@ -72,6 +72,9 @@ const (
 	AuthorLLMStepMerge2 = models.AuthorLLMEvalModeMerge2
 	AuthorLLMStepMerge3 = models.AuthorLLMEvalModeMerge3
 	AuthorLLMStepMerge4 = models.AuthorLLMEvalModeMerge4
+	// AuthorLLMStepMergeRun is the merge run (E4d-2): the candidates of
+	// the registered kinds no eval asked.
+	AuthorLLMStepMergeRun = "merge_run"
 )
 
 // Why a step is not enabled.
@@ -344,6 +347,11 @@ func (a *AuthorLLMAdmin) Status(ctx context.Context) (*AuthorLLMStatus, error) {
 		if !st.Enabled {
 			return st, nil
 		}
+		run, err := a.mergeRunStep(ctx, active, completed)
+		if err != nil {
+			return nil, err
+		}
+		st.Steps = append(st.Steps, run)
 		return st, a.participants(ctx, st)
 	}
 	if st.Enabled {
@@ -424,6 +432,40 @@ func authorLLMMergeSteps(enabled, active bool, completed map[string]bool) []Auth
 	return steps
 }
 
+// mergeRunStep is the merge run's step: enabled when a completed merge eval
+// gives it evidence, a kind is registered and not withdrawn, a candidate is
+// due and no run is active; its estimate is the run's over the candidates
+// due now.
+func (a *AuthorLLMAdmin) mergeRunStep(ctx context.Context, active bool, completed map[string]bool) (AuthorLLMStep, error) {
+	s := AuthorLLMStep{Key: AuthorLLMStepMergeRun, Kind: string(models.AuthorLLMRunMerge),
+		Mode: models.AuthorLLMEvalModeFull, Available: true,
+		Done: completed[string(models.AuthorLLMRunMerge)+"/"+models.AuthorLLMEvalModeFull]}
+	ev, err := database.LatestAuthorLLMMergeEval(ctx, a.db, a.version)
+	if err != nil {
+		return s, err
+	}
+	registrations, err := liveMergeRegistrations(ctx, a.db, a.version)
+	if err != nil {
+		return s, err
+	}
+	due, err := database.MergeCandidatesDue(ctx, a.db, a.version)
+	if err != nil {
+		return s, err
+	}
+	if len(due) > 0 {
+		s.EstimateTokens = mergeRunEstimate(len(due))
+	}
+	switch {
+	case ev == nil || len(registrations) == 0 || len(due) == 0:
+		s.Blocked = AuthorLLMStepPrerequisite
+	case active:
+		s.Blocked = AuthorLLMStepActiveRun
+	default:
+		s.Enabled = true
+	}
+	return s, nil
+}
+
 // stageEstimates fills each stage eval step's token estimate.
 func (a *AuthorLLMAdmin) stageEstimates(ctx context.Context, steps []AuthorLLMStep) error {
 	for i := range steps {
@@ -489,6 +531,9 @@ func (a *AuthorLLMAdmin) runState(ctx context.Context, run *models.AuthorLLMRun)
 	if run.Kind == models.AuthorLLMRunSwap && rs.Stage == resolveStageResolve {
 		purpose = models.AuthorLLMPurposeSwapCheck
 	}
+	if run.Kind == models.AuthorLLMRunMerge && rs.Stage == resolveStageResolve {
+		purpose = models.AuthorLLMPurposeMergeCheck
+	}
 	if ok && isActiveLLMRun(run.Status) {
 		done, total, err := database.AuthorLLMJobProgress(ctx, a.db, run.ID, purpose)
 		if err != nil {
@@ -523,8 +568,8 @@ func (a *AuthorLLMAdmin) runState(ctx context.Context, run *models.AuthorLLMRun)
 			return nil, err
 		}
 	}
-	if (run.Kind == models.AuthorLLMRunResolve || run.Kind == models.AuthorLLMRunSwap) &&
-		run.Status == models.AuthorLLMRunCompleted {
+	if (run.Kind == models.AuthorLLMRunResolve || run.Kind == models.AuthorLLMRunSwap ||
+		run.Kind == models.AuthorLLMRunMerge) && run.Status == models.AuthorLLMRunCompleted {
 		if rs.Resolve, err = resolveSummary(ctx, a.db, run.ID); err != nil {
 			return nil, err
 		}
@@ -595,7 +640,14 @@ func (a *AuthorLLMAdmin) Start(ctx context.Context, kind, mode string, actor int
 		return nil, ErrAuthorLLMNotConfigured
 	}
 	if a.merge {
-		// The merge configuration starts its evals only.
+		// The merge configuration starts its evals and its merge run.
+		if kind == string(models.AuthorLLMRunMerge) {
+			id, err := StartAuthorLLMMergeRun(ctx, a.db, a.version, mode, actor)
+			if err != nil {
+				return nil, err
+			}
+			return a.get(ctx, id)
+		}
 		if kind != string(models.AuthorLLMRunEval) {
 			return nil, ErrAuthorLLMInvalidRun
 		}
@@ -793,7 +845,8 @@ func (a *AuthorLLMAdmin) EvalReport(ctx context.Context, id int64, version int) 
 	if err != nil {
 		return nil, "", err
 	}
-	if run.Kind == models.AuthorLLMRunResolve || run.Kind == models.AuthorLLMRunSwap {
+	if run.Kind == models.AuthorLLMRunResolve || run.Kind == models.AuthorLLMRunSwap ||
+		run.Kind == models.AuthorLLMRunMerge {
 		report, sha, err = AuthorLLMResolveReportFile(ctx, a.db, id)
 	} else {
 		report, sha, err = AuthorLLMEvalReportVersionFile(ctx, a.db, id, version)

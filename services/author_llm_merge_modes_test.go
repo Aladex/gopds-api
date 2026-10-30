@@ -259,11 +259,12 @@ func TestEachStageModeFreezesAndRunsEndToEnd(t *testing.T) {
 		assert.Equal(t, len(sets["holdout"]), stratum.Holdout, "%s: |A| is over the holdout alone", tc.mode)
 		require.NotNil(t, combo.Adversarial, tc.mode)
 		assert.Equal(t, len(sets["adversarial"]), combo.Adversarial.Items, tc.mode)
-		// A census mode's stratum is gated as a census (§3.3), merge3's
-		// bucket holdout on the bound; the report says which.
+		// A census mode's stratum is gated as a census on the audit of its
+		// applied set (§3.3), merge3's bucket holdout on the bound; the
+		// report says which.
 		rule := "holdout"
 		if tc.census {
-			rule = "census"
+			rule = "census_audit"
 			require.NotNil(t, combo.Census, tc.mode)
 			assert.Equal(t, len(sets["holdout"]), combo.Census.Candidates, "%s: the census is every frozen candidate", tc.mode)
 			assert.Equal(t, combo.Census.Candidates, combo.Census.Settled+len(combo.Census.Unsettled), tc.mode)
@@ -474,8 +475,8 @@ func TestARecomputeAppliesTheCensusRule(t *testing.T) {
 	assert.Equal(t, latest.Version+2, next.Version)
 	var r stageReport
 	require.NoError(t, json.Unmarshal([]byte(next.Report), &r))
-	assert.Equal(t, "census", r.Options.GateRule)
+	assert.Equal(t, "census_audit", r.Options.GateRule)
 	require.Len(t, r.Evaluation.Decision.Strata, 1)
-	assert.Equal(t, "census", r.Evaluation.Decision.Strata[0].Rule)
+	assert.Equal(t, "census_audit", r.Evaluation.Decision.Strata[0].Rule)
 	assert.NotNil(t, r.Evaluation.Strata["swap"].Combos["A1"].Census)
 }
