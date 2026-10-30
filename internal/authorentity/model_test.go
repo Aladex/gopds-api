@@ -41,7 +41,20 @@ func (w *world) pass() *authorentity.Plan {
 	require.NoError(w.t, err)
 	final.Apply(w.s)
 	w.last = final
+	// The next pass reads which decisions this one applied, as the
+	// database keeps their states.
+	for i := range w.decisions {
+		w.decisions[i].WasApplied = w.state(w.decisions[i].ID).State == authorentity.DecisionApplied
+	}
 	return final
+}
+
+// register gives decision id a registration: a later one is applied after.
+func (w *world) register(id, registration int64) {
+	w.t.Helper()
+	i := slices.IndexFunc(w.decisions, func(d authorentity.MergeDecision) bool { return d.ID == id })
+	require.GreaterOrEqual(w.t, i, 0)
+	w.decisions[i].RegistrationID = registration
 }
 
 // decide is a same decision on the newest pass's candidate of kind between

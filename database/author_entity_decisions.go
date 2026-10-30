@@ -35,6 +35,8 @@ type mergeDecisionRow struct {
 	Outcome       string `pg:"outcome"`
 	ReportID      int64  `pg:"report_id,use_zero"`
 	Withheld      string `pg:"withheld"`
+	Registration  int64  `pg:"registration_id,use_zero"`
+	WasApplied    bool   `pg:"was_applied,use_zero"`
 }
 
 // mergeMemberRow is one member key of a decision side.
@@ -49,12 +51,16 @@ type mergeMemberRow struct {
 // LoadMergeDecisions reads the live decisions — same ones and revokes — with
 // their members. A model decision whose registration is missing or
 // withdrawn, or whose script it blocks, is withheld with that reason
-// (§4.7): the build lapses it whatever its candidate.
+// (§4.7): the build lapses it whatever its candidate. Each carries its
+// registration and whether the previous pass applied it: the order in
+// which a conflict holds decisions (E4c).
 func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDecision, error) {
 	var rows []mergeDecisionRow
 	if _, err := db.QueryContext(ctx, &rows, `
 		SELECT d.id, d.digest, d.kind, d.script, d.item_kind, d.credit_id, d.credit_ordinal, d.members_sha256,
-			d.outcome, coalesce(d.eval_report_id, 0) AS report_id,
+			d.outcome, coalesce(d.eval_report_id, 0) AS report_id, coalesce(d.registration_id, 0) AS registration_id,
+			EXISTS (SELECT 1 FROM public.author_entity_merge_decision_state s
+				WHERE s.decision_id = d.id AND s.state = 'applied') AS was_applied,
 			CASE WHEN d.source <> 'model' THEN ''
 				WHEN r.id IS NULL THEN ?0
 				WHEN r.withdrawn_at IS NOT NULL THEN ?1
@@ -87,7 +93,8 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 	for i := range rows {
 		r := &rows[i]
 		d := authorentity.MergeDecision{ID: r.ID, Kind: r.Kind, Script: r.Script, ItemKind: r.ItemKind,
-			Outcome: r.Outcome, ReportID: r.ReportID, Withheld: r.Withheld}
+			Outcome: r.Outcome, ReportID: r.ReportID, Withheld: r.Withheld, RegistrationID: r.Registration,
+			WasApplied: r.WasApplied}
 		copy(d.Digest[:], r.Digest)
 		copy(d.MembersSHA256[:], r.MembersSHA256)
 		if r.CreditID != nil {

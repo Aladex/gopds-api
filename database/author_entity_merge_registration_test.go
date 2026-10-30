@@ -245,6 +245,43 @@ func TestMergeDecisionsCarryTheirRegistration(t *testing.T) {
 	assert.Equal(t, map[int64]string{plain: MergeWithheldUnregistered, revoke: ""}, withheld())
 }
 
+// The build reads each decision's registration and whether the previous
+// pass applied it (E4c): the order in which a conflict holds decisions.
+func TestMergeDecisionsCarryTheirPreviousState(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	ctx := context.Background()
+	version, report, sha := mergeEvalReportOn(t, f.tx, 'a')
+	swap, err := RegisterMergeKind(ctx, f.tx, registration(version, report, sha, "swap"))
+	require.NoError(t, err)
+	for _, fill := range []byte{0x10, 0x11, 0x20, 0x21, 0x30, 0x31} {
+		f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", fill)
+	}
+	ids := map[string]int64{}
+	for name, fill := range map[string]byte{"applied": 0x10, "conflict": 0x20, "new": 0x30} {
+		ids[name], err = InsertMergeDecision(ctx, f.tx, &MergeDecisionInput{Candidate: decisionCandidate(fill),
+			Source: "model"})
+		require.NoError(t, err)
+	}
+	f.exec(`ALTER TABLE author_entity_merge_decision DISABLE TRIGGER author_entity_merge_decision_history`)
+	f.exec(`UPDATE author_entity_merge_decision SET config_version = ?, registration_id = ? WHERE id = ?`,
+		version, swap, ids["applied"])
+	f.exec(`ALTER TABLE author_entity_merge_decision ENABLE TRIGGER author_entity_merge_decision_history`)
+	f.exec(`INSERT INTO author_entity_merge_decision_state (decision_id, build_run_id, state, reason)
+		VALUES (?, 1, 'applied', ''), (?, 1, 'conflict', 'not_same')`, ids["applied"], ids["conflict"])
+
+	live, err := LoadMergeDecisions(ctx, f.tx)
+	require.NoError(t, err)
+	got := map[int64][2]int64{}
+	for _, d := range live {
+		was := int64(0)
+		if d.WasApplied {
+			was = 1
+		}
+		got[d.ID] = [2]int64{d.RegistrationID, was}
+	}
+	assert.Equal(t, map[int64][2]int64{ids["applied"]: {swap, 1}, ids["conflict"]: {0, 0}, ids["new"]: {0, 0}}, got)
+}
+
 // The start of a build and a decision insert take one lock: a start that
 // comes while an insert holds it waits for the insert's commit.
 func TestBuildStartTakesTheStartLock(t *testing.T) {

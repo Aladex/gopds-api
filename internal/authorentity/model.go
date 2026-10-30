@@ -35,6 +35,11 @@ type MergeDecision struct {
 	// configuration (unregistered), the registration is withdrawn, or the
 	// decision's script is blocked (script_blocked). Empty when it may.
 	Withheld string
+	// RegistrationID is the registration a model decision was inserted
+	// under (0 for none); WasApplied is true when the previous pass applied
+	// the decision. They order the decisions a conflict holds.
+	RegistrationID int64
+	WasApplied     bool
 }
 
 // States of a decision in a pass.
@@ -69,6 +74,9 @@ const (
 	// ConflictNotSame: the union would join the two sides of a pair the
 	// production pair answered other than same (E4d, §4.2).
 	ConflictNotSame = "not_same"
+	// ConflictGivenName: the union would join two full Cyrillic given
+	// names (or patronymics) of one family that are not one name (E4c).
+	ConflictGivenName = "given_name"
 )
 
 // DecisionState is what a pass did with one decision.
@@ -229,8 +237,10 @@ func looseMembersKey(a, b []FPKey) string {
 }
 
 // evaluate matches every same decision with the pass's candidates and
-// settles the entity unions: a decision applies only on its exact digest,
-// and a set of unions that would join a revoked pair applies none of them.
+// settles the entity unions: a decision applies only on its exact digest;
+// one that would bridge a not-same pair or two given names is held on its
+// own (joinInOrder), and a set of unions that would join a revoked pair
+// applies none of them.
 func (m *modelStep) evaluate() {
 	var same []*MergeDecision
 	revoked := map[[32]byte]bool{}
@@ -266,21 +276,13 @@ func (m *modelStep) evaluate() {
 			m.entityDecs = append(m.entityDecs, decided{d, si})
 		}
 	}
-	uf := newIntUnion()
-	for _, e := range m.entityDecs {
-		uf.union(e.si.sideA.root, e.si.sideB.root)
-	}
+	uf := m.joinInOrder()
 	held := map[int]string{}
-	for _, against := range []struct {
-		digests map[[32]byte]bool
-		reason  string
-	}{{revoked, ConflictRevoked}, {m.b.in.NotSame, ConflictNotSame}} {
-		for _, digest := range sortedDigests(against.digests) {
-			if si := m.byDigest[digest]; si != nil && si.credit == nil &&
-				uf.find(si.sideA.root) == uf.find(si.sideB.root) {
-				if root := uf.find(si.sideA.root); held[root] == "" {
-					held[root] = against.reason
-				}
+	for _, digest := range sortedDigests(revoked) {
+		if si := m.byDigest[digest]; si != nil && si.credit == nil &&
+			uf.find(si.sideA.root) == uf.find(si.sideB.root) {
+			if root := uf.find(si.sideA.root); held[root] == "" {
+				held[root] = ConflictRevoked
 			}
 		}
 	}
@@ -303,6 +305,80 @@ func (m *modelStep) evaluate() {
 		}
 	}
 	m.entityDecs = applied
+}
+
+// joinInOrder joins the entity decisions one by one in a stable order —
+// the ones the previous pass applied first, then by registration and id —
+// and holds each that would bridge a conflict on its own: a union joining
+// the two sides of a pair the production pair answered different
+// (not_same), or two full given names of one family that are not one name
+// (given_name; never a decision the previous pass applied: a live merge
+// keeps its state). Only that decision is held, never the component; m.entityDecs
+// keeps the joined ones, and the union of them is returned.
+func (m *modelStep) joinInOrder() intUnion {
+	slices.SortStableFunc(m.entityDecs, func(x, y decided) int {
+		if x.d.WasApplied != y.d.WasApplied {
+			if x.d.WasApplied {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Or(cmp.Compare(x.d.RegistrationID, y.d.RegistrationID), cmp.Compare(x.d.ID, y.d.ID))
+	})
+	partners := map[int][]int{}
+	for _, digest := range sortedDigests(m.b.in.NotSame) {
+		if si := m.byDigest[digest]; si != nil && si.credit == nil {
+			a, b := si.sideA.root, si.sideB.root
+			partners[a] = append(partners[a], b)
+			partners[b] = append(partners[b], a)
+		}
+	}
+	uf := newIntUnion()
+	roots := map[int][]int{}
+	names := map[int]nameClasses{}
+	component := func(r int) ([]int, nameClasses) {
+		if _, ok := roots[r]; !ok {
+			roots[r], names[r] = []int{r}, m.b.nameClassesOf(r)
+		}
+		return roots[r], names[r]
+	}
+	var joined []decided
+	for _, e := range m.entityDecs {
+		x, y := uf.find(e.si.sideA.root), uf.find(e.si.sideB.root)
+		if x == y {
+			joined = append(joined, e)
+			continue
+		}
+		rx, nx := component(x)
+		ry, ny := component(y)
+		switch {
+		case bridgesNotSame(uf, partners, rx, y):
+			m.set(e.d.ID, DecisionConflict, ConflictNotSame)
+			continue
+		case !e.d.WasApplied && nx.joins(ny):
+			m.set(e.d.ID, DecisionConflict, ConflictGivenName)
+			continue
+		}
+		uf.union(x, y)
+		r := uf.find(x)
+		roots[r], names[r] = append(slices.Clone(rx), ry...), nx.merged(ny)
+		joined = append(joined, e)
+	}
+	m.entityDecs = joined
+	return uf
+}
+
+// bridgesNotSame reports a level-0 root of one component (rx) whose
+// not-same partner is in the other (root y).
+func bridgesNotSame(uf intUnion, partners map[int][]int, rx []int, y int) bool {
+	for _, r := range rx {
+		for _, q := range partners[r] {
+			if uf.find(q) == y {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sortedDigests are a set's digests in byte order.

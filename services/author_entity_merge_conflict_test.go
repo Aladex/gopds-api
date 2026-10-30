@@ -118,8 +118,10 @@ func TestACannotTellPairNoLongerBlocksItsComponent(t *testing.T) {
 	assert.Empty(t, notSame, "cannot_tell is no conflict")
 }
 
-// production_b's different on A–C still blocks the whole component: A–B
-// and B–C are conflicts (not_same) and the three stay apart.
+// production_b's different on A–C still keeps A and C apart: of the two
+// decisions that together would join them, the first in order (B–C, the
+// lower id) applies and the second, which would bridge the pair, is held
+// (not_same, E4c) — never the whole component.
 func TestADifferentPairStillBlocksItsComponent(t *testing.T) {
 	f := newTriangleFixture(t, triangleStub("deepseek-v4-pro", llmreq.MergeDifferent))
 	registration, _ := f.registerSwap()
@@ -129,8 +131,9 @@ func TestADifferentPairStillBlocksItsComponent(t *testing.T) {
 
 	assert.Equal(t, map[[2]byte]string{
 		{fillPoselyaginA, fillPoselyaginB}: "conflict/not_same",
-		{fillPoselyaginB, fillPoselyaginC}: "conflict/not_same",
+		{fillPoselyaginB, fillPoselyaginC}: "applied/",
 	}, f.triangleStates())
+	assert.True(t, f.together(fillPoselyaginB, fillPoselyaginC))
 	assert.False(t, f.together(fillPoselyaginA, fillPoselyaginB))
 	assert.False(t, f.together(fillPoselyaginA, fillPoselyaginC))
 }

@@ -54,3 +54,7 @@ func OnDecisionStep(fn func()) (restore func()) {
 	modelStepHook = fn
 	return func() { modelStepHook = nil }
 }
+
+// SameGivenName reports two full Cyrillic name parts the given-name guard
+// takes for one name.
+func SameGivenName(a, b string) bool { return foldName(a) == foldName(b) }

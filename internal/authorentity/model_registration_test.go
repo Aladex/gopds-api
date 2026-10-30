@@ -45,8 +45,10 @@ func TestAWithheldDecisionNeverApplies(t *testing.T) {
 }
 
 // A union that would join the two sides of a pair the production pair
-// answered other than same is refused: every decision of the would-be
-// component is in conflict (§4.2). A decision outside it still applies.
+// answered different is refused (§4.2): the decision that would bridge it
+// is in conflict, in the stable order — the first decision applies, the
+// second would join the pair and is held (E4c). A decision outside it
+// still applies.
 func TestAUnionOverANotSamePairIsAConflict(t *testing.T) {
 	w := newWorld(t, threePoselyagins(t))
 	w.pass()
@@ -56,9 +58,9 @@ func TestAUnionOverANotSamePairIsAConflict(t *testing.T) {
 	ab := w.decide(authorentity.CandidateSwap, 1, 11)
 	ac := w.decide(authorentity.CandidateSwap, 1, 21)
 	p := w.pass()
-	assert.Equal(t, conflict(ab, authorentity.ConflictNotSame), w.state(ab))
+	assert.Equal(t, applied(ab), w.state(ab))
 	assert.Equal(t, conflict(ac, authorentity.ConflictNotSame), w.state(ac))
-	apart(t, p, 1, 11)
+	same(t, p, 1, 11)
 	apart(t, p, 1, 21)
 
 	w2 := newWorld(t, threePoselyagins(t))
