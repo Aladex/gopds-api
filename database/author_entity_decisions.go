@@ -49,27 +49,35 @@ type mergeMemberRow struct {
 }
 
 // LoadMergeDecisions reads the live decisions — same ones and revokes — with
-// their members. A model decision whose registration is missing or
-// withdrawn, or whose script it blocks, is withheld with that reason
-// (§4.7): the build lapses it whatever its candidate. Each carries its
-// registration and whether the previous pass applied it: the order in
-// which a conflict holds decisions (E4c).
+// their members. A model decision applies under the live registration of
+// its configuration and kind (migration 71: a withdrawn kind may register
+// again, and the decisions of the withdrawn registration apply under the
+// new one), provided it was inserted under some registration of that
+// configuration and kind. One never registered, one with no live
+// registration (withdrawn), or one whose script the live registration
+// blocks is withheld with that reason (§4.7): the build lapses it whatever
+// its candidate. Each carries the registration it applies under (the one
+// it was inserted under when none is live) and whether the previous pass
+// applied it: the order in which a conflict holds decisions (E4c).
 func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDecision, error) {
 	var rows []mergeDecisionRow
 	if _, err := db.QueryContext(ctx, &rows, `
 		SELECT d.id, d.digest, d.kind, d.script, d.item_kind, d.credit_id, d.credit_ordinal, d.members_sha256,
-			d.outcome, coalesce(d.eval_report_id, 0) AS report_id, coalesce(d.registration_id, 0) AS registration_id,
+			d.outcome, coalesce(d.eval_report_id, 0) AS report_id,
+			coalesce(CASE WHEN own.id IS NOT NULL THEN live.id END, d.registration_id, 0) AS registration_id,
 			EXISTS (SELECT 1 FROM public.author_entity_merge_decision_state s
 				WHERE s.decision_id = d.id AND s.state = 'applied') AS was_applied,
 			CASE WHEN d.source <> 'model' THEN ''
-				WHEN r.id IS NULL THEN ?0
-				WHEN r.withdrawn_at IS NOT NULL THEN ?1
+				WHEN own.id IS NULL THEN ?0
+				WHEN live.id IS NULL THEN ?1
 				WHEN EXISTS (SELECT 1 FROM public.author_entity_merge_script_block b
-					WHERE b.registration_id = r.id AND b.script = d.script) THEN ?2
+					WHERE b.registration_id = live.id AND b.script = d.script) THEN ?2
 				ELSE '' END AS withheld
 		FROM public.author_entity_merge_decision d
-		LEFT JOIN public.author_entity_merge_registration r ON r.id = d.registration_id AND r.kind = d.kind
-			AND r.config_version = d.config_version
+		LEFT JOIN public.author_entity_merge_registration own ON own.id = d.registration_id AND own.kind = d.kind
+			AND own.config_version = d.config_version
+		LEFT JOIN public.author_entity_merge_registration live ON live.config_version = d.config_version
+			AND live.kind = d.kind AND live.withdrawn_at IS NULL
 		WHERE d.revoked_at IS NULL ORDER BY d.id`,
 		MergeWithheldUnregistered, MergeWithheldWithdrawn, MergeWithheldScriptBlocked); err != nil {
 		return nil, fmt.Errorf("reading the merge decisions: %w", err)

@@ -32,8 +32,9 @@ const (
 )
 
 var (
-	// ErrMergeRegistrationExists refuses a second registration of a kind
-	// for one merge configuration, withdrawn or not.
+	// ErrMergeRegistrationExists refuses a second live registration of a
+	// kind for one merge configuration; a withdrawn one may be followed by
+	// a new one (migration 71).
 	ErrMergeRegistrationExists = errors.New("database: the kind is registered for the merge configuration already")
 	// ErrMergeRegistrationNotLive is a withdrawal or a block of a
 	// registration that is withdrawn or does not exist.
@@ -171,7 +172,11 @@ func WithdrawMergeRegistration(ctx context.Context, db pg.DBI, id, actor int64) 
 
 // BlockMergeScript blocks one script of a live registration: the next build
 // lapses its decisions of that script (script_blocked). A block already
-// there is kept as it is.
+// there is kept as it is. It holds the registration row FOR SHARE until
+// its transaction ends, so a withdrawal waits for the block to commit —
+// and a registration again, which follows the withdrawal, carries it
+// (migration 71) — while a block that comes during an open withdrawal
+// waits for it and is refused once it commits.
 func BlockMergeScript(ctx context.Context, db pg.DBI, registrationID int64, script string, actor int64) error {
 	if !ValidMergeScript(script) {
 		return ErrMergeRegistrationInvalid
@@ -179,6 +184,7 @@ func BlockMergeScript(ctx context.Context, db pg.DBI, registrationID int64, scri
 	res, err := db.ExecContext(ctx, `
 		INSERT INTO public.author_entity_merge_script_block (registration_id, script, blocked_by_user_id)
 		SELECT id, ?, nullif(?, 0) FROM public.author_entity_merge_registration WHERE id = ? AND withdrawn_at IS NULL
+		FOR SHARE
 		ON CONFLICT (registration_id, script) DO NOTHING`, script, actor, registrationID)
 	if err != nil {
 		return fmt.Errorf("blocking a merge script: %w", err)
@@ -230,13 +236,15 @@ func MergeRegistrationByID(ctx context.Context, db pg.DBI, id int64) (*MergeRegi
 }
 
 // MergeRegistrationOf is the registration of a kind for a merge
-// configuration; nil when there is none.
+// configuration: the live one, else the newest withdrawn one; nil when
+// there is none.
 func MergeRegistrationOf(ctx context.Context, db pg.DBI, configVersion, kind string) (*MergeRegistration, error) {
 	var rows []MergeRegistration
 	if _, err := db.QueryContext(ctx, &rows, `SELECT `+mergeRegistrationColumns+`
 		FROM public.author_entity_merge_registration r
 		JOIN public.author_llm_eval_report rep ON rep.id = r.evidence_report_id
-		WHERE r.config_version = ? AND r.kind = ?`, configVersion, kind); err != nil {
+		WHERE r.config_version = ? AND r.kind = ?
+		ORDER BY r.withdrawn_at IS NULL DESC, r.id DESC LIMIT 1`, configVersion, kind); err != nil {
 		return nil, fmt.Errorf("reading a merge registration: %w", err)
 	}
 	if len(rows) == 0 {
@@ -588,7 +596,8 @@ func insertCurrentDecisions(
 // countNotInserted counts why each verdict not inserted (not in skip, which
 // holds the inserted and the side-unrecorded ones) was not: no candidate in
 // the stored census, a live decision already, or the registration of its
-// kind (withheld by reason); outcomes gets each one's class by digest.
+// kind — the live one, else the newest withdrawn one (withheld by reason);
+// outcomes gets each one's class by digest.
 func countNotInserted(
 	ctx context.Context, tx pg.DBI, verdicts []MergeVerdict, skip map[string]bool, rep *MergeInsertReport,
 	outcomes map[[32]byte]string,
@@ -619,7 +628,9 @@ func countNotInserted(
 		FROM unnest(?::text[], ?::text[], ?::text[]) AS u(digest, config, kind)
 		LEFT JOIN public.author_entity_merge_candidate c ON c.digest = decode(u.digest, 'hex') AND c.kind = u.kind
 		LEFT JOIN public.author_entity_merge_decision d ON d.digest = c.digest AND d.revoked_at IS NULL
-		LEFT JOIN public.author_entity_merge_registration r ON r.config_version = u.config AND r.kind = u.kind`,
+		LEFT JOIN LATERAL (SELECT r.id, r.withdrawn_at FROM public.author_entity_merge_registration r
+			WHERE r.config_version = u.config AND r.kind = u.kind
+			ORDER BY r.withdrawn_at IS NULL DESC, r.id DESC LIMIT 1) r ON true`,
 		MergeInsertOutcomeLapsedBeforeApply, MergeInsertOutcomeAlreadyDecided,
 		MergeWithheldUnregistered, MergeWithheldWithdrawn, MergeWithheldScriptBlocked,
 		pg.Array(digests), pg.Array(configs), pg.Array(kinds)); err != nil {

@@ -35,9 +35,10 @@ type MergeDecision struct {
 	// configuration (unregistered), the registration is withdrawn, or the
 	// decision's script is blocked (script_blocked). Empty when it may.
 	Withheld string
-	// RegistrationID is the registration a model decision was inserted
-	// under (0 for none); WasApplied is true when the previous pass applied
-	// the decision. They order the decisions a conflict holds.
+	// RegistrationID is the registration a model decision applies under —
+	// the live one of its configuration and kind, else the one it was
+	// inserted under (0 for none); WasApplied is true when the previous
+	// pass applied the decision. They order the decisions a conflict holds.
 	RegistrationID int64
 	WasApplied     bool
 }

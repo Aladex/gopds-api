@@ -305,3 +305,256 @@ func TestBuildStartTakesTheStartLock(t *testing.T) {
 	require.NoError(t, insert.Commit())
 	require.NoError(t, <-started)
 }
+
+// registeredDecision inserts a model decision of kind and script on the
+// candidate of fill, asked under version and inserted under registration
+// (0 for none).
+func registeredDecision(t *testing.T, f *authorSchemaFixture, fill byte, kind, script, version string,
+	registration int64) int64 {
+	t.Helper()
+	f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", fill)
+	f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", fill+1)
+	candidate := decisionCandidate(fill)
+	candidate.Kind, candidate.Script = kind, script
+	id, err := InsertMergeDecision(context.Background(), f.tx, &MergeDecisionInput{Candidate: candidate,
+		Source: "model"})
+	require.NoError(t, err)
+	f.exec(`ALTER TABLE author_entity_merge_decision DISABLE TRIGGER author_entity_merge_decision_history`)
+	f.exec(`UPDATE author_entity_merge_decision SET config_version = ?, registration_id = nullif(?, 0) WHERE id = ?`,
+		version, registration, id)
+	f.exec(`ALTER TABLE author_entity_merge_decision ENABLE TRIGGER author_entity_merge_decision_history`)
+	return id
+}
+
+// loadedDecision is what the build reads of a decision: why it is
+// withheld and the registration it applies under.
+type loadedDecision struct {
+	Withheld     string
+	Registration int64
+}
+
+func loadDecisions(t *testing.T, f *authorSchemaFixture) map[int64]loadedDecision {
+	t.Helper()
+	live, err := LoadMergeDecisions(context.Background(), f.tx)
+	require.NoError(t, err)
+	out := map[int64]loadedDecision{}
+	for i := range live {
+		out[live[i].ID] = loadedDecision{live[i].Withheld, live[i].RegistrationID}
+	}
+	return out
+}
+
+// A kind whose registration was withdrawn registers again (migration 71):
+// at most one live registration per configuration and kind, the withdrawn
+// one kept as it was. The decisions inserted under the withdrawn one apply
+// under the new one; the old one's script blocks carry over, and a block
+// of the new one holds its script; withdrawing the new one lapses them
+// again. A decision of another kind keeps its state and registration, one
+// of another configuration stays withdrawn, and a model decision never
+// registered stays unregistered.
+func TestAWithdrawnKindRegistersAgain(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	ctx := context.Background()
+	version, report, sha := mergeEvalReportOn(t, f.tx, 'a')
+	swap, err := RegisterMergeKind(ctx, f.tx, registration(version, report, sha, "swap"))
+	require.NoError(t, err)
+	initials, err := RegisterMergeKind(ctx, f.tx, registration(version, report, sha, "initials"))
+	require.NoError(t, err)
+	swapped := registeredDecision(t, f, 0x10, "swap", "Cyrl", version, swap)
+	cyrillic := registeredDecision(t, f, 0x20, "initials", "Cyrl", version, initials)
+	latin := registeredDecision(t, f, 0x30, "initials", "Latn", version, initials)
+	never := registeredDecision(t, f, 0x40, "initials", "Cyrl", version, 0)
+	otherVersion, otherReport, otherSHA := mergeEvalReportOn(t, f.tx, 'b')
+	otherInitials, err := RegisterMergeKind(ctx, f.tx, registration(otherVersion, otherReport, otherSHA, "initials"))
+	require.NoError(t, err)
+	elsewhere := registeredDecision(t, f, 0x50, "initials", "Cyrl", otherVersion, otherInitials)
+	require.NoError(t, WithdrawMergeRegistration(ctx, f.tx, otherInitials, 0))
+	require.NoError(t, BlockMergeScript(ctx, f.tx, initials, "Latn", 0))
+	before := loadDecisions(t, f)
+	require.Equal(t, map[int64]loadedDecision{
+		swapped:   {"", swap},
+		cyrillic:  {"", initials},
+		latin:     {MergeWithheldScriptBlocked, initials},
+		never:     {MergeWithheldUnregistered, 0},
+		elsewhere: {MergeWithheldWithdrawn, otherInitials},
+	}, before)
+
+	f.exec(`SAVEPOINT live`)
+	_, err = RegisterMergeKind(ctx, f.tx, registration(version, report, sha, "initials"))
+	require.ErrorIs(t, err, ErrMergeRegistrationExists, "a live registration of the kind")
+	f.exec(`ROLLBACK TO SAVEPOINT live`)
+
+	require.NoError(t, WithdrawMergeRegistration(ctx, f.tx, initials, 0))
+	assert.Equal(t, MergeWithheldWithdrawn, loadDecisions(t, f)[cyrillic].Withheld)
+	again, err := RegisterMergeKind(ctx, f.tx, registration(version, report, sha, "initials"))
+	require.NoError(t, err, "a withdrawn kind registers again")
+	require.NotEqual(t, initials, again)
+	f.exec(`SAVEPOINT twice`)
+	_, err = RegisterMergeKind(ctx, f.tx, registration(version, report, sha, "initials"))
+	require.ErrorIs(t, err, ErrMergeRegistrationExists, "one live registration per kind")
+	f.exec(`ROLLBACK TO SAVEPOINT twice`)
+
+	old, err := MergeRegistrationByID(ctx, f.tx, initials)
+	require.NoError(t, err)
+	require.NotNil(t, old)
+	assert.NotNil(t, old.WithdrawnAt, "the withdrawal stays")
+	assert.Equal(t, []string{"Latn"}, old.BlockedScripts)
+	renewed, err := MergeRegistrationByID(ctx, f.tx, again)
+	require.NoError(t, err)
+	require.NotNil(t, renewed)
+	assert.Nil(t, renewed.WithdrawnAt)
+	assert.Equal(t, []string{"Latn"}, renewed.BlockedScripts, "the old registration's block carries over")
+	of, err := MergeRegistrationOf(ctx, f.tx, version, "initials")
+	require.NoError(t, err)
+	require.NotNil(t, of)
+	assert.Equal(t, again, of.ID, "the live registration of the kind")
+
+	assert.Equal(t, map[int64]loadedDecision{
+		swapped:   before[swapped],
+		cyrillic:  {"", again},
+		latin:     {MergeWithheldScriptBlocked, again},
+		never:     {MergeWithheldUnregistered, 0},
+		elsewhere: before[elsewhere],
+	}, loadDecisions(t, f), "another configuration's withdrawn decision stays withdrawn")
+	assert.Equal(t, 2, f.count(`SELECT count(*) FROM author_entity_merge_decision
+		WHERE id IN (?, ?) AND registration_id = ?`, cyrillic, latin, initials), "a decision row never changes")
+
+	require.NoError(t, BlockMergeScript(ctx, f.tx, again, "Cyrl", 0))
+	assert.Equal(t, loadedDecision{MergeWithheldScriptBlocked, again}, loadDecisions(t, f)[cyrillic],
+		"a block of the new registration")
+	old, err = MergeRegistrationByID(ctx, f.tx, initials)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Latn"}, old.BlockedScripts, "the withdrawn registration keeps its blocks")
+
+	require.NoError(t, WithdrawMergeRegistration(ctx, f.tx, again, 0))
+	assert.Equal(t, map[int64]loadedDecision{
+		swapped:   before[swapped],
+		cyrillic:  {MergeWithheldWithdrawn, initials},
+		latin:     {MergeWithheldWithdrawn, initials},
+		never:     {MergeWithheldUnregistered, 0},
+		elsewhere: before[elsewhere],
+	}, loadDecisions(t, f))
+	assert.Equal(t, 2, f.count(`SELECT count(*) FROM author_entity_merge_registration
+		WHERE config_version = ? AND kind = 'initials' AND withdrawn_at IS NOT NULL`, version))
+}
+
+// latinFixture is an initials registration on a scratch database with a
+// Latin model decision under it, all committed.
+type latinFixture struct {
+	version  string
+	report   int64
+	sha      []byte
+	reg      int64
+	decision int64
+}
+
+func latinUnderInitials(t *testing.T, scratch *pg.DB) latinFixture {
+	t.Helper()
+	ctx := context.Background()
+	var f latinFixture
+	f.version, f.report, f.sha = mergeEvalReportOn(t, scratch, 'a')
+	var err error
+	f.reg, err = RegisterMergeKind(ctx, scratch, registration(f.version, f.report, f.sha, "initials"))
+	require.NoError(t, err)
+	_, err = scratch.QueryOne(pg.Scan(&f.decision), `INSERT INTO author_entity_merge_decision (digest,
+			config_version, kind, script, item_kind, members_sha256, input_sha256, outcome, source, registration_id)
+		VALUES (sha256('latin'), ?, 'initials', 'Latn', 'entity', sha256('members'), sha256('input'), 'same',
+			'model', ?) RETURNING id`, f.version, f.reg)
+	require.NoError(t, err)
+	return f
+}
+
+// withheldOf is why the build withholds the decision.
+func withheldOf(t *testing.T, db pg.DBI, decision int64) string {
+	t.Helper()
+	live, err := LoadMergeDecisions(context.Background(), db)
+	require.NoError(t, err)
+	for i := range live {
+		if live[i].ID == decision {
+			return live[i].Withheld
+		}
+	}
+	t.Fatalf("decision %d is not live", decision)
+	return ""
+}
+
+// A block accepted on a live registration is never lost to a withdrawal
+// and a registration again that commit before it (the review's
+// interleaving): A blocks Latin and stays open; B withdraws and commits;
+// C registers the kind again and commits; A commits. The block serializes
+// with the withdrawal — B waits for A — so the new registration carries
+// it and the Latin decision is script_blocked.
+func TestABlockCommittingAfterAWithdrawalAndARegistrationAgainHolds(t *testing.T) {
+	scratch := jobsDB(t)
+	ctx := context.Background()
+	f := latinUnderInitials(t, scratch)
+
+	a, err := scratch.Begin()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Rollback() })
+	require.NoError(t, BlockMergeScript(ctx, a, f.reg, "Latn", 0))
+
+	type outcome struct {
+		again int64
+		err   error
+		at    time.Time
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		var o outcome
+		if o.err = WithdrawMergeRegistration(ctx, scratch, f.reg, 0); o.err == nil {
+			o.again, o.err = RegisterMergeKind(ctx, scratch, registration(f.version, f.report, f.sha, "initials"))
+		}
+		o.at = time.Now()
+		done <- o
+	}()
+	select {
+	case o := <-done:
+		require.NoError(t, o.err)
+		require.NoError(t, a.Commit())
+		t.Logf("the withdrawal and the registration again committed before the block")
+		assert.Equal(t, MergeWithheldScriptBlocked, withheldOf(t, scratch, f.decision), "the block was lost")
+		return
+	case <-time.After(300 * time.Millisecond):
+	}
+	committed := time.Now()
+	require.NoError(t, a.Commit())
+	o := <-done
+	require.NoError(t, o.err)
+	assert.False(t, o.at.Before(committed), "the withdrawal waited for the block")
+	again, err := MergeRegistrationByID(ctx, scratch, o.again)
+	require.NoError(t, err)
+	require.NotNil(t, again)
+	assert.Equal(t, []string{"Latn"}, again.BlockedScripts, "the new registration carries the block")
+	assert.Equal(t, MergeWithheldScriptBlocked, withheldOf(t, scratch, f.decision))
+}
+
+// The other order: a block that comes while a withdrawal is open waits for
+// it and is refused once it commits — never accepted on a registration
+// already withdrawn.
+func TestABlockWaitingOnAWithdrawalIsRefused(t *testing.T) {
+	scratch := jobsDB(t)
+	ctx := context.Background()
+	f := latinUnderInitials(t, scratch)
+
+	b, err := scratch.Begin()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = b.Rollback() })
+	require.NoError(t, WithdrawMergeRegistration(ctx, b, f.reg, 0))
+	blocked := make(chan error, 1)
+	go func() { blocked <- BlockMergeScript(ctx, scratch, f.reg, "Latn", 0) }()
+	select {
+	case err = <-blocked:
+		require.NoError(t, b.Commit())
+		assert.ErrorIs(t, err, ErrMergeRegistrationNotLive, "a block accepted beside an open withdrawal")
+		return
+	case <-time.After(300 * time.Millisecond):
+	}
+	require.NoError(t, b.Commit())
+	assert.ErrorIs(t, <-blocked, ErrMergeRegistrationNotLive)
+	var blocks int
+	_, err = scratch.QueryOne(pg.Scan(&blocks), `SELECT count(*) FROM author_entity_merge_script_block`)
+	require.NoError(t, err)
+	assert.Zero(t, blocks)
+	assert.Equal(t, MergeWithheldWithdrawn, withheldOf(t, scratch, f.decision))
+}

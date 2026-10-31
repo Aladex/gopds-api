@@ -213,6 +213,56 @@ func TestAMergeEvalAppliesThroughItsRegistration(t *testing.T) {
 	assert.Zero(t, f.c.count(`SELECT count(*) FROM author_entity WHERE merged_into IS NOT NULL`))
 }
 
+// A withdrawn kind registers again (migration 71) under the same evidence
+// rules as a first registration: a report that did not pass the kind is
+// refused, a passing one registers it. The run's decisions apply under the
+// new registration at the next build — none inserted again — while the
+// Latin block of the withdrawn one still holds its pair; the apply under
+// the withdrawn registration stays refused, and withdrawing the new one
+// splits the merge again.
+func TestAWithdrawnKindRegistersAgainAndItsDecisionsApply(t *testing.T) {
+	f := newApplyFixture(t, spoiled)
+	ctx := context.Background()
+	first, _ := f.registerSwap()
+	_, err := f.admin.ApplyMergeEval(ctx, first, 0)
+	require.NoError(t, err)
+	require.Equal(t, 2, f.c.build().Model.Applied)
+	require.NoError(t, f.admin.BlockMergeScript(ctx, first, authorentity.ScriptLatn, 0))
+	require.NoError(t, f.admin.WithdrawMergeRegistration(ctx, first, 0))
+	withdrawn := f.c.build()
+	require.Zero(t, withdrawn.Model.Applied)
+	require.False(t, f.together(fillKing, fillKing+1))
+	decided := f.decisions()
+
+	f.passReport(authorentity.CandidateInitials, database.MergeGateJudgeConsensus)
+	_, err = f.admin.RegisterMergeKind(ctx, f.run, authorentity.CandidateSwap, 0)
+	require.ErrorIs(t, err, services.ErrAuthorEntityMergeNotPassed, "the latest report passed initials only")
+	second, _ := f.registerSwap()
+	require.NotEqual(t, first, second)
+	_, err = f.admin.RegisterMergeKind(ctx, f.run, authorentity.CandidateSwap, 0)
+	require.ErrorIs(t, err, database.ErrMergeRegistrationExists)
+
+	again := f.c.build()
+	assert.Equal(t, 1, again.Model.Applied, "the Cyrillic pair, under the new registration")
+	assert.Equal(t, map[string]int{database.MergeWithheldScriptBlocked: 1}, again.Model.Lapsed,
+		"the withdrawn registration's Latin block carries over")
+	assert.True(t, f.together(fillKing, fillKing+1))
+	assert.False(t, f.together(fillKingLatin, fillKingLatin+1))
+	assert.Equal(t, decided, f.decisions(), "no decision inserted again")
+	rep, err := f.admin.ApplyMergeEval(ctx, second, 0)
+	require.NoError(t, err)
+	assert.Zero(t, rep.Inserted)
+	assert.Equal(t, 2, rep.AlreadyDecided)
+	_, err = f.admin.ApplyMergeEval(ctx, first, 0)
+	assert.ErrorIs(t, err, services.ErrAuthorEntityMergeNotRegistered, "a withdrawn registration applies nothing")
+
+	require.NoError(t, f.admin.WithdrawMergeRegistration(ctx, second, 0))
+	split := f.c.build()
+	assert.Zero(t, split.Model.Applied)
+	assert.Equal(t, map[string]int{database.MergeWithheldWithdrawn: 2}, split.Model.Lapsed)
+	assert.False(t, f.together(fillKing, fillKing+1))
+}
+
 func jsonInt(n int64) string {
 	raw, _ := json.Marshal(n)
 	return string(raw)
