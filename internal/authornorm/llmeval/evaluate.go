@@ -405,7 +405,7 @@ func pooledRepeat(
 		}
 	}
 	every := func(*Item, StratumDecision) bool { return true }
-	if o.GateRule != GateRuleCensusAudit {
+	if !o.audited() {
 		pool.Participants, reasons = repeatCounts(pool.Strata, byStratum, every, passed, pooledThreshold)
 	} else {
 		pool.Gate = PooledRepeatApplied
@@ -648,7 +648,10 @@ func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, St
 		}
 		if len(supplement) > 0 {
 			m.Supplement = measureSupplement(c, supplement, o)
-			m.Passed = m.Passed && m.Supplement.Errors == 0
+			if o.GateRule == GateRuleHoldoutAudit {
+				m.Supplement.Audit = measureAudit(c, supplement, o, AuditSupplementSize)
+			}
+			m.Passed = m.Passed && m.Supplement.passed()
 		}
 		report.Combos[comboKey(c)] = m
 	}
@@ -673,6 +676,9 @@ func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, St
 			}
 		}
 		if reason := censusReason(combos, &report); reason != "" {
+			decision.Reason = reason
+		}
+		if reason := holdoutAuditReason(combos, &report); reason != "" {
 			decision.Reason = reason
 		}
 		if reason := supplementReason(combos, &report); reason != "" {
@@ -846,8 +852,14 @@ func measure(c Combo, scope []*Item, o *Options) ComboMetrics {
 	}
 	if o.GateRule == GateRuleCensusAudit {
 		// The errors are only reported: the audit of the applied set gates.
-		m.Census, m.Audit = measureCensus(c, scope), measureAudit(c, scope, o)
+		m.Census, m.Audit = measureCensus(c, scope), measureAudit(c, scope, o, AuditSampleSize)
 		m.ErrorsPassed = m.Census.Complete && m.Audit.passed()
+	}
+	if o.GateRule == GateRuleHoldoutAudit {
+		// The bound and the errors are only reported: the audit of the
+		// applied holdout items gates.
+		m.Audit = measureAudit(c, scope, o, AuditSampleSize)
+		m.ErrorsPassed = m.Audit.passed()
 	}
 	m.Invalid, m.InvalidPassed = comboInvalid(c, scope)
 	m.Passed = m.ErrorsPassed && m.InvalidPassed

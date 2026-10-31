@@ -21,9 +21,20 @@ import (
 // labeled same or unclear.
 const GateRuleCensusAudit = "census_audit"
 
+// GateRuleHoldoutAudit is the census audit without the census (E4c option
+// (c), merge3's bucket): a random holdout stands for the kind, at least one
+// of its items is applied, every item of its audit sample is labeled same
+// or unclear, and so is every item of the audit sample of the extra Latin
+// questions outside |A|. The bound is reported and gates nothing.
+const GateRuleHoldoutAudit = "holdout_audit"
+
 // AuditSampleSize is the most applied items a stratum's audit samples
 // (migration 70's author_llm_eval_item_audited takes the same number).
 const AuditSampleSize = 300
+
+// AuditSupplementSize is the most applied extra Latin questions a holdout's
+// audit samples besides (migration 72 takes the same number).
+const AuditSupplementSize = 100
 
 // AuditKey is an item's place in a run's audit order: sha256 of the UTF-8
 // text "<run id>:<item id>" in decimal; ascending bytes are ascending hex.
@@ -53,9 +64,14 @@ type AuditMetrics struct {
 // item failed.
 func (m *AuditMetrics) passed() bool { return m.Applied > 0 && m.Failed == 0 }
 
-// measureAudit samples a combo's applied items in the run's audit order
-// and counts the sample's labels.
-func measureAudit(c Combo, scope []*Item, o *Options) *AuditMetrics {
+// audited reports a gate on a human audit of the applied set.
+func (o *Options) audited() bool {
+	return o.GateRule == GateRuleCensusAudit || o.GateRule == GateRuleHoldoutAudit
+}
+
+// measureAudit samples a combo's applied items in the run's audit order,
+// the first size of them, and counts the sample's labels.
+func measureAudit(c Combo, scope []*Item, o *Options, size int) *AuditMetrics {
 	type keyed struct {
 		key [32]byte
 		it  *Item
@@ -78,7 +94,7 @@ func measureAudit(c Combo, scope []*Item, o *Options) *AuditMetrics {
 	}
 	slices.SortFunc(applied, func(a, b keyed) int { return bytes.Compare(a.key[:], b.key[:]) })
 	m.Applied = len(applied)
-	for _, a := range applied[:min(AuditSampleSize, len(applied))] {
+	for _, a := range applied[:min(size, len(applied))] {
 		m.Sample = append(m.Sample, a.it.ID)
 		switch a.it.Adjudication {
 		case AdjudicatedSame:
@@ -96,11 +112,29 @@ func measureAudit(c Combo, scope []*Item, o *Options) *AuditMetrics {
 	return m
 }
 
-// auditReason says why a complete census's audit failed a combo.
-func auditReason(c Combo, m *AuditMetrics) string {
+// auditReason says why a complete census's or a holdout's (what) audit
+// failed a combo.
+func auditReason(c Combo, m *AuditMetrics, what string) string {
 	if m.Applied == 0 {
-		return "census: nothing applied in " + comboKey(c)
+		return what + ": nothing applied in " + comboKey(c)
 	}
-	return fmt.Sprintf("audit: %d of %d sampled items failed in %s (%d different, %d pending; %d applied)",
-		m.Failed, len(m.Sample), comboKey(c), m.AdjudicatedDifferent, m.Pending, m.Applied)
+	return sampleReason("audit", c, m)
+}
+
+// sampleReason says why an audit sample failed a combo.
+func sampleReason(audit string, c Combo, m *AuditMetrics) string {
+	return fmt.Sprintf("%s: %d of %d sampled items failed in %s (%d different, %d pending; %d applied)",
+		audit, m.Failed, len(m.Sample), comboKey(c), m.AdjudicatedDifferent, m.Pending, m.Applied)
+}
+
+// holdoutAuditReason names the first combo whose holdout audit failed, or
+// "".
+func holdoutAuditReason(combos []Combo, report *StratumReport) string {
+	for _, c := range combos {
+		m := report.Combos[comboKey(c)]
+		if m.Census == nil && m.Audit != nil && !m.Audit.passed() {
+			return auditReason(c, m.Audit, "holdout")
+		}
+	}
+	return ""
 }

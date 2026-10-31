@@ -89,6 +89,9 @@ const (
 type mergeEvalMode struct {
 	kinds                             []string
 	census, supplement, wikidataSuite bool
+	// holdoutAudit gates the holdout on a human audit of its applied set
+	// (llmeval.GateRuleHoldoutAudit) instead of on the bound.
+	holdoutAudit bool
 }
 
 // mergeEvalModes are the merge eval modes (§7, §8 E4c): the pilot, then a
@@ -97,7 +100,8 @@ var mergeEvalModes = map[string]mergeEvalMode{
 	models.AuthorLLMEvalModeMerge0: {kinds: []string{authorentity.CandidateSwap, authorentity.CandidateInitials}},
 	models.AuthorLLMEvalModeMerge1: {kinds: []string{authorentity.CandidateSwap}, census: true},
 	models.AuthorLLMEvalModeMerge2: {kinds: []string{authorentity.CandidateInitials}, census: true},
-	models.AuthorLLMEvalModeMerge3: {kinds: []string{authorentity.CandidateBucket}, supplement: true},
+	models.AuthorLLMEvalModeMerge3: {kinds: []string{authorentity.CandidateBucket}, supplement: true,
+		holdoutAudit: true},
 	models.AuthorLLMEvalModeMerge4: {kinds: []string{authorentity.CandidateTranslit}, census: true,
 		wikidataSuite: true},
 }
@@ -954,11 +958,16 @@ type mergeTokenCount struct {
 
 // mergeOptions are the merge gate's options (§3.1, §3.3, §4.5): a census
 // mode's strata pass on every candidate settled and a clean audit of the
-// applied set; a holdout's (merge0, merge3's bucket) on the bound.
+// applied set; merge3's bucket holdout on clean audits of its applied
+// holdout items and extra Latin questions (option (c)); merge0's on the
+// bound.
 func mergeOptions(mode string) llmeval.Options {
 	rule := llmeval.GateRuleHoldout
-	if mergeEvalModes[mode].census {
+	switch {
+	case mergeEvalModes[mode].census:
 		rule = llmeval.GateRuleCensusAudit
+	case mergeEvalModes[mode].holdoutAudit:
+		rule = llmeval.GateRuleHoldoutAudit
 	}
 	return llmeval.Options{MaxErrorShare: mergeEvalMaxErrorShare, ContestedIsError: true,
 		ContestedAdjudicated: true, AcceptOnly: mergeSameCanonical, AnchorRecall: true, ByScript: true,

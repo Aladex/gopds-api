@@ -446,9 +446,10 @@ func (h *authorLLMHandler) contested(c *gin.Context) {
 }
 
 // audit godoc
-// @Summary The audit sample of a merge eval run's census
+// @Summary The audit samples of a merge eval run
 // @Description The census items all four participants answered same that the latest report samples for the audit
-// @Description (up to 300 per kind): each item's two sides, the four answers and its current adjudication (merge
+// @Description (up to 300 per kind) — for merge3 the bucket holdout's (up to 300) and its extra Latin questions'
+// @Description (up to 100): each item's set, two sides, the four answers and its current adjudication (merge
 // @Description routes only). A sampled item pending or labeled different fails its kind.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
@@ -480,7 +481,7 @@ type adjudicateRequest struct {
 // adjudicate godoc
 // @Summary Label an accepted adversarial suite item, a contested accept or an audited item
 // @Description label same, different or unclear. 409 not_adjudicable: neither an adversarial suite item, a
-// @Description contested accept nor an item of a census's audit sample of a merge eval.
+// @Description contested accept nor an item of an audit sample of a merge eval (a census's or merge3's).
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Eval item id"

@@ -41,11 +41,19 @@ func cloneMergeItems(t *testing.T, db *pg.DB, run int64, n int) int64 {
 			AND bool_and(j.status = 'answered' AND a.canonical_sha256 = sha256(convert_to('{"answer":"same"}', 'UTF8')))
 		ORDER BY i.id LIMIT 1`, run)
 	require.NoError(t, err, "a swap census item answered same and repeated by all")
+	cloneItem(t, db, run, template, n)
+	return template
+}
+
+// cloneItem stores n copies of item template of run under new
+// fingerprints, each with copies of its jobs answered as the original's.
+func cloneItem(t *testing.T, db *pg.DB, run, template int64, n int) {
+	t.Helper()
 	var jobs []struct {
 		ID        int64 `pg:"id"`
 		AttemptID int64 `pg:"answer_attempt_id"`
 	}
-	_, err = db.Query(&jobs, `SELECT id, answer_attempt_id FROM author_llm_job WHERE run_id = ? AND eval_item_id = ?`,
+	_, err := db.Query(&jobs, `SELECT id, answer_attempt_id FROM author_llm_job WHERE run_id = ? AND eval_item_id = ?`,
 		run, template)
 	require.NoError(t, err)
 	for k := range n {
@@ -53,7 +61,7 @@ func cloneMergeItems(t *testing.T, db *pg.DB, run int64, n int) int64 {
 		_, err = db.QueryOne(pg.Scan(&item), `
 			INSERT INTO author_llm_eval_item (set_version, item_set, stratum, source_fingerprint, extractor_version, input, weight)
 			SELECT set_version, item_set, stratum, sha256(convert_to(?, 'UTF8')), extractor_version, input, weight
-			FROM author_llm_eval_item WHERE id = ? RETURNING id`, fmt.Sprintf("clone %d", k), template)
+			FROM author_llm_eval_item WHERE id = ? RETURNING id`, fmt.Sprintf("clone %d of %d", k, template), template)
 		require.NoError(t, err)
 		for _, j := range jobs {
 			var job int64
@@ -88,7 +96,6 @@ func cloneMergeItems(t *testing.T, db *pg.DB, run int64, n int) int64 {
 			require.NoError(t, err)
 		}
 	}
-	return template
 }
 
 // registrableReport is the part of a merge report the test reads.

@@ -30,7 +30,8 @@ type mergeAdjudicationBinding struct {
 var mergeReportComputedHook func(runID int64)
 
 // gatedItems are the items whose labels gate an evaluation: every audit
-// sample, accepted suite item and contested accept it lists.
+// sample (a holdout's extra Latin questions' included), accepted suite item
+// and contested accept it lists.
 func gatedItems(r *llmeval.Report) []int64 {
 	ids := []int64{}
 	addReview := func(m *llmeval.ContestedMetrics) {
@@ -53,6 +54,9 @@ func gatedItems(r *llmeval.Report) []int64 {
 			addReview(c.ContestedReview)
 			if c.Supplement != nil {
 				addReview(c.Supplement.ContestedReview)
+				if c.Supplement.Audit != nil {
+					ids = append(ids, c.Supplement.Audit.Sample...)
+				}
 			}
 		}
 	}

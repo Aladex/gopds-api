@@ -82,7 +82,7 @@ func censusReason(combos []Combo, report *StratumReport) string {
 			return fmt.Sprintf("census: %d of %d candidates without a settled pair answer in %s",
 				len(m.Census.Unsettled), m.Census.Candidates, comboKey(c))
 		case m.Audit != nil:
-			return auditReason(c, m.Audit)
+			return auditReason(c, m.Audit, "census")
 		case m.AllowedErrors > 0:
 			return fmt.Sprintf("census: %d errors of %d accepted in %s", m.AllowedErrors, m.AllowedAccepted, comboKey(c))
 		default:
@@ -197,6 +197,19 @@ type SupplementMetrics struct {
 	Errors       int `json:"errors"`
 	// ContestedReview is the contested accepts' labels (ContestedAdjudicated).
 	ContestedReview *ContestedMetrics `json:"contested_review,omitempty"`
+	// Audit is the audit of the applied extra questions
+	// (GateRuleHoldoutAudit): it gates them instead of Errors.
+	Audit *AuditMetrics `json:"audit,omitempty"`
+}
+
+// passed reports the extra questions holding their gate: no sampled item
+// failed under the holdout audit — none applied fails nothing —, else no
+// error.
+func (m *SupplementMetrics) passed() bool {
+	if m.Audit != nil {
+		return m.Audit.Failed == 0
+	}
+	return m.Errors == 0
 }
 
 // measureSupplement counts the items gated outside |A| in a combo.
@@ -232,7 +245,11 @@ func measureSupplement(c Combo, items []*Item, o *Options) *SupplementMetrics {
 // or "".
 func supplementReason(combos []Combo, report *StratumReport) string {
 	for _, c := range combos {
-		if s := report.Combos[comboKey(c)].Supplement; s != nil && s.Errors > 0 {
+		s := report.Combos[comboKey(c)].Supplement
+		if s != nil && s.Audit != nil && !s.passed() {
+			return sampleReason("supplement audit", c, s.Audit)
+		}
+		if s != nil && s.Audit == nil && s.Errors > 0 {
 			return fmt.Sprintf("supplement: %d errors of %d accepted outside |A| in %s (%d contested)",
 				s.Errors, s.Accepted, comboKey(c), s.Contested)
 		}

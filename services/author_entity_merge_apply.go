@@ -61,10 +61,13 @@ type mergeRegistrationReport struct {
 	} `json:"evaluation"`
 }
 
-// mergeKindPassed checks a merge eval report for a registration of kind: a
-// merge report of its configuration, gated against judge consensus, that
-// may back a registration and passed the kind.
-func mergeKindPassed(report *database.AuthorLLMEvalReport, kind string) error {
+// mergeKindPassed checks a merge eval report of a run of mode for a
+// registration of kind: a merge report of its configuration, gated against
+// judge consensus, that may back a registration and passed the kind — for
+// a mode gated on the holdout audit (merge3), under that rule: a report
+// stored while the mode was gated on the bound never registers its kind
+// without the audit.
+func mergeKindPassed(report *database.AuthorLLMEvalReport, mode, kind string) error {
 	var doc mergeRegistrationReport
 	if err := json.Unmarshal([]byte(report.Report), &doc); err != nil {
 		return fmt.Errorf("reading a merge eval report: %w", err)
@@ -78,8 +81,9 @@ func mergeKindPassed(report *database.AuthorLLMEvalReport, kind string) error {
 	if !doc.Evaluation.Decision.Registrable {
 		return ErrAuthorEntityMergeNotPassed
 	}
+	rule := mergeOptions(mode).GateRule
 	for _, s := range doc.Evaluation.Decision.Strata {
-		if s.Stratum == kind && s.Passed {
+		if s.Stratum == kind && s.Passed && (rule != llmeval.GateRuleHoldoutAudit || s.Rule == rule) {
 			return nil
 		}
 	}
@@ -110,7 +114,7 @@ func (a *AuthorEntityAdmin) RegisterMergeKind(ctx context.Context, runID int64, 
 	if err != nil {
 		return 0, err
 	}
-	if passErr := mergeKindPassed(report, kind); passErr != nil {
+	if passErr := mergeKindPassed(report, run.Mode, kind); passErr != nil {
 		return 0, passErr
 	}
 	binding, err := mergeEvidenceBinding(report)

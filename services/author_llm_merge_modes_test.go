@@ -260,9 +260,10 @@ func TestEachStageModeFreezesAndRunsEndToEnd(t *testing.T) {
 		require.NotNil(t, combo.Adversarial, tc.mode)
 		assert.Equal(t, len(sets["adversarial"]), combo.Adversarial.Items, tc.mode)
 		// A census mode's stratum is gated as a census on the audit of its
-		// applied set (§3.3), merge3's bucket holdout on the bound; the
+		// applied set (§3.3), merge3's bucket holdout on the audits of its
+		// applied holdout items and extra Latin questions (option (c)); the
 		// report says which.
-		rule := "holdout"
+		rule := "holdout_audit"
 		if tc.census {
 			rule = "census_audit"
 			require.NotNil(t, combo.Census, tc.mode)

@@ -97,8 +97,11 @@ type AuthorLLMAdversarialReview struct {
 // AuthorLLMAdversarialItem is one accepted suite item: its two sides as the
 // models saw them (compact), the four answers and the current label.
 type AuthorLLMAdversarialItem struct {
-	EvalItemID   int64                           `json:"eval_item_id"`
-	Stratum      string                          `json:"stratum"`
+	EvalItemID int64  `json:"eval_item_id"`
+	Stratum    string `json:"stratum"`
+	// Set is the item's frozen set (set version): merge3's audit lists
+	// its holdout's and its extra Latin questions' samples together.
+	Set          string                          `json:"set"`
 	A            AuthorLLMAdversarialSide        `json:"a"`
 	B            AuthorLLMAdversarialSide        `json:"b"`
 	Verdicts     map[string]string               `json:"verdicts"`
@@ -297,7 +300,8 @@ func mergeReviewItems(
 		if err := json.Unmarshal(it.Input, &input); err != nil {
 			return nil, fmt.Errorf("reading a suite item's input: %w", err)
 		}
-		item := AuthorLLMAdversarialItem{EvalItemID: it.ID, Stratum: it.Stratum, A: adversarialSideOf(&input.A),
+		item := AuthorLLMAdversarialItem{EvalItemID: it.ID, Stratum: it.Stratum, Set: it.SetVersion,
+			A: adversarialSideOf(&input.A),
 			B: adversarialSideOf(&input.B), Verdicts: verdicts[it.ID]}
 		if l, ok := labels[it.ID]; ok {
 			item.Adjudication = &l
