@@ -20,6 +20,13 @@ const MergeCardVersion = "e4-card-v1"
 // book id, the oldest in the catalog.
 const mergeCardSample = 10
 
+// MergeInputMaxBytes bounds one question's input, two cards
+// (llmreq.MergeItemMaxBytes): two cards of at most 10 books with their
+// annotations cut to 300 characters, Cyrillic at two bytes a rune, with the
+// item wiring. An initials_hub card lists every book of its side, so a hub
+// over it is excluded (ExcludedHubTooLong), never truncated.
+const MergeInputMaxBytes = 32768
+
 // mergeAnnotationRunes is where a card cuts a book's annotation.
 const mergeAnnotationRunes = 300
 

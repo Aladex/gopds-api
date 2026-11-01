@@ -27,6 +27,13 @@ const (
 	CandidateInitials = "initials"
 	CandidateTranslit = "translit"
 	CandidateVariant  = "variant"
+	// CandidateInitialsHub (E4g) is an initials pair whose side of initials
+	// holds more than maxInitialsSideBooks books («Толстой Л.Н.» against
+	// «Лев Николаевич Толстой»): asked, gated and registered apart from
+	// initials, so what registered initials covers never changes. It is no
+	// kind of the generation and takes no part in the precedence: an
+	// initials pair becomes one after the exclusions.
+	CandidateInitialsHub = "initials_hub"
 )
 
 // candidateKinds are the kinds in precedence order. variant (E4f) is the
@@ -48,26 +55,31 @@ const (
 	scriptMixed    = string(authornorm.ScriptMixed)
 )
 
-// The closed set of reasons a pair is no candidate (§2.3).
+// The closed set of reasons a pair is no candidate (§2.3). An initials
+// side of more than ten books, initials_side_gt10 until E4g, is no reason:
+// the pair is an initials_hub candidate.
 const (
-	ExcludedBucketSide       = "bucket_side"
-	ExcludedCoCredited       = "co_credited"
-	ExcludedNamesakeTag      = "namesake_tag"
-	ExcludedPseudonymKey     = "pseudonym_key"
-	ExcludedManualSide       = "manual_side"
-	ExcludedRevokedPair      = "revoked_pair"
-	ExcludedPartnerCap       = "partner_cap"
-	ExcludedInitialsSideGT10 = "initials_side_gt10"
-	ExcludedMixedScript      = "mixed_script"
-	ExcludedNoFamilyOrGiven  = "no_family_or_given"
-	ExcludedLooseScriptOnly  = "loose_script_only"
-	ExcludedPrecedence       = "precedence"
+	ExcludedBucketSide      = "bucket_side"
+	ExcludedCoCredited      = "co_credited"
+	ExcludedNamesakeTag     = "namesake_tag"
+	ExcludedPseudonymKey    = "pseudonym_key"
+	ExcludedManualSide      = "manual_side"
+	ExcludedRevokedPair     = "revoked_pair"
+	ExcludedPartnerCap      = "partner_cap"
+	ExcludedMixedScript     = "mixed_script"
+	ExcludedNoFamilyOrGiven = "no_family_or_given"
+	ExcludedLooseScriptOnly = "loose_script_only"
+	ExcludedPrecedence      = "precedence"
+	// ExcludedHubTooLong is an initials_hub whose card of every book would
+	// not fit one question (MergeInputMaxBytes): never truncated, never
+	// asked (E4g round 2). The seal finds it.
+	ExcludedHubTooLong = "initials_hub_too_long"
 )
 
 // ExclusionReasons are the reasons, each counted per kind and script.
 var ExclusionReasons = []string{ExcludedBucketSide, ExcludedCoCredited, ExcludedNamesakeTag, ExcludedPseudonymKey,
-	ExcludedManualSide, ExcludedRevokedPair, ExcludedPartnerCap, ExcludedInitialsSideGT10, ExcludedMixedScript,
-	ExcludedNoFamilyOrGiven, ExcludedLooseScriptOnly, ExcludedPrecedence}
+	ExcludedManualSide, ExcludedRevokedPair, ExcludedPartnerCap, ExcludedMixedScript, ExcludedNoFamilyOrGiven,
+	ExcludedLooseScriptOnly, ExcludedPrecedence, ExcludedHubTooLong}
 
 // SampleCandidate is the reason of a sample row of a candidate.
 const SampleCandidate = "candidate"
@@ -148,7 +160,8 @@ var ErrNoCandidates = errors.New("the pass generated no merge candidates")
 // write its candidates.
 func (p *Plan) MergeCandidatesSealed() bool { return p.sealed }
 
-// The bounds of §2.1: partners per side and kind, books of an initials side.
+// The bounds of §2.1: partners per side and kind; books of an initials side
+// above which its pair is an initials_hub (E4g).
 const (
 	maxCandidatePartners = 20
 	maxInitialsSideBooks = 10
@@ -217,6 +230,9 @@ func (b *builder) collectCandidates(p *Plan, groups []*group) {
 	for _, it := range g.ordered() {
 		if it.reason == "" {
 			it.reason = b.pairReason(it)
+		}
+		if it.reason == "" && it.kind == CandidateInitials && b.initialsSideBooks(it) > maxInitialsSideBooks {
+			it.kind = CandidateInitialsHub
 		}
 	}
 	items := g.ordered()
@@ -652,8 +668,6 @@ func (b *builder) pairReason(it *candItem) string {
 		return ExcludedMixedScript
 	case x.noName || y.noName:
 		return ExcludedNoFamilyOrGiven
-	case it.kind == CandidateInitials && b.initialsSideBooks(it) > maxInitialsSideBooks:
-		return ExcludedInitialsSideGT10
 	}
 	return ""
 }
@@ -782,6 +796,22 @@ const candidateSampleRows = 50
 // sampleBooks are a side's card books: the oldest mergeCardSample.
 func (s *candSide) sampleBooks() []int64 { return s.books[:min(mergeCardSample, len(s.books))] }
 
+// cardBooks are the books a side's card shows in an item: every book of the
+// side of initials of an initials_hub (E4g round 2: the decision moves them
+// all, so the models and the audit see them all), else the sample.
+func (b *builder) cardBooks(it *candItem, s *candSide) []int64 {
+	if b.hubSide(it, s) {
+		return s.books
+	}
+	return s.sampleBooks()
+}
+
+// hubSide reports s the side of initials of an initials_hub item.
+func (b *builder) hubSide(it *candItem, s *candSide) bool {
+	return it.kind == CandidateInitialsHub &&
+		slices.ContainsFunc(s.keys, func(k int) bool { return b.keys[k].key.initials() })
+}
+
 // cardBookIDs are the books the candidates' cards show.
 func (b *builder) cardBookIDs(items []*candItem) []int64 {
 	set := map[int64]bool{}
@@ -792,11 +822,11 @@ func (b *builder) cardBookIDs(items []*candItem) []int64 {
 		if it.credit >= 0 {
 			set[b.in.Credits[it.credit].BookID] = true
 		} else {
-			for _, id := range it.a.sampleBooks() {
+			for _, id := range b.cardBooks(it, it.a) {
 				set[id] = true
 			}
 		}
-		for _, id := range it.b.sampleBooks() {
+		for _, id := range b.cardBooks(it, it.b) {
 			set[id] = true
 		}
 	}
@@ -860,7 +890,8 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 		si := sealItem(b, it)
 		if it.reason == "" {
 			if failed := isolate(func() {
-				a, b := r.card(si.sideA, si), r.card(si.sideB, nil)
+				a := r.card(si.sideA, si, p.cand.b.hubSide(it, si.sideA))
+				b := r.card(si.sideB, nil, p.cand.b.hubSide(it, si.sideB))
 				if it.kind == CandidateVariant {
 					a.Wikidata, b.Wikidata = p.cand.b.wikidataLabel(si.sideA), p.cand.b.wikidataLabel(si.sideB)
 				}
@@ -871,8 +902,12 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 				p.dropFailedCard(si)
 				continue
 			}
-			si.inputHash = sha256.Sum256(si.input)
-			si.digest = candidateDigest(it.kind, it.script, si.members, si.inputHash)
+			if it.kind == CandidateInitialsHub && len(si.input) > MergeInputMaxBytes {
+				p.excludeTooLong(si)
+			} else {
+				si.inputHash = sha256.Sum256(si.input)
+				si.digest = candidateDigest(it.kind, it.script, si.members, si.inputHash)
+			}
 		}
 		all = append(all, si)
 	}
@@ -908,6 +943,19 @@ func (p *Plan) dropFailedCard(si *sealedItem) {
 		r.Candidates--
 	}
 	p.Report.Candidates.ByKind[si.it.kind][si.it.script].Candidates--
+}
+
+// excludeTooLong turns a hub too long to ask whole into an exclusion,
+// counted as one.
+func (p *Plan) excludeTooLong(si *sealedItem) {
+	si.it.reason, si.input = ExcludedHubTooLong, nil
+	for _, r := range []*CandidateReport{&p.Report.Candidates, &p.cand.b.rep.Candidates} {
+		r.Candidates--
+		r.Excluded++
+	}
+	counts := p.Report.Candidates.ByKind[si.it.kind][si.it.script]
+	counts.Candidates--
+	counts.Excluded[ExcludedHubTooLong]++
 }
 
 // sealItem puts an item's sides in canonical order with their members.
@@ -968,25 +1016,34 @@ type cardRenderer struct {
 	fields map[int64]CardBookFields
 	byBook map[int64][]int
 	cards  map[int]MergeCard
+	// whole are the cards of every book of a side, a hub's (cardBooks).
+	whole map[int]MergeCard
 }
 
-// card is a side's card; for a book item's bucket side (si set) the card
-// of its one book.
-func (r *cardRenderer) card(s *candSide, si *sealedItem) MergeCard {
+// card is a side's card: of its sample, or of every book when whole; for a
+// book item's bucket side (si set) the card of its one book.
+func (r *cardRenderer) card(s *candSide, si *sealedItem, whole bool) MergeCard {
 	if si != nil && si.credit != nil {
 		c := &r.b.in.Credits[si.it.credit]
 		return MergeCardOf([]string{c.DisplayName}, []string{c.Nickname}, 1,
 			[]MergeCardBook{r.book(c.BookID, s.entity)})
 	}
-	if card, ok := r.cards[s.root]; ok {
+	cache, books := r.cards, s.sampleBooks()
+	if whole {
+		if r.whole == nil {
+			r.whole = map[int]MergeCard{}
+		}
+		cache, books = r.whole, s.books
+	}
+	if card, ok := cache[s.root]; ok {
 		return card
 	}
 	var sample []MergeCardBook
-	for _, id := range s.sampleBooks() {
+	for _, id := range books {
 		sample = append(sample, r.book(id, s.entity))
 	}
 	card := MergeCardOf(s.names, s.variants, len(s.books), sample)
-	r.cards[s.root] = card
+	cache[s.root] = card
 	return card
 }
 

@@ -200,8 +200,7 @@ func TestBucketBookItems(t *testing.T) {
 // Never a candidate: a pair with a short name's bucket on a side, two
 // entities on one book, a namesake tag, a manual side, a side whose display
 // key is a pseudonym of the other's item, a mixed-script side, a side
-// without a family or given name, an initials side of more than ten books,
-// a loose-only translit, too many partners, a pair already of a higher
+// without a family or given name, a loose-only translit, too many partners, a pair already of a higher
 // kind. One fixture makes every reason the build can make; revoked_pair is
 // E4b's.
 func TestEveryExclusionReason(t *testing.T) {
@@ -233,14 +232,9 @@ func TestEveryExclusionReason(t *testing.T) {
 		// no_family_or_given: two nicknames of one words in two orders.
 		credit(15, 14, "fp-nick", nickOnly("Капитан Немо")).
 		credit(16, 15, "fp-nick-swap", nickOnly("Немо Капитан")).
-		// initials_side_gt10: «Н. Носов» on eleven books.
-		credit(17, 27, "fp-nosov", person("Носов", "Николай", "Николаевич")).
 		// loose_script_only.
 		credit(18, 28, "fp-king", person("Кинг", "Стивен")).
 		credit(19, 29, "fp-kong", person("Kong", "Sam").latin())
-	for i := int64(16); i <= 26; i++ {
-		c.credit(100+i, i, "fp-n-nosov", person("Носов", "Н."))
-	}
 	// partner_cap: «Б. Смирнов» beside 21 full names.
 	c.credit(30, 30, "fp-b-smirnov", person("Смирнов", "Б."))
 	for i := int64(0); i < 21; i++ {
@@ -262,7 +256,6 @@ func TestEveryExclusionReason(t *testing.T) {
 	requireExcluded(t, p, authorentity.CandidateTranslit, authorentity.ExcludedPseudonymKey, 11, 12)
 	requireExcluded(t, p, authorentity.CandidateSwap, authorentity.ExcludedMixedScript, 13, 14)
 	requireExcluded(t, p, authorentity.CandidateSwap, authorentity.ExcludedNoFamilyOrGiven, 15, 16)
-	requireExcluded(t, p, authorentity.CandidateInitials, authorentity.ExcludedInitialsSideGT10, 116, 17)
 	requireExcluded(t, p, authorentity.CandidateTranslit, authorentity.ExcludedLooseScriptOnly, 18, 19)
 	requireExcluded(t, p, authorentity.CandidateInitials, authorentity.ExcludedPartnerCap, 30, 200)
 	assert.Equal(t, 21, excluded(p, authorentity.CandidateInitials, "Cyrl", authorentity.ExcludedPartnerCap))
@@ -278,6 +271,8 @@ func TestEveryExclusionReason(t *testing.T) {
 			assert.Zero(t, total, "revoked pairs before E4b")
 		case authorentity.ExcludedPrecedence:
 			// A pair of two kinds needs a component of two scripts: its own test.
+		case authorentity.ExcludedHubTooLong:
+			// The seal's, on a hub of long cards: its own test.
 		default:
 			assert.Positive(t, total, "no pair excluded %s", reason)
 		}

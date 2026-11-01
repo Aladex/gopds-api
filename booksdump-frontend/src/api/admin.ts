@@ -399,6 +399,7 @@ export type AuthorLLMStepKey =
     | 'merge3'
     | 'merge4'
     | 'merge5'
+    | 'merge6'
     // The merge run (E4d-2): the registered kinds' candidates no eval asked.
     | 'merge_run';
 
@@ -815,7 +816,15 @@ export const recomputeAuthorLLMEvalReport = (runID: number, base = llmBase) =>
 export interface AuthorLLMAdversarialSide {
     names: string[];
     size: string;
-    books: { title: string; year?: string; genres?: string[] }[];
+    books: {
+        title: string;
+        year?: string;
+        genres?: string[];
+        lang?: string;
+        series?: string[];
+        annotation?: string;
+        coauthors?: string[];
+    }[];
 }
 
 /** A human label of an accepted suite item. */

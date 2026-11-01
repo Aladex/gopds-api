@@ -92,6 +92,10 @@ type mergeEvalMode struct {
 	// holdoutAudit gates the holdout on a human audit of its applied set
 	// (llmeval.GateRuleHoldoutAudit) instead of on the bound.
 	holdoutAudit bool
+	// wholeCards marks a kind whose card lists a side's every book
+	// (initials_hub, E4g round 2): the suite loads its sides whole and the
+	// estimate follows the frozen inputs' size.
+	wholeCards bool
 }
 
 // mergeEvalModes are the merge eval modes (§7, §8 E4c): the pilot, then a
@@ -108,6 +112,11 @@ var mergeEvalModes = map[string]mergeEvalMode{
 	// Wikidata items are namesakes, asked in the suite.
 	models.AuthorLLMEvalModeMerge5: {kinds: []string{authorentity.CandidateVariant}, census: true,
 		wikidataSuite: true},
+	// merge6 (E4g): the initials_hub census, apart from initials; a hub
+	// and a full name of two Wikidata items («Thomas M. Reid», «Thomas
+	// Mayne Reid») are namesakes, asked in the suite.
+	models.AuthorLLMEvalModeMerge6: {kinds: []string{authorentity.CandidateInitialsHub}, census: true,
+		wikidataSuite: true, wholeCards: true},
 }
 
 // AuthorLLMMergeEvalSizes are a merge eval's sizes (§7).
@@ -331,7 +340,7 @@ type mergeSources struct {
 // readMergeSources reads the entity plan in one snapshot, read only, and
 // builds the mode's items from it: the stored candidates of its kinds (a
 // holdout, or all of them), merge3's extra Latin questions, the suite —
-// merge4's and merge5's with the candidates whose sides name two Wikidata
+// merge4's, merge5's and merge6's with the candidates whose sides name two Wikidata
 // items — and the anchors.
 func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun) (*mergeSources, error) {
 	loop := NewAuthorEntityBuildLoop(d.db, AuthorEntityBuildConfig{})
@@ -376,7 +385,7 @@ func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun
 	for _, s := range suite {
 		pairs = append(pairs, s.pair)
 	}
-	ids := append(plan.MergeSuiteBookIDs(pairs), plan.MergeAnchorBookIDs(anchors)...)
+	ids := append(plan.MergeSuiteBookIDs(pairs, mode.wholeCards), plan.MergeAnchorBookIDs(anchors)...)
 	slices.Sort(ids)
 	books, err := database.LoadMergeCardBooks(ctx, d.db, slices.Compact(ids))
 	if err != nil {
@@ -656,7 +665,7 @@ type suitePick struct {
 // Cyrillic pairs romanized — and the rest Cyrillic. The translit shape
 // romanizes one side of a Cyrillic pair by itself, so it takes no Latin
 // pair. Every shape takes natural fewer Cyrillic pairs: the natural
-// namesakes asked beside it (only merge4's and merge5's have any).
+// namesakes asked beside it (only merge4's, merge5's and merge6's have any).
 func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *AuthorLLMMergeEvalSizes,
 	natural int) []suitePick {
 	var latin, cyrl []authorentity.MergeSuitePair
@@ -733,19 +742,59 @@ func (d *AuthorLLMEvalDriver) mergeEstimate(ctx context.Context, run *evalRun) e
 			return err
 		}
 	}
+	if mergeEvalModes[run.Mode].wholeCards {
+		for _, c := range []struct {
+			to      *int
+			version string
+			set     models.AuthorLLMEvalItemSet
+		}{{&n.holdoutBytes, sets.holdout, models.AuthorLLMEvalHoldout},
+			{&n.suiteBytes, sets.suite, models.AuthorLLMEvalAdversarial}} {
+			items, err := d.mergeItems(ctx, d.db, c.version, c.set)
+			if err != nil {
+				return err
+			}
+			for i := range items {
+				*c.to += len(items[i].Input)
+			}
+		}
+	}
 	return database.SetAuthorLLMRunEstimate(ctx, d.db, run.ID, mergeEstimateTokens(&n, d.mergeSizesOf(run.Mode)))
 }
 
-// mergeEvalCounts are a merge eval's frozen items per set.
-type mergeEvalCounts struct{ holdout, supplement, suite, anchors int }
+// mergeEvalCounts are a merge eval's frozen items per set and, for a mode
+// of whole cards, the bytes of its holdout and suite inputs (zero
+// otherwise).
+type mergeEvalCounts struct {
+	holdout, supplement, suite, anchors int
+	holdoutBytes, suiteBytes            int
+}
+
+// mergeReferenceInputBytes is the mean input of the cards the per-answer
+// figures were measured on, rounded up: prod build 30's initials
+// candidates average 3,956 bytes, its translit ones 3,655.
+const mergeReferenceInputBytes = 4000
 
 // mergeEstimateTokens is a merge eval's token estimate: every participant
 // on each holdout, supplement, repeated and anchor item, the suite per
-// item, and the run's fixed part, at the pilot's measured figures.
+// item, and the run's fixed part, at the pilot's measured figures — per
+// holdout answer and suite item scaled up by the inputs' mean size over
+// mergeReferenceInputBytes when the bytes are known (whole cards), never
+// down.
 func mergeEstimateTokens(n *mergeEvalCounts, sizes *AuthorLLMMergeEvalSizes) int64 {
 	answers := evalParticipants * (n.holdout + n.supplement + min(n.holdout, sizes.Repeat))
-	return int64(answers)*mergeTokensPerAnswer + int64(evalParticipants*n.anchors)*mergeTokensPerAnchor +
-		int64(n.suite)*mergeTokensPerSuiteItem + mergeTokensPerRunOverall
+	return int64(answers)*scaledTokens(mergeTokensPerAnswer, n.holdoutBytes, n.holdout) +
+		int64(evalParticipants*n.anchors)*mergeTokensPerAnchor +
+		int64(n.suite)*scaledTokens(mergeTokensPerSuiteItem, n.suiteBytes, n.suite) + mergeTokensPerRunOverall
+}
+
+// scaledTokens is a measured per-item figure for items of size bytes in
+// all: scaled by their mean size over mergeReferenceInputBytes, never below
+// it.
+func scaledTokens(per int64, size, items int) int64 {
+	if items == 0 || size <= items*mergeReferenceInputBytes {
+		return per
+	}
+	return per * int64(size) / int64(items*mergeReferenceInputBytes)
 }
 
 func (d *AuthorLLMEvalDriver) enqueueMergeFingerprint(ctx context.Context, tx *pg.Tx, run *evalRun) error {

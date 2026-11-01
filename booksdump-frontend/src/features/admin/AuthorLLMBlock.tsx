@@ -69,6 +69,7 @@ const stepLabels = (t: T): Record<string, string> => ({
     merge3: t('authorLLM.step.merge3', 'Check short-name books (merge3)'),
     merge4: t('authorLLM.step.merge4', 'Check transliterations, every candidate (merge4)'),
     merge5: t('authorLLM.step.merge5', 'Check name spellings, every candidate (merge5)'),
+    merge6: t('authorLLM.step.merge6', 'Check initials of large sides, every candidate (merge6)'),
     merge_run: t('authorLLM.step.merge_run', 'Merge: ask the new candidates'),
 });
 

@@ -188,12 +188,18 @@ func (b *builder) sharesEvidence(x, y *candSide) bool {
 	return false
 }
 
-// MergeSuiteBookIDs are the sample books the pairs' cards show, sorted.
-func (p *Plan) MergeSuiteBookIDs(pairs []MergeSuitePair) []int64 {
+// MergeSuiteBookIDs are the books the pairs' cards show, sorted: their
+// samples, or every book of both sides when whole (the initials_hub shape
+// lists the initial's side whole).
+func (p *Plan) MergeSuiteBookIDs(pairs []MergeSuitePair, whole bool) []int64 {
 	set := map[int64]bool{}
 	for i := range pairs {
 		for _, s := range []*candSide{pairs[i].a, pairs[i].b} {
-			for _, id := range s.sampleBooks() {
+			books := s.sampleBooks()
+			if whole {
+				books = s.books
+			}
+			for _, id := range books {
 				set[id] = true
 			}
 		}
@@ -218,7 +224,9 @@ func SuiteItemKey(pair *MergeSuitePair, shape string, romanized bool) [32]byte {
 // RenderSuiteItem renders a namesake pair in a stratum's shape (§3.2), each
 // person with its own real books: swap — both without the patronymic, one
 // side reordered; initials — the side of fewer books as an initial and the
-// family name against the other's full name; translit — both without the
+// family name against the other's full name; initials_hub — the same with
+// the initial on the side of more books and every book of it, as in its
+// slice; translit — both without the
 // patronymic, one side in Latin letters by the fixed table; bucket — one
 // book of one person under the given and family name alone, against the
 // other's card under the full name; variant — one person's full name, and
@@ -236,8 +244,12 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	nx, ny := b.nameParts(x), b.nameParts(y)
 	var nameX, nameY string
 	switch shape {
-	case CandidateInitials:
-		if len(y.books) < len(x.books) {
+	case CandidateInitials, CandidateInitialsHub:
+		turn := len(y.books) < len(x.books)
+		if shape == CandidateInitialsHub {
+			turn = len(y.books) > len(x.books)
+		}
+		if turn {
 			x, y, nx, ny = y, x, ny, nx
 		}
 		first, _ := utf8.DecodeRuneInString(nx.given)
@@ -259,13 +271,16 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	if romanized {
 		nameX, nameY = Romanize(nameX), Romanize(nameY)
 	}
-	r := p.renderer(books, p.MergeSuiteBookIDs([]MergeSuitePair{*pair}))
+	r := p.renderer(books, p.MergeSuiteBookIDs([]MergeSuitePair{*pair}, shape == CandidateInitialsHub))
 	xBooks := x.books
 	if shape == CandidateBucket {
 		// A bucket question shows one book of the short name.
 		xBooks = x.books[:min(1, len(x.books))]
 	}
 	a := r.cardOf([]string{nameX}, nil, xBooks, x.entity)
+	if shape == CandidateInitialsHub {
+		a = r.cardOfAll([]string{nameX}, x.books, x.entity)
+	}
 	c := r.cardOf([]string{nameY}, nil, y.books, y.entity)
 	return MergeInput{CardVersion: MergeCardVersion, A: a, B: c}
 }
@@ -316,6 +331,15 @@ func (r *cardRenderer) cardOf(names, variants []string, books []int64, entity uu
 		sample = append(sample, r.book(id, entity))
 	}
 	return MergeCardOf(names, variants, len(books), sample)
+}
+
+// cardOfAll is a card of the given names over every one of books.
+func (r *cardRenderer) cardOfAll(names []string, books []int64, entity uuid.UUID) MergeCard {
+	sample := make([]MergeCardBook, 0, len(books))
+	for _, id := range books {
+		sample = append(sample, r.book(id, entity))
+	}
+	return MergeCardOf(names, nil, len(books), sample)
 }
 
 // MergeAnchorPairs are the plan's known-same anchors, in a fixed hash

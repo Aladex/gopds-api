@@ -86,7 +86,7 @@ type MergeRegistrationInput struct {
 func ValidMergeKind(kind string) bool {
 	switch kind {
 	case authorentity.CandidateSwap, authorentity.CandidateInitials, authorentity.CandidateTranslit,
-		authorentity.CandidateBucket, authorentity.CandidateVariant:
+		authorentity.CandidateBucket, authorentity.CandidateVariant, authorentity.CandidateInitialsHub:
 		return true
 	}
 	return false

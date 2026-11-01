@@ -115,19 +115,26 @@ type AuthorLLMAdversarialSide struct {
 	Books []AuthorLLMAdversarialBook `json:"books"`
 }
 
-// AuthorLLMAdversarialBook is a sample book: title, year, genre codes.
+// AuthorLLMAdversarialBook is a card's book as the models saw it: title,
+// year, genre codes, and (E4g round 2: the evidence an audit must see)
+// language, series, annotation and co-authors.
 type AuthorLLMAdversarialBook struct {
-	Title  string   `json:"title"`
-	Year   string   `json:"year,omitempty"`
-	Genres []string `json:"genres,omitempty"`
+	Title      string   `json:"title"`
+	Year       string   `json:"year,omitempty"`
+	Genres     []string `json:"genres,omitempty"`
+	Lang       string   `json:"lang,omitempty"`
+	Series     []string `json:"series,omitempty"`
+	Annotation string   `json:"annotation,omitempty"`
+	Coauthors  []string `json:"coauthors,omitempty"`
 }
 
-// adversarialSideOf is a card, compact.
+// adversarialSideOf is a card, every book of it.
 func adversarialSideOf(c *authorentity.MergeCard) AuthorLLMAdversarialSide {
 	side := AuthorLLMAdversarialSide{Names: c.Names, Size: c.Size, Books: make([]AuthorLLMAdversarialBook, 0, len(c.Books))}
 	for i := range c.Books {
 		b := &c.Books[i]
-		side.Books = append(side.Books, AuthorLLMAdversarialBook{Title: b.Title, Year: b.Year, Genres: b.Genres})
+		side.Books = append(side.Books, AuthorLLMAdversarialBook{Title: b.Title, Year: b.Year, Genres: b.Genres,
+			Lang: b.Lang, Series: b.Series, Annotation: b.Annotation, Coauthors: b.Coauthors})
 	}
 	return side
 }

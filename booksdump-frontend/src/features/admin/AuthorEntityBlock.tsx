@@ -451,6 +451,7 @@ const MERGE_KINDS: Record<string, [string, string]> = {
     translit: ['authorEntity.merges.kind.translit', 'transliteration'],
     bucket: ['authorEntity.merges.kind.bucket', 'a book of a short name'],
     variant: ['authorEntity.merges.kind.variant', 'one name spelled two ways'],
+    initials_hub: ['authorEntity.merges.kind.initials_hub', 'initials of a large side'],
 };
 
 const mergeKind = (t: T, kind: string): string => {
@@ -480,6 +481,7 @@ const MERGE_REASONS: Record<string, [string, string]> = {
     pseudonym_key: ['authorEntity.merges.reason.pseudonym_key', 'a pen name'],
     partner_cap: ['authorEntity.merges.reason.partner_cap', 'too many similar names'],
     initials_side_gt10: ['authorEntity.merges.reason.initials_side_gt10', 'too many books'],
+    initials_hub_too_long: ['authorEntity.merges.reason.initials_hub_too_long', 'every book does not fit one question'],
     mixed_script: ['authorEntity.merges.reason.mixed_script', 'mixed scripts'],
     no_family_or_given: ['authorEntity.merges.reason.no_family_or_given', 'no surname or name'],
     loose_script_only: ['authorEntity.merges.reason.loose_script_only', 'a loose transliteration'],

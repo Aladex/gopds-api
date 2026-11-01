@@ -251,8 +251,10 @@ func parseMergeResult(raw json.RawMessage) (string, error) {
 
 // MergeItemMaxBytes bounds one merge item: two cards of at most 10 books
 // with their annotations cut to 300 characters, Cyrillic at two bytes a
-// rune, with the item wiring. A request over its bound is not sent.
-const MergeItemMaxBytes = 32768
+// rune, with the item wiring (authorentity.MergeInputMaxBytes, which keeps
+// an initials_hub over it out of the candidates). A request over its bound
+// is not sent.
+const MergeItemMaxBytes = authorentity.MergeInputMaxBytes
 
 // MergeRequestBoundBytes is the most bytes of messages and schema a merge
 // request of items items may send.
