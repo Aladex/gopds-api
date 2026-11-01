@@ -232,6 +232,10 @@ func TestEveryDeclaredCardSourceIsReadAndMarked(t *testing.T) {
 	type cardCase struct {
 		// setup runs before the first pass; change is the semantic change.
 		setup, change string
+		// seed adds credits before the setup, extra candidates beside the
+		// fixture's two.
+		seed  func(c *entityCatalog)
+		extra int
 	}
 	// The small side «Кинг Стивен» is fingerprint 0x62 on the book "Рассказы".
 	const (
@@ -314,6 +318,16 @@ func TestEveryDeclaredCardSourceIsReadAndMarked(t *testing.T) {
 		{"opds_catalog_series", "ser"}: {setup: `INSERT INTO opds_catalog_series (id, ser, lang_code) VALUES (801, 'Тёмная башня', 1);
 			INSERT INTO opds_catalog_bseries (ser_no, book_id, ser_id) VALUES (1, ` + smallBook + `, 801)`,
 			change: `UPDATE opds_catalog_series SET ser = 'Тёмная Башня' WHERE id = 801`},
+		// A variant card shows its side's Wikidata label: an extract
+		// published with the side's name gives it one.
+		{"wikidata_extract", "status"}: {seed: func(c *entityCatalog) {
+			c.credit(c.book("Вечер"), 0x66, "Борушко", "Олег", "Матвевич")
+			c.credit(c.book("Утро"), 0x67, "Борушко", "Олег", "Матвеевич")
+		}, extra: 1, setup: `INSERT INTO wikidata_extract (source, status, manifest) VALUES ('fixture', 'fetching', '{}');
+			INSERT INTO wikidata_name (extract_id, key, qid, kind, lang, label)
+			SELECT id, public.search_normalize('Олег Матвеевич Борушко'), 'Q911', 'label', 'ru', 'Олег Матвеевич Борушко'
+			FROM wikidata_extract`,
+			change: `UPDATE wikidata_extract SET status = 'published', content_id = 'wd-0123456789abcdef'`},
 	}
 	declared := map[[2]string]bool{}
 	for _, sources := range authorentity.MergeCardSources {
@@ -331,12 +345,15 @@ func TestEveryDeclaredCardSourceIsReadAndMarked(t *testing.T) {
 		t.Run(source[0]+"."+source[1], func(t *testing.T) {
 			c := newEntityCatalog(t)
 			c.seedCandidates()
+			if tc.seed != nil {
+				tc.seed(c)
+			}
 			if tc.setup != "" {
 				c.exec(tc.setup)
 			}
 			c.build()
 			before := c.digests()
-			require.Len(t, before, 2)
+			require.Len(t, before, 2+tc.extra)
 			assert.Positive(t, c.marksOf(tc.change), "the change marked no pass")
 			c.build()
 			assert.NotEqual(t, before, c.digests(), "the change did not move the census")

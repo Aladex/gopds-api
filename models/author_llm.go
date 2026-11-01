@@ -324,13 +324,15 @@ const (
 	AuthorLLMEvalModeStage2 = "stage2"
 	AuthorLLMEvalModeStage3 = "stage3"
 	// The merge evals (E4c, migration 66) measure the merge configuration:
-	// merge0 the pilot, merge1..merge4 one pooled kind each.
+	// merge0 the pilot, merge1..merge5 one pooled kind each (merge5, the
+	// variant census, E4f, migration 73).
 	AuthorLLMEvalModeMerge  = "merge"
 	AuthorLLMEvalModeMerge0 = "merge0"
 	AuthorLLMEvalModeMerge1 = "merge1"
 	AuthorLLMEvalModeMerge2 = "merge2"
 	AuthorLLMEvalModeMerge3 = "merge3"
 	AuthorLLMEvalModeMerge4 = "merge4"
+	AuthorLLMEvalModeMerge5 = "merge5"
 )
 
 // AuthorLLMEvalStageModes lists the stage eval modes in order.
@@ -346,7 +348,7 @@ func IsAuthorLLMEvalStageMode(mode string) bool {
 // AuthorLLMEvalMergeModes lists the merge eval modes in order.
 func AuthorLLMEvalMergeModes() []string {
 	return []string{AuthorLLMEvalModeMerge, AuthorLLMEvalModeMerge0, AuthorLLMEvalModeMerge1, AuthorLLMEvalModeMerge2,
-		AuthorLLMEvalModeMerge3, AuthorLLMEvalModeMerge4}
+		AuthorLLMEvalModeMerge3, AuthorLLMEvalModeMerge4, AuthorLLMEvalModeMerge5}
 }
 
 // IsAuthorLLMEvalMergeMode reports a merge eval mode.

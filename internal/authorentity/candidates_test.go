@@ -409,8 +409,12 @@ func TestTheSideOrderIsCanonical(t *testing.T) {
 // those of the lowest member hash, with the sides' Go keys.
 func TestTheSampleIsBoundedAndExplainable(t *testing.T) {
 	c := newCatalog(t)
+	// Letters the variant's spelling fold keeps apart, so no two families
+	// are variants of each other.
+	letters := []rune("абвгдежзклмнопрстуфхцчшщюя")
+	n := int64(len(letters))
 	for i := int64(0); i < 60; i++ {
-		family, given := fmt.Sprintf("Фамилия%c%c", 'А'+rune(i/26), 'а'+rune(i%26)), "Имя"
+		family, given := fmt.Sprintf("Фамилия%c%c", 'А'+rune(i/n), letters[i%n]), "Имя"
 		c.book(2*i+1, "А").book(2*i+2, "Б").
 			credit(2*i+1, 2*i+1, fmt.Sprintf("fp-%d", i), person(family, given)).
 			credit(2*i+2, 2*i+2, fmt.Sprintf("fp-%d-swap", i), person(given, family))

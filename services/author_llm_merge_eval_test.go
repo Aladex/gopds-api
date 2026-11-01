@@ -400,14 +400,14 @@ func TestEachCardShowsItsOwnConfigurationsRun(t *testing.T) {
 
 	st, err := merge.Status(ctx)
 	require.NoError(t, err)
-	require.Len(t, st.Steps, 6)
-	for i, step := range st.Steps[:5] {
+	require.Len(t, st.Steps, 7)
+	for i, step := range st.Steps[:6] {
 		assert.Equal(t, fmt.Sprintf("merge%d", i), step.Key)
 		assert.True(t, step.Enabled, step.Key)
 	}
 	// The merge run follows a registration: none yet.
-	assert.Equal(t, services.AuthorLLMStepMergeRun, st.Steps[5].Key)
-	assert.Equal(t, services.AuthorLLMStepPrerequisite, st.Steps[5].Blocked)
+	assert.Equal(t, services.AuthorLLMStepMergeRun, st.Steps[6].Key)
+	assert.Equal(t, services.AuthorLLMStepPrerequisite, st.Steps[6].Blocked)
 
 	_, err = k.Start(ctx, string(models.AuthorLLMRunEval), models.AuthorLLMEvalModeMerge0, 1)
 	require.ErrorIs(t, err, services.ErrAuthorLLMInvalidRun)

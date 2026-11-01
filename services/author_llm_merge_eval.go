@@ -104,6 +104,10 @@ var mergeEvalModes = map[string]mergeEvalMode{
 		holdoutAudit: true},
 	models.AuthorLLMEvalModeMerge4: {kinds: []string{authorentity.CandidateTranslit}, census: true,
 		wikidataSuite: true},
+	// merge5 (E4f): the variant census; two spellings whose sides name two
+	// Wikidata items are namesakes, asked in the suite.
+	models.AuthorLLMEvalModeMerge5: {kinds: []string{authorentity.CandidateVariant}, census: true,
+		wikidataSuite: true},
 }
 
 // AuthorLLMMergeEvalSizes are a merge eval's sizes (§7).
@@ -327,8 +331,8 @@ type mergeSources struct {
 // readMergeSources reads the entity plan in one snapshot, read only, and
 // builds the mode's items from it: the stored candidates of its kinds (a
 // holdout, or all of them), merge3's extra Latin questions, the suite —
-// merge4's with the candidates whose sides name two Wikidata items — and
-// the anchors.
+// merge4's and merge5's with the candidates whose sides name two Wikidata
+// items — and the anchors.
 func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun) (*mergeSources, error) {
 	loop := NewAuthorEntityBuildLoop(d.db, AuthorEntityBuildConfig{})
 	r, err := loop.readPlan(ctx)
@@ -352,7 +356,7 @@ func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun
 	src := &mergeSources{}
 	natural := map[int]bool{}
 	if mode.wikidataSuite {
-		natural = wikidataDifferent(plan)
+		natural = wikidataDifferent(plan, mode.kinds)
 	}
 	if src.holdout, src.supplement, err = d.mergeHoldout(ctx, run, plan, stored, natural); err != nil {
 		return nil, err
@@ -533,15 +537,15 @@ func (d *AuthorLLMEvalDriver) takeCandidates(
 	return out, nil, nil
 }
 
-// wikidataDifferent are the plan's translit candidates whose two sides
+// wikidataDifferent are the plan's candidates of the kinds whose two sides
 // name two different Wikidata items: natural namesakes (§3.1, A.11), asked
 // in the suite, never in the census.
-func wikidataDifferent(plan *authorentity.Plan) map[int]bool {
+func wikidataDifferent(plan *authorentity.Plan, kinds []string) map[int]bool {
 	out := map[int]bool{}
 	cands := plan.MergeCandidates()
 	for i := range cands {
 		c := &cands[i]
-		if c.Kind != authorentity.CandidateTranslit {
+		if !slices.Contains(kinds, c.Kind) {
 			continue
 		}
 		a, b := plan.WikidataOf(c.SideA), plan.WikidataOf(c.SideB)
@@ -598,6 +602,9 @@ func mergeAnchorsOf(plan *authorentity.Plan, kinds []string) []authorentity.Merg
 	if slices.Contains(kinds, authorentity.CandidateTranslit) {
 		out = append(out, plan.MergeTranslitAnchorPairs()...)
 	}
+	if slices.Contains(kinds, authorentity.CandidateVariant) {
+		out = append(out, plan.MergeVariantAnchorPairs(nil)...)
+	}
 	return out
 }
 
@@ -648,7 +655,8 @@ type suitePick struct {
 // SuiteLatinPerShape Latin items — the natural Latin pairs first, then
 // Cyrillic pairs romanized — and the rest Cyrillic. The translit shape
 // romanizes one side of a Cyrillic pair by itself, so it takes no Latin
-// pair and natural fewer: the natural namesakes asked beside it.
+// pair. Every shape takes natural fewer Cyrillic pairs: the natural
+// namesakes asked beside it (only merge4's and merge5's have any).
 func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *AuthorLLMMergeEvalSizes,
 	natural int) []suitePick {
 	var latin, cyrl []authorentity.MergeSuitePair
@@ -677,7 +685,7 @@ func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *Au
 		latinN := min(sizes.SuiteLatinPerShape, sizes.SuitePerShape)
 		taken := take(&latin, shape, authorentity.ScriptLatn, false, latinN)
 		take(&cyrl, shape, authorentity.ScriptLatn, true, latinN-taken)
-		take(&cyrl, shape, authorentity.ScriptCyrl, false, sizes.SuitePerShape-latinN)
+		take(&cyrl, shape, authorentity.ScriptCyrl, false, sizes.SuitePerShape-latinN-natural)
 	}
 	return out
 }

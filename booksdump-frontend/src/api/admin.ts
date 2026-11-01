@@ -398,6 +398,7 @@ export type AuthorLLMStepKey =
     | 'merge2'
     | 'merge3'
     | 'merge4'
+    | 'merge5'
     // The merge run (E4d-2): the registered kinds' candidates no eval asked.
     | 'merge_run';
 

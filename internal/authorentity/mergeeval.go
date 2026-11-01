@@ -221,7 +221,8 @@ func SuiteItemKey(pair *MergeSuitePair, shape string, romanized bool) [32]byte {
 // family name against the other's full name; translit — both without the
 // patronymic, one side in Latin letters by the fixed table; bucket — one
 // book of one person under the given and family name alone, against the
-// other's card under the full name. Romanized, both sides' names are in
+// other's card under the full name; variant — one person's full name, and
+// the same name respelled (Respell) on the other's books. Romanized, both sides' names are in
 // Latin letters by the fixed table, their books unchanged (translit
 // romanizes one side whatever the flag). books are the loaded fields of
 // MergeSuiteBookIDs.
@@ -248,6 +249,9 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	case CandidateBucket:
 		nameX = nx.given + " " + nx.family
 		nameY = ny.given + " " + ny.additional + " " + ny.family
+	case CandidateVariant:
+		nameX = nx.given + " " + nx.additional + " " + nx.family
+		nameY = nx.given + " " + Respell(nx.additional) + " " + nx.family
 	default:
 		nameX = nx.given + " " + nx.family
 		nameY = ny.family + " " + ny.given
@@ -264,6 +268,29 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	a := r.cardOf([]string{nameX}, nil, xBooks, x.entity)
 	c := r.cardOf([]string{nameY}, nil, y.books, y.entity)
 	return MergeInput{CardVersion: MergeCardVersion, A: a, B: c}
+}
+
+// respellings are the spellings a suite's variant item writes a
+// patronymic in: the first that applies, a doubled vowel or consonant
+// halved, a soft sign and и traded, then a vowel changed (a typo).
+var respellings = [][2]string{{"ее", "е"}, {"нн", "н"}, {"лл", "л"}, {"сс", "с"}, {softE, plainE}, {plainE, softE},
+	{"ss", "s"}, {"ll", "l"}, {"nn", "n"}, {"tt", "t"}, {"о", "а"}, {"е", "и"}, {"o", "a"}, {"e", "a"}}
+
+// softE and plainE are «-ьевич» and «-иевич», traded either way.
+const (
+	softE  = "ье"
+	plainE = "ие"
+)
+
+// Respell is a name written as a variant would write it: the first of
+// respellings that applies, once; a name none applies to stays as it is.
+func Respell(name string) string {
+	for _, r := range respellings {
+		if strings.Contains(name, r[0]) {
+			return strings.Replace(name, r[0], r[1], 1)
+		}
+	}
+	return name
 }
 
 // personName is a side's name parts as its credits spell them.
@@ -302,6 +329,12 @@ func (p *Plan) MergeAnchorPairs(exclude map[uuid.UUID]bool) []MergeAnchorPair {
 	if p.cand == nil {
 		return nil
 	}
+	return p.anchorPairs(exclude, p.cand.b.anchorPair)
+}
+
+// anchorPairs are the pairs pick finds on the sides an anchor may use, at
+// most one per side, in the anchors' order.
+func (p *Plan) anchorPairs(exclude map[uuid.UUID]bool, pick func(*candSide) (MergeAnchorPair, bool)) []MergeAnchorPair {
 	b := p.cand.b
 	var out []MergeAnchorPair
 	for _, root := range sortedKeys(p.cand.sides) {
@@ -310,7 +343,7 @@ func (p *Plan) MergeAnchorPairs(exclude map[uuid.UUID]bool) []MergeAnchorPair {
 			(s.script != ScriptCyrl && s.script != ScriptLatn) {
 			continue
 		}
-		if pair, ok := b.anchorPair(s); ok {
+		if pair, ok := pick(s); ok {
 			out = append(out, pair)
 		}
 	}
@@ -347,6 +380,48 @@ func (b *builder) displayNames(kg *keyGroup) []string {
 		names = append(names, b.in.Credits[ci].DisplayName)
 	}
 	return sortedDistinct(names)
+}
+
+// MergeVariantAnchorPairs are the plan's known-same variant anchors (E4f),
+// in a fixed hash order: per side at most one pair of its key groups whose
+// keys a variant pairs — two spellings of one name the build already holds
+// as one person (a typo merge with its evidence) — displayed differently,
+// sharing no book. Sides as for MergeAnchorPairs.
+func (p *Plan) MergeVariantAnchorPairs(exclude map[uuid.UUID]bool) []MergeAnchorPair {
+	if p.cand == nil {
+		return nil
+	}
+	return p.anchorPairs(exclude, p.cand.b.variantAnchorPair)
+}
+
+// variantAnchorPair is a side's first pair of key groups a variant pairs.
+func (b *builder) variantAnchorPair(s *candSide) (MergeAnchorPair, bool) {
+	keys := slices.Clone(s.keys)
+	slices.Sort(keys)
+	for i, x := range keys {
+		for _, y := range keys[i+1:] {
+			kx, ky := b.keys[x], b.keys[y]
+			if len(kx.credits) == 0 || len(ky.credits) == 0 || !variantKeys(&kx.key, &ky.key) ||
+				overlaps(kx.books, ky.books) || slices.Equal(b.displayNames(kx), b.displayNames(ky)) {
+				continue
+			}
+			return MergeAnchorPair{Kind: CandidateVariant, Script: s.script, Entity: s.entity, ka: x, kb: y}, true
+		}
+	}
+	return MergeAnchorPair{}, false
+}
+
+// variantKeys reports two keys a variant pairs (candGen.variants).
+func variantKeys(x, y *nameKey) bool {
+	if !variantKey(x) || !variantKey(y) || *x == *y || x.script != y.script || x.suffix != y.suffix {
+		return false
+	}
+	if x.family == y.family && x.given == y.given && x.additional != "" && y.additional != "" &&
+		variantPatronymics(x.additional, y.additional) {
+		return true
+	}
+	return variantFold(x.family) == variantFold(y.family) && variantFold(x.given) == variantFold(y.given) &&
+		variantFold(x.additional) == variantFold(y.additional)
 }
 
 // anchorKind is the shape two keys of one person show: initials when one

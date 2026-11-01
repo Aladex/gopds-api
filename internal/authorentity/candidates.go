@@ -26,10 +26,13 @@ const (
 	CandidateSwap     = "swap"
 	CandidateInitials = "initials"
 	CandidateTranslit = "translit"
+	CandidateVariant  = "variant"
 )
 
-// candidateKinds are the kinds in precedence order.
-var candidateKinds = []string{CandidateBucket, CandidateSwap, CandidateInitials, CandidateTranslit}
+// candidateKinds are the kinds in precedence order. variant (E4f) is the
+// lowest: a pair another kind asks stays there, so no earlier kind's
+// candidates change.
+var candidateKinds = []string{CandidateBucket, CandidateSwap, CandidateInitials, CandidateTranslit, CandidateVariant}
 
 // The item kinds: a pair of entities, or one bucket book against a full
 // name's entity.
@@ -208,6 +211,7 @@ func (b *builder) collectCandidates(p *Plan, groups []*group) {
 	g.swaps()
 	g.initials()
 	g.translits()
+	g.variants()
 	g.cap()
 	g.precedence()
 	for _, it := range g.ordered() {
@@ -480,6 +484,97 @@ func (g *candGen) translits() {
 			}
 		}
 	}
+}
+
+// variants pairs two full names of one script that spell one name two
+// ways (E4f): of one family, given name and suffix, patronymics that are
+// one under the spelling fold, a typo of each other (typoCandidates: one or
+// two edits, four letters at least, one gender) or one a word prefix of the
+// other; or two names equal under the spelling fold as a whole. Two
+// different patronymics are two people and never pair; neither do initials,
+// which the initials kind asks.
+func (g *candGen) variants() {
+	byBase := map[string][]keyRef{}
+	byFold := map[string][]keyRef{}
+	for _, s := range g.sortedSides() {
+		for _, k := range s.keys {
+			key := &g.b.keys[k].key
+			if !variantKey(key) {
+				continue
+			}
+			ref := keyRef{side: s, key: key}
+			if key.additional != "" {
+				base := key.script + "|" + key.suffix + "|" + key.family + "|" + key.given
+				byBase[base] = append(byBase[base], ref)
+			}
+			folded := key.script + "|" + key.suffix + "|" + variantFold(key.family) + "|" + variantFold(key.given) + "|" +
+				variantFold(key.additional)
+			byFold[folded] = append(byFold[folded], ref)
+		}
+	}
+	for _, base := range sortedKeys(byBase) {
+		refs := byBase[base]
+		for i, x := range refs {
+			for _, y := range refs[i+1:] {
+				if x.key.additional != y.key.additional && variantPatronymics(x.key.additional, y.key.additional) {
+					g.add(CandidateVariant, x.key.script, x.side, y.side, false)
+				}
+			}
+		}
+	}
+	for _, folded := range sortedKeys(byFold) {
+		refs := byFold[folded]
+		for i, x := range refs {
+			for _, y := range refs[i+1:] {
+				if *x.key != *y.key {
+					g.add(CandidateVariant, x.key.script, x.side, y.side, false)
+				}
+			}
+		}
+	}
+}
+
+// variantKey reports a key a variant may pair: a person's full name of
+// Cyrillic or Latin letters, of no initials.
+func variantKey(k *nameKey) bool {
+	return k.kind == KindPerson && k.family != "" && k.given != "" && !k.initials() &&
+		(k.script == string(authornorm.ScriptCyrillic) || k.script == string(authornorm.ScriptLatin))
+}
+
+// variantPatronymics reports two patronymics (or middle names) one name
+// spells two ways: equal under the spelling fold, a typo of each other, or
+// one the other's first words.
+func variantPatronymics(a, b string) bool {
+	if variantFold(a) == variantFold(b) {
+		return true
+	}
+	if _, ok := typoCandidates(a, b); ok {
+		return true
+	}
+	wa, wb := strings.Fields(a), strings.Fields(b)
+	if len(wa) > len(wb) {
+		wa, wb = wb, wa
+	}
+	return len(wa) < len(wb) && slices.Equal(wa, wb[:len(wa)])
+}
+
+// variantLetters are the letters the spelling fold reads as one: э, ё and
+// є as е; і, ї, й and ы as и; ґ as г; the signs out.
+var variantLetters = strings.NewReplacer("э", "е", "ё", "е", "є", "е", "і", "и", "ї", "и", "й", "и", "ы", "и",
+	"ґ", "г", "ь", "", "ъ", "")
+
+// variantFold is a key part under the spelling fold: variantLetters, then a
+// doubled letter as one («Даррелл», «Даррел»). It is the entity layer's own
+// and changes no key: authornorm.SearchKey stays as it is.
+func variantFold(part string) string {
+	var out []rune
+	for _, r := range variantLetters.Replace(part) {
+		if len(out) > 0 && out[len(out)-1] == r {
+			continue
+		}
+		out = append(out, r)
+	}
+	return string(out)
 }
 
 // cap keeps out every pair of a side with more partners of the kind than
@@ -766,6 +861,9 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 		if it.reason == "" {
 			if failed := isolate(func() {
 				a, b := r.card(si.sideA, si), r.card(si.sideB, nil)
+				if it.kind == CandidateVariant {
+					a.Wikidata, b.Wikidata = p.cand.b.wikidataLabel(si.sideA), p.cand.b.wikidataLabel(si.sideB)
+				}
 				si.input = MergeInputJSON(&a, &b)
 			}); failed {
 				// One card that panicked leaves its item out, counted (§1.5);
@@ -907,6 +1005,22 @@ func (r *cardRenderer) book(id int64, entity uuid.UUID) MergeCardBook {
 	}
 	f := r.fields[id]
 	return MergeCardBookOf(r.b.in.Books[id].Title, &f, coauthors)
+}
+
+// wikidataLabel is the label of the item a side's display name is a main
+// label of, carried by no other item (rules 1 and 2); empty when there is
+// none. Only a variant card shows it: on every other kind's card the field
+// stays empty and out of the input.
+func (b *builder) wikidataLabel(s *candSide) string {
+	ref := b.in.Reference
+	if ref == nil {
+		return ""
+	}
+	qid := b.mainLabelOf(ref.NameKey[s.display])
+	if qid == "" {
+		return ""
+	}
+	return ref.Items[qid].Label
 }
 
 // creditsOnBooks are the credits on each of the books.

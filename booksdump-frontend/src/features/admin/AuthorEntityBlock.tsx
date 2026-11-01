@@ -450,6 +450,7 @@ const MERGE_KINDS: Record<string, [string, string]> = {
     initials: ['authorEntity.merges.kind.initials', 'initials'],
     translit: ['authorEntity.merges.kind.translit', 'transliteration'],
     bucket: ['authorEntity.merges.kind.bucket', 'a book of a short name'],
+    variant: ['authorEntity.merges.kind.variant', 'one name spelled two ways'],
 };
 
 const mergeKind = (t: T, kind: string): string => {

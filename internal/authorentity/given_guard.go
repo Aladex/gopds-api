@@ -117,6 +117,38 @@ func (n nameClasses) joins(o nameClasses) bool {
 	return false
 }
 
+// variantOf reports a union a variant decision asked about (E4f): in every
+// family both hold names in, each of one side's names is the same name as
+// each of the other's or the variant's spelling of it — a given name equal
+// under the spelling fold, a patronymic within variantPatronymics. Only the
+// asked difference passes: a chain of variants («Ибатович», «Ипатович»,
+// «Ипатьевич») holds two names that are no variant of each other.
+func (n nameClasses) variantOf(o nameClasses) bool {
+	for family, x := range n {
+		y := o[family]
+		if y == nil {
+			continue
+		}
+		if !allPairs(x.given, y.given, func(a, b string) bool { return variantFold(a) == variantFold(b) }) ||
+			!allPairs(x.additional, y.additional, variantPatronymics) {
+			return false
+		}
+	}
+	return true
+}
+
+// allPairs reports every name of x and every name of y equal or near.
+func allPairs(x, y []string, near func(a, b string) bool) bool {
+	for _, a := range x {
+		for _, b := range y {
+			if a != b && !near(a, b) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // grows reports two name sets neither of which holds the other: each has a
 // name the other lacks. It relies on one name being an equivalence — equal
 // folded strings — so that holding is transitive: a name a side holds is

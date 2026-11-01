@@ -32,6 +32,9 @@ type MergeCard struct {
 	// Size is the side's size class in books, never a count.
 	Size  string          `json:"size"`
 	Books []MergeCardBook `json:"books"`
+	// Wikidata is the label of the item the side's entity is, on a variant
+	// card only (E4f); empty, and absent from the input, on every other.
+	Wikidata string `json:"wikidata,omitempty"`
 }
 
 // MergeCardBook is one sample book of a card.
@@ -114,6 +117,9 @@ var MergeCardSources = map[string][]CardSource{
 		{Table: srcSnapshot, Columns: []string{colCurrent}},
 		{Table: srcBook, Columns: []string{colID}},
 	},
+	// The item's label: the published extract (its names are written
+	// before it is published and never after).
+	"MergeCard.Wikidata":     {{Table: "wikidata_extract", Columns: []string{"status"}}},
 	"MergeCardBook.Title":    {{Table: srcBook, Columns: []string{colTitle}}},
 	"MergeCardBook.Samizdat": {{Table: srcBook, Columns: []string{colTitle}}},
 	"MergeCardBook.Year": {

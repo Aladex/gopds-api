@@ -314,7 +314,8 @@ func (m *modelStep) evaluate() {
 // the two sides of a pair the production pair answered different
 // (not_same), or two full given names of one family that are not one name
 // (given_name; never a decision the previous pass applied: a live merge
-// keeps its state). Only that decision is held, never the component; m.entityDecs
+// keeps its state; a variant decision passes on the spellings it asked
+// about, nameClasses.variantOf). Only that decision is held, never the component; m.entityDecs
 // keeps the joined ones, and the union of them is returned.
 func (m *modelStep) joinInOrder() intUnion {
 	slices.SortStableFunc(m.entityDecs, func(x, y decided) int {
@@ -356,7 +357,7 @@ func (m *modelStep) joinInOrder() intUnion {
 		case bridgesNotSame(uf, partners, rx, y):
 			m.set(e.d.ID, DecisionConflict, ConflictNotSame)
 			continue
-		case !e.d.WasApplied && nx.joins(ny):
+		case !e.d.WasApplied && nx.joins(ny) && (e.d.Kind != CandidateVariant || !nx.variantOf(ny)):
 			m.set(e.d.ID, DecisionConflict, ConflictGivenName)
 			continue
 		}
