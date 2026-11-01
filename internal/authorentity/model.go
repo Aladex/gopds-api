@@ -128,9 +128,15 @@ type ModelReport struct {
 	Lapsed    map[string]int `json:"lapsed"`
 	Conflict  map[string]int `json:"conflict"`
 	// Unions joined level-0 components; BookMoves moved a bucket book.
-	Unions    int           `json:"unions"`
-	BookMoves int           `json:"book_moves"`
-	Revivals  RevivalReport `json:"revivals"`
+	Unions    int `json:"unions"`
+	BookMoves int `json:"book_moves"`
+	// Wikidata is the Wikidata step after the decisions (E4f); nil when
+	// the pass has no reference.
+	Wikidata *WikidataReport `json:"wikidata,omitempty"`
+	// TwoTargetsJoined are the bucket books two_targets held that moved
+	// once the Wikidata step joined their targets.
+	TwoTargetsJoined int           `json:"two_targets_joined"`
+	Revivals         RevivalReport `json:"revivals"`
 }
 
 // RevivalReport counts the revivals by outcome and reason.
@@ -442,15 +448,31 @@ func (m *modelStep) lapseReason(d *MergeDecision) string {
 }
 
 func (m *modelStep) set(id int64, state, reason string) {
+	if old := m.states[id]; old != nil {
+		// A state set again (a two_targets book the Wikidata step joined the
+		// targets of) counts once, as its last state.
+		m.count(old.State, old.Reason, -1)
+	}
 	m.states[id] = &DecisionState{DecisionID: id, State: state, Reason: reason}
+	m.applied[id] = state == DecisionApplied
+	m.count(state, reason, 1)
+}
+
+// count adds n to the report's count of a state and reason.
+func (m *modelStep) count(state, reason string, n int) {
 	switch state {
 	case DecisionApplied:
-		m.applied[id] = true
-		m.rep.Applied++
+		m.rep.Applied += n
 	case DecisionLapsed:
-		m.rep.Lapsed[reason]++
+		m.rep.Lapsed[reason] += n
+		if m.rep.Lapsed[reason] == 0 {
+			delete(m.rep.Lapsed, reason)
+		}
 	case DecisionConflict:
-		m.rep.Conflict[reason]++
+		m.rep.Conflict[reason] += n
+		if m.rep.Conflict[reason] == 0 {
+			delete(m.rep.Conflict, reason)
+		}
 	}
 }
 
@@ -481,6 +503,9 @@ func (m *modelStep) replan() *Plan {
 	b.resetPlanReport()
 	b.moveShortNameBooks()
 	m.moveDecidedBooks()
+	if m.mergeWikidataAfterDecisions() {
+		m.retryTwoTargets()
+	}
 	b.prepareRevival(func(mm *ModelMerge) bool {
 		for _, id := range mm.DecisionIDs {
 			if !m.applied[id] {
@@ -515,50 +540,54 @@ func (m *modelStep) replan() *Plan {
 // keeps D3's row; one D3 moved elsewhere, or that two decisions send to two
 // full names, stays where it is.
 func (m *modelStep) moveDecidedBooks() {
-	b := m.b
 	byCredit := map[int][]decided{}
 	for _, e := range m.bookDecs {
 		byCredit[e.si.it.credit] = append(byCredit[e.si.it.credit], e)
 	}
 	for _, ci := range sortedKeys(byCredit) {
-		decs := byCredit[ci]
-		targets := map[int]bool{}
-		for _, e := range decs {
-			targets[b.find(e.si.sideB.root)] = true
-		}
-		if len(targets) > 1 {
-			for _, e := range decs {
-				m.set(e.d.ID, DecisionConflict, ConflictTwoTargets)
-			}
-			continue
-		}
-		e := decs[0]
-		target := b.find(e.si.sideB.root)
-		if b.creditVetoedFrom(ci, b.membersOf(target)) {
-			for _, e := range decs {
-				m.set(e.d.ID, DecisionConflict, ConflictVetoed)
-			}
-			b.vetoRefused(VetoRefusedModel)
-			continue
-		}
-		if to, moved := b.movedTo[ci]; moved {
-			for _, e := range decs {
-				if to == target {
-					m.set(e.d.ID, DecisionApplied, "")
-				} else {
-					m.set(e.d.ID, DecisionConflict, ConflictD3Disagrees)
-				}
-			}
-			continue
-		}
-		b.movedTo[ci], b.movedRule[ci], b.movedMethod[ci] = target, modelRuleOf(e.d.Kind, e.d.ReportID), MethodModel
-		addEdge(b.forest, e.si.sideA.root, e.si.sideB.root,
-			forestEdge{decision: e.d.ID, kind: e.d.Kind, report: e.d.ReportID})
-		for _, e := range decs {
-			m.set(e.d.ID, DecisionApplied, "")
-		}
-		m.rep.BookMoves++
+		m.moveBook(ci, byCredit[ci])
 	}
+}
+
+// moveBook applies the decisions of one bucket book (moveDecidedBooks).
+func (m *modelStep) moveBook(ci int, decs []decided) {
+	b := m.b
+	targets := map[int]bool{}
+	for _, e := range decs {
+		targets[b.find(e.si.sideB.root)] = true
+	}
+	if len(targets) > 1 {
+		for _, e := range decs {
+			m.set(e.d.ID, DecisionConflict, ConflictTwoTargets)
+		}
+		return
+	}
+	e := decs[0]
+	target := b.find(e.si.sideB.root)
+	if b.creditVetoedFrom(ci, b.membersOf(target)) {
+		for _, e := range decs {
+			m.set(e.d.ID, DecisionConflict, ConflictVetoed)
+		}
+		b.vetoRefused(VetoRefusedModel)
+		return
+	}
+	if to, moved := b.movedTo[ci]; moved {
+		for _, e := range decs {
+			if to == target {
+				m.set(e.d.ID, DecisionApplied, "")
+			} else {
+				m.set(e.d.ID, DecisionConflict, ConflictD3Disagrees)
+			}
+		}
+		return
+	}
+	b.movedTo[ci], b.movedRule[ci], b.movedMethod[ci] = target, modelRuleOf(e.d.Kind, e.d.ReportID), MethodModel
+	addEdge(b.forest, e.si.sideA.root, e.si.sideB.root,
+		forestEdge{decision: e.d.ID, kind: e.d.Kind, report: e.d.ReportID})
+	for _, e := range decs {
+		m.set(e.d.ID, DecisionApplied, "")
+	}
+	m.rep.BookMoves++
 }
 
 // ruleModel prefixes the rule of a row a model decision put in its entity:

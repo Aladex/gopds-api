@@ -149,8 +149,12 @@ type component struct {
 	credits []int
 	books   map[int64]bool
 	display string
-	// key is the display name's key, script its script.
+	// key is the display name's key, script its script; after the
+	// decisions, the name that names the item (namedBy).
 	key, script string
+	// names are the keys of the credits' names, sorted (the step after the
+	// decisions reads them).
+	names []string
 }
 
 // mergeWikidata merges the components the reference links (see the rules
@@ -312,10 +316,15 @@ const minGroup = 2
 // mergeItem merges the components an item names: all of them when they go
 // by one key per script, else those of each key.
 func (b *builder) mergeItem(qid string, cs []*component) {
+	b.mergeItemInto(&b.rep.Wikidata, qid, cs, nil)
+}
+
+// mergeItemInto is mergeItem counting into w; apart, when set, names why two
+// components of a set are never one person, which keeps the set apart.
+func (b *builder) mergeItemInto(w *WikidataReport, qid string, cs []*component, apart func(x, y *component) string) {
 	if len(cs) < minGroup {
 		return
 	}
-	w := &b.rep.Wikidata
 	w.Groups++
 	byKey := map[string][]*component{}
 	keyOfScript := map[string]string{}
@@ -337,21 +346,28 @@ func (b *builder) mergeItem(qid string, cs []*component) {
 	}
 	rule := WikidataRule(qid, b.in.Reference.Extract)
 	for _, set := range sets {
-		b.mergeSet(qid, rule, set)
+		b.mergeSet(w, qid, rule, set, apart)
 	}
 }
 
 // mergeSet merges a set of components into the one of most books, unless
-// two of them are credited on one book.
-func (b *builder) mergeSet(qid, rule string, set []*component) {
+// two of them are credited on one book, or apart keeps two of them apart.
+func (b *builder) mergeSet(w *WikidataReport, qid, rule string, set []*component,
+	apart func(x, y *component) string) {
 	if len(set) < minGroup {
 		return
 	}
-	w := &b.rep.Wikidata
 	for i, x := range set {
 		for _, y := range set[i+1:] {
 			if sharesBook(x.books, y.books) {
 				w.SharedBook++
+				return
+			}
+			if apart == nil {
+				continue
+			}
+			if reason := apart(x, y); reason != "" {
+				w.Excluded[reason]++
 				return
 			}
 		}

@@ -58,3 +58,17 @@ func OnDecisionStep(fn func()) (restore func()) {
 // SameGivenName reports two full Cyrillic name parts the given-name guard
 // takes for one name.
 func SameGivenName(a, b string) bool { return foldName(a) == foldName(b) }
+
+// DenyWikidataAfter adds items to the Wikidata step's deny list until the
+// returned func restores it.
+func DenyWikidataAfter(qids ...string) (restore func()) {
+	saved := wikidataAfterDenied
+	wikidataAfterDenied = map[string]bool{}
+	for k, v := range saved {
+		wikidataAfterDenied[k] = v
+	}
+	for _, q := range qids {
+		wikidataAfterDenied[q] = true
+	}
+	return func() { wikidataAfterDenied = saved }
+}
