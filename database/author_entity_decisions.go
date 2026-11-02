@@ -58,7 +58,11 @@ type mergeMemberRow struct {
 // blocks is withheld with that reason (§4.7): the build lapses it whatever
 // its candidate. Each carries the registration it applies under (the one
 // it was inserted under when none is live) and whether the previous pass
-// applied it: the order in which a conflict holds decisions (E4c).
+// applied it: the order in which a conflict holds decisions (E4c), and
+// what given_name spares. A decision a pass applied once (a model union of
+// the merge log names it) that the previous pass held on not_same reads as
+// applied too (E4f): a hold on answers the production side later split on
+// does not cost a live merge its standing.
 func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDecision, error) {
 	var rows []mergeDecisionRow
 	if _, err := db.QueryContext(ctx, &rows, `
@@ -66,7 +70,10 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 			d.outcome, coalesce(d.eval_report_id, 0) AS report_id,
 			coalesce(CASE WHEN own.id IS NOT NULL THEN live.id END, d.registration_id, 0) AS registration_id,
 			EXISTS (SELECT 1 FROM public.author_entity_merge_decision_state s
-				WHERE s.decision_id = d.id AND s.state = 'applied') AS was_applied,
+				WHERE s.decision_id = d.id AND (s.state = 'applied'
+					OR (s.state = 'conflict' AND s.reason = ?3 AND EXISTS (
+						SELECT 1 FROM public.author_entity_merge_log l
+						WHERE l.method = ?4 AND l.evidence->'decision_ids' @> to_jsonb(d.id))))) AS was_applied,
 			CASE WHEN d.source <> 'model' THEN ''
 				WHEN own.id IS NULL THEN ?0
 				WHEN live.id IS NULL THEN ?1
@@ -79,7 +86,8 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 		LEFT JOIN public.author_entity_merge_registration live ON live.config_version = d.config_version
 			AND live.kind = d.kind AND live.withdrawn_at IS NULL
 		WHERE d.revoked_at IS NULL ORDER BY d.id`,
-		MergeWithheldUnregistered, MergeWithheldWithdrawn, MergeWithheldScriptBlocked); err != nil {
+		MergeWithheldUnregistered, MergeWithheldWithdrawn, MergeWithheldScriptBlocked, authorentity.ConflictNotSame,
+		authorentity.MethodModel); err != nil {
 		return nil, fmt.Errorf("reading the merge decisions: %w", err)
 	}
 	if len(rows) == 0 {
@@ -124,30 +132,46 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 
 // LoadMergeNotSame reads the digests of the merge candidates the production
 // pair answered different (either of the two: a first answer of a merge
-// eval, or an answer of a merge run): the build's conflict rule (§4.2)
-// refuses a union that would join the two sides of such a pair. A
-// cannot_tell, an invalid or a missing answer blocks nothing — it is no
-// evidence of two people — and neither does a judge's different: a judge
-// gates what is applied, not what other decisions may join.
+// eval, or an answer of a merge run) and did not split on: the build's
+// conflict rule (§4.2) refuses a union that would join the two sides of
+// such a pair. A same from either production participant on any answer of
+// the pair — the other's first answer, a repeat, another eval or a merge
+// run — splits it (E4f): a split is no decision of one person, and no
+// evidence of two either, unless the pair's different answers outnumber
+// its same ones, every answer of it counted, the judges' and the repeats'
+// too; a tie blocks nothing. A cannot_tell, an invalid or a missing answer
+// is no evidence either way, and a judge's different alone blocks nothing:
+// a judge gates what is applied, not what other decisions may join.
 func LoadMergeNotSame(ctx context.Context, db pg.DBI) ([][32]byte, error) {
 	different := sha256.Sum256(llmreq.MergeCanonical(llmreq.MergeDifferent))
+	same := sha256.Sum256(llmreq.MergeCanonical(llmreq.MergeSame))
 	var digests [][]byte
 	if _, err := db.QueryContext(ctx, &digests, `
-		SELECT DISTINCT i.source_fingerprint
-		FROM public.author_llm_eval_item i
-		JOIN public.author_llm_job j ON j.eval_item_id = i.id AND j.purpose = ?0 AND j.repeat_no = 0
-			AND j.status = 'answered'
-		JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
-		WHERE i.extractor_version = ?1 AND a.canonical_sha256 = ?2
-		UNION
-		SELECT j.source_fingerprint
-		FROM public.author_llm_job j
-		JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
-		WHERE j.purpose = ?3 AND j.slot IN (?4, ?5) AND j.status = 'answered' AND j.eval_item_id IS NULL
-			AND j.extractor_version = ?1 AND a.canonical_sha256 = ?2
-		ORDER BY 1`, string(models.AuthorLLMPurposeEvalCandidate), authorentity.MergeCandidateVersion,
-		different[:], string(models.AuthorLLMPurposeMergeCheck), string(llmreq.SlotProductionA),
-		string(llmreq.SlotProductionB)); err != nil {
+		WITH answer AS (
+			SELECT i.source_fingerprint, j.purpose, j.slot, j.repeat_no, a.canonical_sha256
+			FROM public.author_llm_eval_item i
+			JOIN public.author_llm_job j ON j.eval_item_id = i.id AND j.purpose IN (?0, ?1, ?2)
+				AND j.status = 'answered'
+			JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
+			WHERE i.extractor_version = ?3
+			UNION ALL
+			SELECT j.source_fingerprint, j.purpose, j.slot, j.repeat_no, a.canonical_sha256
+			FROM public.author_llm_job j
+			JOIN public.author_llm_attempt a ON a.id = j.answer_attempt_id
+			WHERE j.purpose = ?4 AND j.status = 'answered' AND j.eval_item_id IS NULL AND j.extractor_version = ?3),
+		tally AS (
+			SELECT source_fingerprint,
+				bool_or(slot IN (?5, ?6) AND canonical_sha256 = ?7
+					AND (purpose = ?4 OR (purpose = ?0 AND repeat_no = 0))) AS different,
+				bool_or(slot IN (?5, ?6) AND canonical_sha256 = ?8) AS split,
+				count(*) FILTER (WHERE canonical_sha256 = ?7) AS differents,
+				count(*) FILTER (WHERE canonical_sha256 = ?8) AS sames
+			FROM answer GROUP BY source_fingerprint)
+		SELECT source_fingerprint FROM tally WHERE different AND (NOT split OR differents > sames)
+		ORDER BY 1`, string(models.AuthorLLMPurposeEvalCandidate), string(models.AuthorLLMPurposeEvalJudge),
+		string(models.AuthorLLMPurposeEvalRepeat), authorentity.MergeCandidateVersion,
+		string(models.AuthorLLMPurposeMergeCheck), string(llmreq.SlotProductionA), string(llmreq.SlotProductionB),
+		different[:], same[:]); err != nil {
 		return nil, fmt.Errorf("reading the production pair's merge answers different: %w", err)
 	}
 	out := make([][32]byte, 0, len(digests))

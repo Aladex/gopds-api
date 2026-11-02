@@ -38,7 +38,8 @@ type MergeDecision struct {
 	// RegistrationID is the registration a model decision applies under —
 	// the live one of its configuration and kind, else the one it was
 	// inserted under (0 for none); WasApplied is true when the previous
-	// pass applied the decision. They order the decisions a conflict holds.
+	// pass applied the decision, or held on not_same one a pass applied
+	// before (E4f). They order the decisions a conflict holds.
 	RegistrationID int64
 	WasApplied     bool
 }

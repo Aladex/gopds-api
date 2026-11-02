@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"gopds-api/database"
@@ -17,10 +18,12 @@ import (
 
 // The build's conflict rule needs an explicit different from the
 // production pair (E4c): a pair blocks the component that would join its
-// two sides only when production_a or production_b answered it different.
-// The Asimov shape on prod — one pair of a big author answered cannot_tell
-// by one participant, every other pair all four same — no longer holds the
-// whole component, and a judge's different alone never did and does not.
+// two sides only when production_a or production_b answered it different,
+// and neither answered it same on any answer (E4f): a pair the production
+// side split on is no evidence of two people. The Asimov shape on prod —
+// one pair of a big author answered cannot_tell by one participant, every
+// other pair all four same — no longer holds the whole component, and a
+// judge's different alone never did and does not.
 
 // poselyagins are three orders of one name in one genre: the build pairs
 // each two of them as swap candidates, a triangle.
@@ -40,12 +43,27 @@ const (
 // triangleStub answers as mergeStub, except that slot's model answers
 // answer on the pair of sides A and C — one pair of the triangle.
 func triangleStub(model, answer string) func(*fakeRequest) fakeReply {
+	return triangleAnswers(map[string][]string{model: {answer}})
+}
+
+// triangleAnswers answers as mergeStub, except on the pair of sides A and C:
+// each model of answers gives its answers there in turn, the last one to
+// every later ask (a repeat asks again).
+func triangleAnswers(answers map[string][]string) func(*fakeRequest) fakeReply {
+	var mu sync.Mutex
+	asked := map[string]int{}
 	return func(req *fakeRequest) fakeReply {
 		reply := mergeStub(req)
-		if req.Model == model && strings.Contains(req.User, "Владимир Геннадьевич Поселягин") &&
-			strings.Contains(req.User, "Владимир Поселягин Геннадьевич") {
-			reply.Content = strings.ReplaceAll(reply.Content, `"`+llmreq.MergeSame+`"`, `"`+answer+`"`)
+		turns, ok := answers[req.Model]
+		if !ok || !strings.Contains(req.User, "Владимир Геннадьевич Поселягин") ||
+			!strings.Contains(req.User, "Владимир Поселягин Геннадьевич") {
+			return reply
 		}
+		mu.Lock()
+		answer := turns[min(asked[req.Model], len(turns)-1)]
+		asked[req.Model]++
+		mu.Unlock()
+		reply.Content = strings.ReplaceAll(reply.Content, `"`+llmreq.MergeSame+`"`, `"`+answer+`"`)
 		return reply
 	}
 }
@@ -118,24 +136,82 @@ func TestACannotTellPairNoLongerBlocksItsComponent(t *testing.T) {
 	assert.Empty(t, notSame, "cannot_tell is no conflict")
 }
 
-// production_b's different on A–C still keeps A and C apart: of the two
-// decisions that together would join them, the first in order (B–C, the
-// lower id) applies and the second, which would bridge the pair, is held
-// (not_same, E4c) — never the whole component.
+// A different on A–C that no production answer contradicts still keeps A
+// and C apart — both production participants different, or one different
+// and the other cannot_tell: of the two decisions that together would join
+// them, the first in order (B–C, the lower id) applies and the second,
+// which would bridge the pair, is held (not_same, E4c) — never the whole
+// component.
 func TestADifferentPairStillBlocksItsComponent(t *testing.T) {
-	f := newTriangleFixture(t, triangleStub("deepseek-v4-pro", llmreq.MergeDifferent))
+	for name, answers := range map[string]map[string][]string{
+		"both different": {"gpt-6-luna": {llmreq.MergeDifferent}, "deepseek-v4-pro": {llmreq.MergeDifferent}},
+		"different and cannot_tell": {"gpt-6-luna": {llmreq.MergeCannotTell},
+			"deepseek-v4-pro": {llmreq.MergeDifferent}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newTriangleFixture(t, triangleAnswers(answers))
+			registration, _ := f.registerSwap()
+			_, err := f.admin.ApplyMergeEval(context.Background(), registration, 0)
+			require.NoError(t, err)
+			f.c.build()
+
+			assert.Equal(t, map[[2]byte]string{
+				{fillPoselyaginA, fillPoselyaginB}: "conflict/not_same",
+				{fillPoselyaginB, fillPoselyaginC}: "applied/",
+			}, f.triangleStates())
+			assert.True(t, f.together(fillPoselyaginB, fillPoselyaginC))
+			assert.False(t, f.together(fillPoselyaginA, fillPoselyaginB))
+			assert.False(t, f.together(fillPoselyaginA, fillPoselyaginC))
+		})
+	}
+}
+
+// Both judges' different on A–C, the production pair cannot_tell, blocks
+// nothing either: only a production participant's different is evidence
+// of two people, however many judges join it.
+func TestTheJudgesDifferentAloneDoesNotBlockItsComponent(t *testing.T) {
+	f := newTriangleFixture(t, triangleAnswers(map[string][]string{"gpt-6-luna": {llmreq.MergeCannotTell},
+		"deepseek-v4-pro": {llmreq.MergeCannotTell}, "gpt-6-sol": {llmreq.MergeDifferent},
+		"claude-opus-5": {llmreq.MergeDifferent}}))
 	registration, _ := f.registerSwap()
 	_, err := f.admin.ApplyMergeEval(context.Background(), registration, 0)
 	require.NoError(t, err)
 	f.c.build()
 
-	assert.Equal(t, map[[2]byte]string{
-		{fillPoselyaginA, fillPoselyaginB}: "conflict/not_same",
-		{fillPoselyaginB, fillPoselyaginC}: "applied/",
-	}, f.triangleStates())
-	assert.True(t, f.together(fillPoselyaginB, fillPoselyaginC))
-	assert.False(t, f.together(fillPoselyaginA, fillPoselyaginB))
-	assert.False(t, f.together(fillPoselyaginA, fillPoselyaginC))
+	assert.True(t, f.together(fillPoselyaginA, fillPoselyaginC))
+	notSame, err := database.LoadMergeNotSame(context.Background(), f.e.db)
+	require.NoError(t, err)
+	assert.Empty(t, notSame, "the judges' different is no conflict")
+}
+
+// The variant shape on prod (E4f): one production participant answered A–C
+// different and the other same — or both different the first time and one
+// of them same when the pair was asked again. The production side split
+// on the pair, so it blocks nothing: A–B and B–C apply and the three are
+// one entity, and A–C itself is never a decision.
+func TestADifferentAProductionAnswerContradictsBlocksNothing(t *testing.T) {
+	for name, answers := range map[string]map[string][]string{
+		"the other same": {"deepseek-v4-pro": {llmreq.MergeDifferent}},
+		"same on a repeat": {"gpt-6-luna": {llmreq.MergeDifferent},
+			"deepseek-v4-pro": {llmreq.MergeDifferent, llmreq.MergeSame}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newTriangleFixture(t, triangleAnswers(answers))
+			registration, _ := f.registerSwap()
+			_, err := f.admin.ApplyMergeEval(context.Background(), registration, 0)
+			require.NoError(t, err)
+			f.c.build()
+
+			assert.Equal(t, map[[2]byte]string{
+				{fillPoselyaginA, fillPoselyaginB}: "applied/",
+				{fillPoselyaginB, fillPoselyaginC}: "applied/",
+			}, f.triangleStates())
+			assert.True(t, f.together(fillPoselyaginA, fillPoselyaginC))
+			notSame, err := database.LoadMergeNotSame(context.Background(), f.e.db)
+			require.NoError(t, err)
+			assert.Empty(t, notSame, "a different a production answer contradicts is no conflict")
+		})
+	}
 }
 
 // A judge's different alone — judge_b on A–C, the production pair and
@@ -156,4 +232,42 @@ func TestAJudgeOnlyDifferentDoesNotBlockItsComponent(t *testing.T) {
 	notSame, err := database.LoadMergeNotSame(context.Background(), f.e.db)
 	require.NoError(t, err)
 	assert.Empty(t, notSame, "a judge's different is no conflict")
+}
+
+// A pair the production side split on still blocks when its different
+// answers outnumber its same ones (E4f), every answer counted — the
+// judges' and every repeat's too: three of four participants different
+// against one same keep A and C apart, and so do a judge's repeat that
+// tips a tie. A tie itself blocks nothing.
+func TestASplitPairOutnumberedByDifferentStillBlocks(t *testing.T) {
+	d, s := llmreq.MergeDifferent, llmreq.MergeSame
+	for name, c := range map[string]struct {
+		answers map[string][]string
+		blocks  bool
+	}{
+		"judges different": {map[string][]string{"gpt-6-luna": {s}, "deepseek-v4-pro": {d}, "gpt-6-sol": {d},
+			"claude-opus-5": {d}}, true},
+		"a judge's repeat tips a tie": {map[string][]string{"gpt-6-luna": {s}, "deepseek-v4-pro": {d},
+			"gpt-6-sol": {d}, "claude-opus-5": {s, d}}, true},
+		"a tie": {map[string][]string{"gpt-6-luna": {s}, "deepseek-v4-pro": {d}, "gpt-6-sol": {d},
+			"claude-opus-5": {s}}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newTriangleFixture(t, triangleAnswers(c.answers))
+			registration, _ := f.registerSwap()
+			_, err := f.admin.ApplyMergeEval(context.Background(), registration, 0)
+			require.NoError(t, err)
+			f.c.build()
+
+			ac := "applied/"
+			if c.blocks {
+				ac = "conflict/not_same"
+			}
+			assert.Equal(t, map[[2]byte]string{
+				{fillPoselyaginA, fillPoselyaginB}: ac,
+				{fillPoselyaginB, fillPoselyaginC}: "applied/",
+			}, f.triangleStates())
+			assert.Equal(t, !c.blocks, f.together(fillPoselyaginA, fillPoselyaginC))
+		})
+	}
 }

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"gopds-api/internal/authornorm"
 
 	"github.com/go-pg/pg/v10"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -280,6 +282,59 @@ func TestMergeDecisionsCarryTheirPreviousState(t *testing.T) {
 		got[d.ID] = [2]int64{d.RegistrationID, was}
 	}
 	assert.Equal(t, map[int64][2]int64{ids["applied"]: {swap, 1}, ids["conflict"]: {0, 0}, ids["new"]: {0, 0}}, got)
+}
+
+// A merge the production side's later answers no longer hold apart keeps
+// its standing (E4f): a decision a pass applied once — its id is on a model
+// union of the merge log — and that the previous pass held on not_same only
+// reads as applied, so it joins first again and given_name spares it. One
+// never applied, one held on another conflict, and one only a merge of
+// another method names stay new.
+func TestAMergeHeldOnNotSameKeepsItsStanding(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	ctx := context.Background()
+	for _, fill := range []byte{0x10, 0x11, 0x20, 0x21, 0x30, 0x31, 0x40, 0x41, 0x50, 0x51} {
+		f.displayCredit(f.snapshot(&snapshotSpec{book: f.book(), extractor: "v1"}), "author", 0, "fixture", fill)
+	}
+	ids := map[string]int64{}
+	for name, fill := range map[string]byte{"held": 0x10, "never applied": 0x20, "given_name": 0x30,
+		"other method": 0x40, "applied": 0x50} {
+		var err error
+		ids[name], err = InsertMergeDecision(ctx, f.tx, &MergeDecisionInput{Candidate: decisionCandidate(fill),
+			Source: "model"})
+		require.NoError(t, err)
+	}
+	f.exec(`INSERT INTO author_entity_merge_decision_state (decision_id, build_run_id, state, reason)
+		VALUES (?, 2, 'conflict', 'not_same'), (?, 2, 'conflict', 'not_same'), (?, 2, 'conflict', 'given_name'),
+			(?, 2, 'conflict', 'not_same'), (?, 2, 'applied', '')`,
+		ids["held"], ids["never applied"], ids["given_name"], ids["other method"], ids["applied"])
+	x, s := uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{x, s} {
+		f.exec(`INSERT INTO author_entity (id, kind, display_name, sort_name, search_key)
+			VALUES (?, 'person', 'Роберт Шекли', 'Шекли Роберт', 'роберт шекли')`, id)
+	}
+	logRow := func(method string, decisions ...int64) {
+		evidence, err := json.Marshal(map[string]any{"decision_ids": decisions, "stratum": "translit"})
+		require.NoError(t, err)
+		f.exec(`INSERT INTO author_entity_merge_log (from_id, to_id, method, evidence) VALUES (?, ?, ?, ?::jsonb)`,
+			x, s, method, string(evidence))
+	}
+	logRow("model", ids["applied"], ids["held"])
+	logRow("model", ids["given_name"])
+	logRow("evidence", ids["other method"])
+
+	live, err := LoadMergeDecisions(ctx, f.tx)
+	require.NoError(t, err)
+	got := map[string]bool{}
+	for name, id := range ids {
+		for _, d := range live {
+			if d.ID == id {
+				got[name] = d.WasApplied
+			}
+		}
+	}
+	assert.Equal(t, map[string]bool{"held": true, "never applied": false, "given_name": false,
+		"other method": false, "applied": true}, got)
 }
 
 // The start of a build and a decision insert take one lock: a start that
