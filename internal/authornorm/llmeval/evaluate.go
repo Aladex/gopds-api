@@ -19,7 +19,9 @@ const (
 // The run-wide evidence a registrable report needs (design K, section 8):
 // every participant answered the whole anchor set and the whole repeat
 // sample. A smaller set — a catalog without enough anchor candidates, repeat
-// items dropped, a test fixture — is reported, never registered.
+// items dropped, a test fixture — is reported, never registered. A census
+// smaller than the repeat sample repeats every census item instead
+// (repeatNeed).
 const (
 	MinAnchorItems = 300
 	MinRepeatItems = 200
@@ -383,8 +385,29 @@ func runReasons(in *Input, o *Options) []string {
 		reasons = append(reasons, AnchorReasons(in.Anchor)...)
 		reasons = append(reasons, evidenceReasons("anchor", in.Anchor, MinAnchorItems)...)
 	}
-	reasons = append(reasons, evidenceReasons("repeat", in.Repeat, MinRepeatItems)...)
+	reasons = append(reasons, evidenceReasons("repeat", in.Repeat, repeatNeed(in, o))...)
 	return reasons
+}
+
+// repeatNeed is how many repeated items every participant must answer:
+// MinRepeatItems, or under a census gate every census item when the census
+// is smaller (E4g, run 40: 122 hub candidates). A census asked every
+// candidate, so repeating all of a small one is more than a sample of 200
+// shows, and 200 of it can never exist; a holdout and K's gate sample a
+// bigger population and keep the full sample. The census is the measured
+// items the repeat stage draws from: the suite's and the supplement's are
+// never repeated.
+func repeatNeed(in *Input, o *Options) int {
+	if o.GateRule != GateRuleCensus && o.GateRule != GateRuleCensusAudit {
+		return MinRepeatItems
+	}
+	census := 0
+	for i := range in.Items {
+		if it := &in.Items[i]; it.Holdout && !it.Adversarial && !it.Supplement {
+			census++
+		}
+	}
+	return min(MinRepeatItems, census)
 }
 
 // pooledRepeat is every participant's reproduction over the repeat items of

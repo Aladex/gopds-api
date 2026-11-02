@@ -234,3 +234,62 @@ func cloneHubItems(t *testing.T, db *pg.DB, run int64, n int) {
 	require.NoError(t, err, "a hub census item answered same and repeated by all")
 	cloneItem(t, db, run, template, n)
 }
+
+// A hub census smaller than the repeat sample registers (E4g, run 40):
+// 122 census items, every one repeated by every participant, the audit
+// sample labeled — the repeat evidence needs every census item, not 200 of
+// them, and a recompute of the completed run picks the rule up with no run
+// asked again.
+func TestASmallHubCensusRegistersOnEveryItemRepeated(t *testing.T) {
+	e := newLLMEnv(t)
+	c := &entityCatalog{t: t, db: e.db, next: 1000}
+	c.seedStageFixture()
+	c.seedMergePersons(hubFixture, fillNosovHub)
+	c.build()
+	m := e.mergeConfig()
+	e.fake.setRespond(mergeStub)
+	ctx := context.Background()
+	run, err := services.StartAuthorLLMMergeEval(ctx, e.db, m.version, models.AuthorLLMEvalModeMerge6, nil)
+	require.NoError(t, err)
+	sizes := stageEvalSizes
+	sizes.SuitePerShape = 40
+	stepMergeEval(t, e, m, run, sizes, false)
+
+	// Носов and Рид (no Wikidata tells this Рид apart) are the census; 120
+	// clones make it run 40's 122.
+	cloneHubItems(t, e.db, run, 120)
+	_, _, err = services.RecomputeAuthorLLMMergeEvalReport(ctx, e.db, &m.identity, m.version, run)
+	require.NoError(t, err)
+	audit, err := services.AuthorLLMAuditItems(ctx, e.db, run)
+	require.NoError(t, err)
+	for _, it := range audit.Items {
+		require.NoError(t, services.AdjudicateAuthorLLMEvalItem(ctx, e.db, it.EvalItemID, database.AdjudicationSame, "",
+			"coordinator"))
+	}
+	_, _, err = services.RecomputeAuthorLLMMergeEvalReport(ctx, e.db, &m.identity, m.version, run)
+	require.NoError(t, err)
+
+	raw, _, err := services.AuthorLLMEvalReportFile(ctx, e.db, run)
+	require.NoError(t, err)
+	var r struct {
+		Evaluation struct {
+			Repeat []struct {
+				Participant string
+				Total       int
+			} `json:"repeat"`
+			Decision struct {
+				Registrable bool     `json:"registrable"`
+				Reasons     []string `json:"reasons"`
+			} `json:"decision"`
+		} `json:"evaluation"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &r))
+	require.Len(t, r.Evaluation.Repeat, 4)
+	for _, p := range r.Evaluation.Repeat {
+		assert.Equal(t, 122, p.Total, "%s repeated every census item", p.Participant)
+	}
+	assert.Empty(t, r.Evaluation.Decision.Reasons)
+	assert.True(t, r.Evaluation.Decision.Registrable)
+	_, err = services.NewAuthorEntityAdmin(e.db).RegisterMergeKind(ctx, run, authorentity.CandidateInitialsHub, 0)
+	require.NoError(t, err)
+}
