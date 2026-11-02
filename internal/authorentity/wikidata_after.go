@@ -143,7 +143,7 @@ func (b *builder) componentsAfterDecisions() []*component {
 // the keys of its credits' names.
 func (b *builder) nameComponent(c *component) {
 	ref := b.in.Reference
-	c.display = b.display(c.credits).DisplayName
+	c.display = b.matchName(c.credits).DisplayName
 	c.key = ref.NameKey[c.display]
 	c.script = scriptOf(c.display)
 	c.names = nil

@@ -213,7 +213,7 @@ func (b *builder) wikidataComponents() []*component {
 			continue
 		}
 		slices.Sort(c.credits)
-		c.display = b.display(c.credits).DisplayName
+		c.display = b.matchName(c.credits).DisplayName
 		c.key = b.in.Reference.NameKey[c.display]
 		c.script = scriptOf(c.display)
 		out = append(out, c)
@@ -493,7 +493,7 @@ func (b *builder) entityQID(root int, credits []int) string {
 	if root >= 0 && b.keys[root].key.kind == KindCollective {
 		return ""
 	}
-	row := b.display(credits)
+	row := b.matchName(credits)
 	if row.Kind == KindCollective {
 		return ""
 	}

@@ -281,7 +281,7 @@ func (b *builder) plan() *Plan {
 	groups := b.groups()
 	absorb := b.assignIDs(groups)
 	pl := &planner{b: b, p: &Plan{entityOf: map[int64]uuid.UUID{}, ruleOf: map[int64]string{},
-		entities: map[uuid.UUID]EntityRow{}, refs: map[uuid.UUID]string{}},
+		entities: map[uuid.UUID]EntityRow{}, matchNames: map[uuid.UUID]EntityRow{}, refs: map[uuid.UUID]string{}},
 		members: map[uuid.UUID][]int{}, rootEntity: map[int]uuid.UUID{}, units: map[uuid.UUID]*Unit{}}
 	pl.collectMembers(groups)
 	pl.wantRows()
@@ -405,11 +405,14 @@ func (pl *planner) entityUnits(absorb map[uuid.UUID][]MergeRow) {
 		u := &Unit{EntityID: id, Absorb: absorb[id]}
 		row := b.display(pl.members[id])
 		row.ID = id
+		match := b.matchName(pl.members[id])
 		old, stored := b.old.Entities[id]
 		if stored && old.NamePinned {
 			row.Kind, row.DisplayName, row.SortName, row.SearchKey, row.NamePinned =
 				old.Kind, old.DisplayName, old.SortName, old.SearchKey, true
+			match.DisplayName, match.SearchKey = old.DisplayName, old.SearchKey
 		}
+		pl.p.matchNames[id] = match
 		if !stored || !old.sameAs(&row) {
 			r := row
 			u.Entity = &r

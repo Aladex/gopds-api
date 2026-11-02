@@ -359,7 +359,7 @@ func (b *builder) candidateSide(p *Plan, g *group, keys []int, manualFP map[FPKe
 	}
 	slices.SortFunc(s.members, compareFPKeys)
 	s.books = sortedKeys(g.books)
-	e := p.entities[g.id]
+	e := p.matchNames[g.id]
 	s.display = e.DisplayName
 	words := strings.Fields(e.SearchKey)
 	slices.Sort(words)

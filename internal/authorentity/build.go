@@ -51,6 +51,9 @@ type Plan struct {
 	entityOf   map[int64]uuid.UUID
 	ruleOf     map[int64]string
 	entities   map[uuid.UUID]EntityRow
+	// matchNames are the live entities' matching names (matchName): what
+	// the candidates read, never what is shown.
+	matchNames map[uuid.UUID]EntityRow
 }
 
 // EntityOf is the entity a credit belongs to after the pass, uuid.Nil when
@@ -829,10 +832,13 @@ func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
 	return out
 }
 
-// display is the name an entity takes from its credits (§1.1): the display
+// matchName is the name the build matches an entity by (§1.1): the display
 // name of the result with the most books, then the fullest, then the lowest
-// result id. Never new letters.
-func (b *builder) display(credits []int) EntityRow {
+// result id. Never new letters. It names the Wikidata merges and links and
+// the candidates' sides; the name shown is display's (E4i), which none of
+// them reads, so changing how an entity is shown changes no key,
+// candidate, digest, card, decision or link.
+func (b *builder) matchName(credits []int) EntityRow {
 	type candidate struct {
 		c     *Credit
 		books map[int64]bool
