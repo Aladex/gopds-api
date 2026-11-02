@@ -42,6 +42,9 @@ type MergeCard struct {
 	// Wikidata is the label of the item the side's entity is, on a variant
 	// card only (E4f); empty, and absent from the input, on every other.
 	Wikidata string `json:"wikidata,omitempty"`
+	// WikidataID is that item's QID, on a mixed-script kind's card only
+	// (E4h), with its label in Wikidata; absent from every other.
+	WikidataID string `json:"wikidata_id,omitempty"`
 }
 
 // MergeCardBook is one sample book of a card.
@@ -102,6 +105,10 @@ const (
 	sizeOver100  = "100+"
 )
 
+// wikidataSource is what a card's Wikidata label and QID are read from:
+// the published extract.
+var wikidataSource = []CardSource{{Table: "wikidata_extract", Columns: []string{"status"}}}
+
 // MergeCardSources declare, per field of MergeCard and MergeCardBook
 // ("Type.Field"), the rows it is read from. Every source must mark a build
 // when it changes (§4.10): database TestMergeCardSourcesMarked checks the
@@ -126,7 +133,8 @@ var MergeCardSources = map[string][]CardSource{
 	},
 	// The item's label: the published extract (its names are written
 	// before it is published and never after).
-	"MergeCard.Wikidata":     {{Table: "wikidata_extract", Columns: []string{"status"}}},
+	"MergeCard.Wikidata":     wikidataSource,
+	"MergeCard.WikidataID":   wikidataSource,
 	"MergeCardBook.Title":    {{Table: srcBook, Columns: []string{colTitle}}},
 	"MergeCardBook.Samizdat": {{Table: srcBook, Columns: []string{colTitle}}},
 	"MergeCardBook.Year": {

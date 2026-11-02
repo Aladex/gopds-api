@@ -108,11 +108,17 @@ type AuthorLLMAdversarialItem struct {
 	Adjudication *database.AuthorLLMAdjudication `json:"adjudication,omitempty"`
 }
 
-// AuthorLLMAdversarialSide is one side's names and books.
+// AuthorLLMAdversarialSide is one side as the models saw it: its names and
+// books and (E4h round 2: the identity evidence an audit must see) its
+// variants and the Wikidata item a mixed-script card names, label and QID;
+// those are absent where the card has none.
 type AuthorLLMAdversarialSide struct {
-	Names []string                   `json:"names"`
-	Size  string                     `json:"size"`
-	Books []AuthorLLMAdversarialBook `json:"books"`
+	Names      []string                   `json:"names"`
+	Variants   []string                   `json:"variants,omitempty"`
+	Size       string                     `json:"size"`
+	Books      []AuthorLLMAdversarialBook `json:"books"`
+	Wikidata   string                     `json:"wikidata,omitempty"`
+	WikidataID string                     `json:"wikidata_id,omitempty"`
 }
 
 // AuthorLLMAdversarialBook is a card's book as the models saw it: title,
@@ -120,6 +126,7 @@ type AuthorLLMAdversarialSide struct {
 // language, series, annotation and co-authors.
 type AuthorLLMAdversarialBook struct {
 	Title      string   `json:"title"`
+	Samizdat   bool     `json:"samizdat,omitempty"`
 	Year       string   `json:"year,omitempty"`
 	Genres     []string `json:"genres,omitempty"`
 	Lang       string   `json:"lang,omitempty"`
@@ -128,13 +135,14 @@ type AuthorLLMAdversarialBook struct {
 	Coauthors  []string `json:"coauthors,omitempty"`
 }
 
-// adversarialSideOf is a card, every book of it.
+// adversarialSideOf is a card, every field and book of it.
 func adversarialSideOf(c *authorentity.MergeCard) AuthorLLMAdversarialSide {
-	side := AuthorLLMAdversarialSide{Names: c.Names, Size: c.Size, Books: make([]AuthorLLMAdversarialBook, 0, len(c.Books))}
+	side := AuthorLLMAdversarialSide{Names: c.Names, Variants: c.Variants, Size: c.Size, Wikidata: c.Wikidata,
+		WikidataID: c.WikidataID, Books: make([]AuthorLLMAdversarialBook, 0, len(c.Books))}
 	for i := range c.Books {
 		b := &c.Books[i]
-		side.Books = append(side.Books, AuthorLLMAdversarialBook{Title: b.Title, Year: b.Year, Genres: b.Genres,
-			Lang: b.Lang, Series: b.Series, Annotation: b.Annotation, Coauthors: b.Coauthors})
+		side.Books = append(side.Books, AuthorLLMAdversarialBook{Title: b.Title, Samizdat: b.Samizdat, Year: b.Year,
+			Genres: b.Genres, Lang: b.Lang, Series: b.Series, Annotation: b.Annotation, Coauthors: b.Coauthors})
 	}
 	return side
 }

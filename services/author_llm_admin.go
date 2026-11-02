@@ -74,6 +74,7 @@ const (
 	AuthorLLMStepMerge4 = models.AuthorLLMEvalModeMerge4
 	AuthorLLMStepMerge5 = models.AuthorLLMEvalModeMerge5
 	AuthorLLMStepMerge6 = models.AuthorLLMEvalModeMerge6
+	AuthorLLMStepMerge7 = models.AuthorLLMEvalModeMerge7
 	// AuthorLLMStepMergeRun is the merge run (E4d-2): the candidates of
 	// the registered kinds no eval asked.
 	AuthorLLMStepMergeRun = "merge_run"
@@ -418,7 +419,8 @@ func authorLLMSteps(enabled, active bool, completed map[string]bool) []AuthorLLM
 func authorLLMMergeSteps(enabled, active bool, completed map[string]bool) []AuthorLLMStep {
 	steps := make([]AuthorLLMStep, 0, len(mergeEvalModes))
 	for _, mode := range []string{AuthorLLMStepMerge0, AuthorLLMStepMerge1, AuthorLLMStepMerge2, AuthorLLMStepMerge3,
-		AuthorLLMStepMerge4, AuthorLLMStepMerge5, AuthorLLMStepMerge6} {
+		AuthorLLMStepMerge4, AuthorLLMStepMerge5, AuthorLLMStepMerge6,
+		AuthorLLMStepMerge7} {
 		s := AuthorLLMStep{Key: mode, Kind: string(models.AuthorLLMRunEval), Mode: mode, Available: true,
 			Done: completed[string(models.AuthorLLMRunEval)+"/"+mode]}
 		switch {

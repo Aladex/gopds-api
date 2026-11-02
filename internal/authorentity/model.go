@@ -363,7 +363,7 @@ func (m *modelStep) joinInOrder() intUnion {
 		case bridgesNotSame(uf, partners, rx, y):
 			m.set(e.d.ID, DecisionConflict, ConflictNotSame)
 			continue
-		case !e.d.WasApplied && nx.joins(ny) && (e.d.Kind != CandidateVariant || !nx.variantOf(ny)):
+		case !e.d.WasApplied && nx.joins(ny) && (!spellingTolerant(e.d.Kind) || !nx.variantOf(ny)):
 			m.set(e.d.ID, DecisionConflict, ConflictGivenName)
 			continue
 		}
@@ -552,6 +552,7 @@ func (m *modelStep) moveDecidedBooks() {
 // moveBook applies the decisions of one bucket book (moveDecidedBooks).
 func (m *modelStep) moveBook(ci int, decs []decided) {
 	b := m.b
+	decs = m.holdMixedAgainstPlain(decs)
 	targets := map[int]bool{}
 	for _, e := range decs {
 		targets[b.find(e.si.sideB.root)] = true
@@ -588,6 +589,50 @@ func (m *modelStep) moveBook(ci int, decs []decided) {
 		m.set(e.d.ID, DecisionApplied, "")
 	}
 	m.rep.BookMoves++
+}
+
+// spellingTolerant reports a kind whose decisions the given-name guard lets
+// through on spellings of one name (variantOf): variant and its mixed
+// kind, whose question is one name spelled two ways, and translit_mixed,
+// whose partner generation checked against the mixed side's own names
+// (E4h).
+func spellingTolerant(kind string) bool {
+	return BaseKind(kind) == CandidateVariant || kind == CandidateTranslitMixed
+}
+
+// holdMixedAgainstPlain holds a book's mixed-script decisions (E4h) whose
+// target is not the one target of its plain decisions, two_targets, and
+// returns the rest: a later kind never moves a book a plain decision
+// sends elsewhere, so it never holds a live move. Without plain decisions,
+// or with plain ones of two targets, decs are as they were.
+func (m *modelStep) holdMixedAgainstPlain(decs []decided) []decided {
+	var plain []decided
+	for _, e := range decs {
+		if !MixedKind(e.d.Kind) {
+			plain = append(plain, e)
+		}
+	}
+	if len(plain) == 0 || len(plain) == len(decs) {
+		return decs
+	}
+	target := m.b.find(plain[0].si.sideB.root)
+	for _, e := range plain[1:] {
+		if m.b.find(e.si.sideB.root) != target {
+			return decs
+		}
+	}
+	kept := plain
+	for _, e := range decs {
+		if !MixedKind(e.d.Kind) {
+			continue
+		}
+		if m.b.find(e.si.sideB.root) == target {
+			kept = append(kept, e)
+		} else {
+			m.set(e.d.ID, DecisionConflict, ConflictTwoTargets)
+		}
+	}
+	return kept
 }
 
 // ruleModel prefixes the rule of a row a model decision put in its entity:

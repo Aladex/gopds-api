@@ -63,7 +63,7 @@ func (w *world) register(id, registration int64) {
 func (w *world) decide(kind string, a, b int64) int64 {
 	w.t.Helper()
 	var c *authorentity.MergeCandidate
-	if kind == authorentity.CandidateBucket {
+	if authorentity.BaseKind(kind) == authorentity.CandidateBucket {
 		c = bookItemOf(w.level0, a, b)
 	} else {
 		c = candidateOf(w.level0, kind, a, b)

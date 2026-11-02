@@ -89,7 +89,7 @@ func ValidMergeKind(kind string) bool {
 		authorentity.CandidateBucket, authorentity.CandidateVariant, authorentity.CandidateInitialsHub:
 		return true
 	}
-	return false
+	return authorentity.MixedKind(kind)
 }
 
 // ValidMergeScript reports a script a block may name.

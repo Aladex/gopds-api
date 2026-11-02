@@ -243,7 +243,7 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	}
 	nx, ny := b.nameParts(x), b.nameParts(y)
 	var nameX, nameY string
-	switch shape {
+	switch BaseKind(shape) {
 	case CandidateInitials, CandidateInitialsHub:
 		turn := len(y.books) < len(x.books)
 		if shape == CandidateInitialsHub {
@@ -273,7 +273,7 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	}
 	r := p.renderer(books, p.MergeSuiteBookIDs([]MergeSuitePair{*pair}, shape == CandidateInitialsHub))
 	xBooks := x.books
-	if shape == CandidateBucket {
+	if BaseKind(shape) == CandidateBucket {
 		// A bucket question shows one book of the short name.
 		xBooks = x.books[:min(1, len(x.books))]
 	}

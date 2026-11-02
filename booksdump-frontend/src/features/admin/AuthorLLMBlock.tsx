@@ -70,6 +70,10 @@ const stepLabels = (t: T): Record<string, string> => ({
     merge4: t('authorLLM.step.merge4', 'Check transliterations, every candidate (merge4)'),
     merge5: t('authorLLM.step.merge5', 'Check name spellings, every candidate (merge5)'),
     merge6: t('authorLLM.step.merge6', 'Check initials of large sides, every candidate (merge6)'),
+    merge7: t(
+        'authorLLM.step.merge7',
+        'Check names written in two scripts, every candidate (merge7)',
+    ),
     merge_run: t('authorLLM.step.merge_run', 'Merge: ask the new candidates'),
 });
 
@@ -277,34 +281,71 @@ const adjudicationLabel = (t: T, label: string): string => {
     }
 };
 
-/** sideLine is a side as one line: its names, then its book titles. */
-const sideLine = (side: AuthorLLMAdversarialSide): string =>
-    `${side.names.join(', ')} — ${side.books.map((b) => b.title).join('; ')}`;
+/**
+ * sideLine is a side as one line: its names, its variants and its
+ * Wikidata item when the card has them (the identity evidence the models
+ * saw), then its book titles.
+ */
+const sideLine = (t: T, side: AuthorLLMAdversarialSide): string => {
+    let who = side.names.join(', ');
+    if (side.variants && side.variants.length > 0) {
+        who += ` (${t('authorLLM.side.also', 'also')}: ${side.variants.join(', ')})`;
+    }
+    if (side.wikidata_id) {
+        who += ` [Wikidata ${side.wikidata_id}${side.wikidata ? `: ${side.wikidata}` : ''}]`;
+    }
+    return `${who} — ${side.books.map((b) => b.title).join('; ')}`;
+};
+
+/** The item lists a merge eval's labels go on: the suite's accepted namesakes and the audit sample. */
+type ReviewSource = 'adversarial' | 'audit';
+
+const reviewLoaders: Record<
+    ReviewSource,
+    (runID: number) => Promise<{ review: { items: AuthorLLMAdversarialItem[] } }>
+> = {
+    adversarial: (runID) => adminApi.getAuthorLLMAdversarial(runID),
+    audit: (runID) => adminApi.getAuthorLLMAudit(runID),
+};
+
+const reviewTitle = (t: T, source: ReviewSource, count: number): string =>
+    source === 'audit'
+        ? t('authorLLM.auditTitle', {
+              defaultValue: 'Audit sample: {{count}}. Label each, then recompute the report.',
+              count,
+          })
+        : t('authorLLM.adversarialTitle', {
+              defaultValue:
+                  'Namesakes the models merged: {{count}}. Label each, then recompute the report.',
+              count,
+          });
 
 interface AdversarialReviewProps {
     runID: number;
     busy: boolean;
     act: (action: () => Promise<unknown>) => Promise<void>;
+    /** source is the list: the suite's accepted namesakes, or the audit sample. */
+    source: ReviewSource;
 }
 
 /**
- * The merge eval's accepted namesake items (E4c-2b-0): each with its two
- * sides and its current label, labelled one person, two people or unclear.
- * A stratum fails on an item labelled two people or not labelled; the
- * report applies the labels once recomputed.
+ * A merge eval's items to label (E4c-2b-0; the audit sample, E4h round 3):
+ * each with its two sides and its current label, labelled one person, two
+ * people or unclear. A stratum fails on an item labelled two people or not
+ * labelled; the report applies the labels once recomputed.
  */
-const AdversarialReview: React.FC<AdversarialReviewProps> = ({ runID, busy, act }) => {
+const AdversarialReview: React.FC<AdversarialReviewProps> = ({ runID, busy, act, source }) => {
     const { t } = useTranslation();
     const [items, setItems] = useState<AuthorLLMAdversarialItem[] | null>(null);
 
     const load = useCallback(async () => {
         try {
-            const response = await adminApi.getAuthorLLMAdversarial(runID);
+            const response = await reviewLoaders[source](runID);
             setItems(response.review.items);
         } catch {
             setItems([]);
         }
-    }, [runID]);
+    }, [runID, source]);
 
     useEffect(() => {
         load();
@@ -313,21 +354,15 @@ const AdversarialReview: React.FC<AdversarialReviewProps> = ({ runID, busy, act 
     if (items === null || items.length === 0) return null;
     return (
         <div className="flex flex-col gap-2">
-            <p className="text-sm">
-                {t('authorLLM.adversarialTitle', {
-                    defaultValue:
-                        'Namesakes the models merged: {{count}}. Label each, then recompute the report.',
-                    count: items.length,
-                })}
-            </p>
+            <p className="text-sm">{reviewTitle(t, source, items.length)}</p>
             <ul className="flex flex-col gap-2">
                 {items.map((item) => (
                     <li
                         key={item.eval_item_id}
                         className="flex flex-col gap-1 border-t pt-2 text-sm"
                     >
-                        <span>{`A: ${sideLine(item.a)}`}</span>
-                        <span>{`B: ${sideLine(item.b)}`}</span>
+                        <span>{`A: ${sideLine(t, item.a)}`}</span>
+                        <span>{`B: ${sideLine(t, item.b)}`}</span>
                         <span className="text-muted-foreground">
                             {adjudicationLabel(t, item.adjudication?.label ?? '')}
                         </span>
@@ -683,7 +718,22 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                             </Button>
                         )}
                     </div>
-                    {merge && <AdversarialReview runID={run.id} busy={busy} act={act} />}
+                    {merge && (
+                        <>
+                            <AdversarialReview
+                                runID={run.id}
+                                busy={busy}
+                                act={act}
+                                source="audit"
+                            />
+                            <AdversarialReview
+                                runID={run.id}
+                                busy={busy}
+                                act={act}
+                                source="adversarial"
+                            />
+                        </>
+                    )}
                 </div>
             )}
 

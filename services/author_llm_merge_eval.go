@@ -93,9 +93,12 @@ type mergeEvalMode struct {
 	// (llmeval.GateRuleHoldoutAudit) instead of on the bound.
 	holdoutAudit bool
 	// wholeCards marks a kind whose card lists a side's every book
-	// (initials_hub, E4g round 2): the suite loads its sides whole and the
-	// estimate follows the frozen inputs' size.
+	// (initials_hub, E4g round 2): the suite loads its sides whole.
 	wholeCards bool
+	// sizedEstimate makes the estimate follow the frozen inputs' size:
+	// merge6's whole cards, merge7's sides of every written form (E4h),
+	// larger than the cards the figures were measured on.
+	sizedEstimate bool
 }
 
 // mergeEvalModes are the merge eval modes (§7, §8 E4c): the pilot, then a
@@ -116,7 +119,12 @@ var mergeEvalModes = map[string]mergeEvalMode{
 	// and a full name of two Wikidata items («Thomas M. Reid», «Thomas
 	// Mayne Reid») are namesakes, asked in the suite.
 	models.AuthorLLMEvalModeMerge6: {kinds: []string{authorentity.CandidateInitialsHub}, census: true,
-		wikidataSuite: true, wholeCards: true},
+		wikidataSuite: true, wholeCards: true, sizedEstimate: true},
+	// merge7 (E4h): the census of the five mixed-script kinds, each its
+	// own stratum and audit; a translit_mixed whose sides name two
+	// Wikidata items is a namesake, asked in the suite.
+	models.AuthorLLMEvalModeMerge7: {kinds: authorentity.MixedKinds, census: true, wikidataSuite: true,
+		sizedEstimate: true},
 }
 
 // AuthorLLMMergeEvalSizes are a merge eval's sizes (§7).
@@ -340,7 +348,7 @@ type mergeSources struct {
 // readMergeSources reads the entity plan in one snapshot, read only, and
 // builds the mode's items from it: the stored candidates of its kinds (a
 // holdout, or all of them), merge3's extra Latin questions, the suite —
-// merge4's, merge5's and merge6's with the candidates whose sides name two Wikidata
+// merge4's to merge7's with the candidates whose sides name two Wikidata
 // items — and the anchors.
 func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun) (*mergeSources, error) {
 	loop := NewAuthorEntityBuildLoop(d.db, AuthorEntityBuildConfig{})
@@ -379,7 +387,12 @@ func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun
 	if err != nil {
 		return nil, err
 	}
-	suite := selectSuite(plan.MergeSuitePairs(exclude), mode.kinds, sizes, len(naturalItems))
+	naturalOf := map[string]int{}
+	for i := range naturalItems {
+		kind, _ := splitMergeStratum(naturalItems[i].Stratum)
+		naturalOf[kind]++
+	}
+	suite := selectSuite(plan.MergeSuitePairs(exclude), mode.kinds, sizes, naturalOf)
 	anchors := selectAnchors(mergeAnchorsOf(plan, mode.kinds), mode.kinds, sizes.AnchorsPerShape)
 	pairs := make([]authorentity.MergeSuitePair, 0, len(suite))
 	for _, s := range suite {
@@ -664,10 +677,11 @@ type suitePick struct {
 // SuiteLatinPerShape Latin items — the natural Latin pairs first, then
 // Cyrillic pairs romanized — and the rest Cyrillic. The translit shape
 // romanizes one side of a Cyrillic pair by itself, so it takes no Latin
-// pair. Every shape takes natural fewer Cyrillic pairs: the natural
-// namesakes asked beside it (only merge4's, merge5's and merge6's have any).
+// pair. Every shape takes as many fewer Cyrillic pairs as natural holds of
+// its kind: the natural namesakes asked beside it (only merge4's to
+// merge7's have any). A mixed-script shape is its plain one (E4h).
 func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *AuthorLLMMergeEvalSizes,
-	natural int) []suitePick {
+	natural map[string]int) []suitePick {
 	var latin, cyrl []authorentity.MergeSuitePair
 	for _, p := range pairs {
 		if p.Script == authorentity.ScriptLatn {
@@ -687,14 +701,14 @@ func selectSuite(pairs []authorentity.MergeSuitePair, shapes []string, sizes *Au
 		return taken
 	}
 	for _, shape := range shapes {
-		if shape == authorentity.CandidateTranslit {
-			take(&cyrl, shape, authorentity.ScriptCyrlLatn, false, sizes.SuitePerShape-natural)
+		if authorentity.BaseKind(shape) == authorentity.CandidateTranslit {
+			take(&cyrl, shape, authorentity.ScriptCyrlLatn, false, sizes.SuitePerShape-natural[shape])
 			continue
 		}
 		latinN := min(sizes.SuiteLatinPerShape, sizes.SuitePerShape)
 		taken := take(&latin, shape, authorentity.ScriptLatn, false, latinN)
 		take(&cyrl, shape, authorentity.ScriptLatn, true, latinN-taken)
-		take(&cyrl, shape, authorentity.ScriptCyrl, false, sizes.SuitePerShape-latinN-natural)
+		take(&cyrl, shape, authorentity.ScriptCyrl, false, sizes.SuitePerShape-latinN-natural[shape])
 	}
 	return out
 }
@@ -742,7 +756,7 @@ func (d *AuthorLLMEvalDriver) mergeEstimate(ctx context.Context, run *evalRun) e
 			return err
 		}
 	}
-	if mergeEvalModes[run.Mode].wholeCards {
+	if mergeEvalModes[run.Mode].sizedEstimate {
 		for _, c := range []struct {
 			to      *int
 			version string
@@ -762,7 +776,7 @@ func (d *AuthorLLMEvalDriver) mergeEstimate(ctx context.Context, run *evalRun) e
 }
 
 // mergeEvalCounts are a merge eval's frozen items per set and, for a mode
-// of whole cards, the bytes of its holdout and suite inputs (zero
+// of a sized estimate, the bytes of its holdout and suite inputs (zero
 // otherwise).
 type mergeEvalCounts struct {
 	holdout, supplement, suite, anchors int
@@ -778,8 +792,8 @@ const mergeReferenceInputBytes = 4000
 // on each holdout, supplement, repeated and anchor item, the suite per
 // item, and the run's fixed part, at the pilot's measured figures — per
 // holdout answer and suite item scaled up by the inputs' mean size over
-// mergeReferenceInputBytes when the bytes are known (whole cards), never
-// down.
+// mergeReferenceInputBytes when the bytes are known (a sized estimate),
+// never down.
 func mergeEstimateTokens(n *mergeEvalCounts, sizes *AuthorLLMMergeEvalSizes) int64 {
 	answers := evalParticipants * (n.holdout + n.supplement + min(n.holdout, sizes.Repeat))
 	return int64(answers)*scaledTokens(mergeTokensPerAnswer, n.holdoutBytes, n.holdout) +

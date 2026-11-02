@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"gopds-api/internal/authornorm"
 
 	"github.com/google/uuid"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Merge candidates (E4a, plan §2.1–§2.3, §4.2): the pairs a model may later
@@ -35,6 +37,38 @@ const (
 	// initials pair becomes one after the exclusions.
 	CandidateInitialsHub = "initials_hub"
 )
+
+// The mixed-script kinds (E4h): a pair or a bucket book one of whose sides
+// holds keys of two scripts (a Wikidata cross-script merge), paired
+// through the keys that match and recorded in their script. Each is its
+// plain kind's shape — card, suite, guard — asked, gated and registered
+// apart from it, so what a registered plain kind covers never changes. Like
+// initials_hub they take no part in the generation or the precedence: a
+// pair kept out as mixed_script becomes one after the exclusions.
+const (
+	mixedSuffix            = "_mixed"
+	CandidateBucketMixed   = CandidateBucket + mixedSuffix
+	CandidateSwapMixed     = CandidateSwap + mixedSuffix
+	CandidateInitialsMixed = CandidateInitials + mixedSuffix
+	CandidateTranslitMixed = CandidateTranslit + mixedSuffix
+	CandidateVariantMixed  = CandidateVariant + mixedSuffix
+)
+
+// MixedKinds are the mixed-script kinds.
+var MixedKinds = []string{CandidateBucketMixed, CandidateSwapMixed, CandidateInitialsMixed, CandidateTranslitMixed,
+	CandidateVariantMixed}
+
+// MixedKind reports a mixed-script kind.
+func MixedKind(kind string) bool { return slices.Contains(MixedKinds, kind) }
+
+// BaseKind is the plain kind whose shape a kind has: a mixed-script kind's,
+// else the kind itself.
+func BaseKind(kind string) string {
+	if MixedKind(kind) {
+		return strings.TrimSuffix(kind, mixedSuffix)
+	}
+	return kind
+}
 
 // candidateKinds are the kinds in precedence order. variant (E4f) is the
 // lowest: a pair another kind asks stays there, so no earlier kind's
@@ -74,12 +108,16 @@ const (
 	// not fit one question (MergeInputMaxBytes): never truncated, never
 	// asked (E4g round 2). The seal finds it.
 	ExcludedHubTooLong = "initials_hub_too_long"
+	// ExcludedMixedOtherName is a translit through a mixed-script side
+	// whose partner is none of that side's names of the partner's script
+	// (E4h): two names of one script a weak skeleton paired.
+	ExcludedMixedOtherName = "mixed_other_name"
 )
 
 // ExclusionReasons are the reasons, each counted per kind and script.
 var ExclusionReasons = []string{ExcludedBucketSide, ExcludedCoCredited, ExcludedNamesakeTag, ExcludedPseudonymKey,
 	ExcludedManualSide, ExcludedRevokedPair, ExcludedPartnerCap, ExcludedMixedScript, ExcludedNoFamilyOrGiven,
-	ExcludedLooseScriptOnly, ExcludedPrecedence, ExcludedHubTooLong}
+	ExcludedLooseScriptOnly, ExcludedPrecedence, ExcludedHubTooLong, ExcludedMixedOtherName}
 
 // SampleCandidate is the reason of a sample row of a candidate.
 const SampleCandidate = "candidate"
@@ -233,6 +271,9 @@ func (b *builder) collectCandidates(p *Plan, groups []*group) {
 		}
 		if it.reason == "" && it.kind == CandidateInitials && b.initialsSideBooks(it) > maxInitialsSideBooks {
 			it.kind = CandidateInitialsHub
+		}
+		if it.reason == ExcludedMixedScript {
+			b.mixedPair(it)
 		}
 	}
 	items := g.ordered()
@@ -672,6 +713,146 @@ func (b *builder) pairReason(it *candItem) string {
 	return ""
 }
 
+// mixedPair makes a pair kept out as mixed_script a mixed-script one when
+// the keys it matched on are of one script (Cyrillic against Latin for a
+// translit): its kind the plain kind's mixed one, its script theirs, and
+// the reasons pairReason checks after the script applied to it. An initials
+// pair whose side of initials has more books than a card shows stays out:
+// it would be a hub, asked whole only in its own kind.
+func (b *builder) mixedPair(it *candItem) {
+	script := mixedKeyScript(it)
+	if script == "" ||
+		(it.kind == CandidateInitials && b.initialsSideBooks(it) > maxInitialsSideBooks) {
+		return
+	}
+	it.kind, it.script, it.reason = it.kind+mixedSuffix, script, ""
+	switch {
+	case it.a.noName || it.b.noName:
+		it.reason = ExcludedNoFamilyOrGiven
+	case it.kind == CandidateTranslitMixed && !b.sameScriptName(it.a, it.b):
+		it.reason = ExcludedMixedOtherName
+	}
+}
+
+// sameScriptName reports two sides holding one name in some script: a key
+// of each, of one script, whose family names are at most
+// maxMixedFamilyEdits apart and whose given names are equal or one the
+// start (of minMixedGivenPrefix letters at least) of the other, all under
+// the spelling fold. A translit through a mixed side's alias compares the
+// partner with that side's own names of the partner's script this way.
+func (b *builder) sameScriptName(x, y *candSide) bool {
+	for _, kx := range x.keys {
+		ka := &b.keys[kx].key
+		if ka.kind != KindPerson || ka.family == "" || ka.given == "" {
+			continue
+		}
+		for _, ky := range y.keys {
+			kb := &b.keys[ky].key
+			if kb.kind == KindPerson && kb.script == ka.script && kb.family != "" && kb.given != "" &&
+				oneName(ka, kb) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// The bounds of sameScriptName.
+const (
+	maxMixedFamilyEdits = 2
+	minMixedGivenPrefix = 3
+)
+
+// oneName reports two keys of one script one name under sameScriptName's
+// bounds.
+func oneName(x, y *nameKey) bool {
+	if editDistance([]rune(nameFold(x.family)), []rune(nameFold(y.family))) > maxMixedFamilyEdits {
+		return false
+	}
+	gx, gy := []rune(nameFold(x.given)), []rune(nameFold(y.given))
+	if len(gx) > len(gy) {
+		gx, gy = gy, gx
+	}
+	return slices.Equal(gx, gy) || (len(gx) >= minMixedGivenPrefix && slices.Equal(gx, gy[:len(gx)]))
+}
+
+// latinSpellings are the Latin letters transliterations of one name trade
+// (Mikhail, Mihail; Yuri, Iuri, Juri): read as one by nameFold.
+var latinSpellings = strings.NewReplacer("kh", "h", "y", "i", "j", "i")
+
+// nameFold is a key part under the spelling fold (variantFold), its Latin
+// letters without their marks (Miéville, Mieville) and latinSpellings read
+// as one: how sameScriptName compares two names of one script.
+func nameFold(part string) string {
+	var plain strings.Builder
+	for _, r := range norm.NFD.String(part) {
+		if !unicode.Is(unicode.Mn, r) {
+			plain.WriteRune(r)
+		}
+	}
+	return variantFold(latinSpellings.Replace(plain.String()))
+}
+
+// editDistance is the Levenshtein distance of two rune strings.
+func editDistance(a, b []rune) int {
+	row := make([]int, len(b)+1)
+	for j := range row {
+		row[j] = j
+	}
+	for i := range a {
+		prev := row[0]
+		row[0] = i + 1
+		for j := range b {
+			cur := row[j+1]
+			cost := 1
+			if a[i] == b[j] {
+				cost = 0
+			}
+			row[j+1] = min(row[j+1]+1, row[j]+1, prev+cost)
+			prev = cur
+		}
+	}
+	return row[len(b)]
+}
+
+// mixedKeyScript is the script of the keys a pair matched on, empty when
+// they are of none or two: a translit's Cyrillic against Latin; an
+// initials' or a variant's keys' (generation records it); a swap's display
+// names' when both are of one.
+func mixedKeyScript(it *candItem) string {
+	cyrl, latn := string(authornorm.ScriptCyrillic), string(authornorm.ScriptLatin)
+	switch it.kind {
+	case CandidateTranslit:
+		return ScriptCyrlLatn
+	case CandidateInitials, CandidateVariant:
+		if it.script == cyrl || it.script == latn {
+			return it.script
+		}
+	case CandidateSwap:
+		if sa := pureScript(it.a.display); sa != "" && sa == pureScript(it.b.display) {
+			return sa
+		}
+	}
+	return ""
+}
+
+// pureScript is the script of a name all of whose letters are Cyrillic, or
+// all Latin; empty for one of both or of neither.
+func pureScript(s string) string {
+	cyr, lat := false, false
+	for _, r := range s {
+		cyr = cyr || unicode.Is(unicode.Cyrillic, r)
+		lat = lat || unicode.Is(unicode.Latin, r)
+	}
+	switch {
+	case cyr && !lat:
+		return string(authornorm.ScriptCyrillic)
+	case lat && !cyr:
+		return string(authornorm.ScriptLatin)
+	}
+	return ""
+}
+
 // sidesReason is why two sides are never one question, whatever the kind:
 // a bucket, a shared book, a namesake tag, a manual row, a pen name.
 func (b *builder) sidesReason(x, y *candSide) string {
@@ -780,6 +961,11 @@ func (b *builder) bucketItems(sides map[int]*candSide) []*candItem {
 					it.reason = ExcludedCoCredited
 				case full.manual:
 					it.reason = ExcludedManualSide
+				case !candidateScript(CandidateBucket, s, full) && full.script == scriptMixed &&
+					candidateScript(CandidateBucket, s, s):
+					// A full side of two scripts holds a full name of the
+					// bucket's (its base matched): bucket_mixed (E4h).
+					it.kind = CandidateBucketMixed
 				case !candidateScript(CandidateBucket, s, full):
 					it.reason = ExcludedMixedScript
 				}
@@ -892,8 +1078,12 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 			if failed := isolate(func() {
 				a := r.card(si.sideA, si, p.cand.b.hubSide(it, si.sideA))
 				b := r.card(si.sideB, nil, p.cand.b.hubSide(it, si.sideB))
-				if it.kind == CandidateVariant {
+				switch {
+				case it.kind == CandidateVariant:
 					a.Wikidata, b.Wikidata = p.cand.b.wikidataLabel(si.sideA), p.cand.b.wikidataLabel(si.sideB)
+				case MixedKind(it.kind):
+					a.Wikidata, a.WikidataID = p.wikidataItemOf(si.sideA)
+					b.Wikidata, b.WikidataID = p.wikidataItemOf(si.sideB)
 				}
 				si.input = MergeInputJSON(&a, &b)
 			}); failed {
@@ -1078,6 +1268,24 @@ func (b *builder) wikidataLabel(s *candSide) string {
 		return ""
 	}
 	return ref.Items[qid].Label
+}
+
+// wikidataItemOf is the label and QID of the item a side's entity is (the
+// pass's reference, else the item its display name is a main label of
+// alone): the evidence a mixed-script side's card shows (E4h). Empty when
+// none.
+func (p *Plan) wikidataItemOf(s *candSide) (label, qid string) {
+	ref := p.cand.b.in.Reference
+	if ref == nil {
+		return "", ""
+	}
+	if qid = p.refs[s.entity]; qid == "" {
+		qid = p.cand.b.mainLabelOf(ref.NameKey[s.display])
+	}
+	if item := ref.Items[qid]; item != nil {
+		return item.Label, qid
+	}
+	return "", ""
 }
 
 // creditsOnBooks are the credits on each of the books.

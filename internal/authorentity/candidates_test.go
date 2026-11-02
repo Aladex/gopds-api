@@ -273,6 +273,8 @@ func TestEveryExclusionReason(t *testing.T) {
 			// A pair of two kinds needs a component of two scripts: its own test.
 		case authorentity.ExcludedHubTooLong:
 			// The seal's, on a hub of long cards: its own test.
+		case authorentity.ExcludedMixedOtherName:
+			// A translit through a mixed-script side: its own test.
 		default:
 			assert.Positive(t, total, "no pair excluded %s", reason)
 		}

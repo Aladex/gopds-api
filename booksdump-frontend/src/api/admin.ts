@@ -400,6 +400,7 @@ export type AuthorLLMStepKey =
     | 'merge4'
     | 'merge5'
     | 'merge6'
+    | 'merge7'
     // The merge run (E4d-2): the registered kinds' candidates no eval asked.
     | 'merge_run';
 
@@ -815,9 +816,15 @@ export const recomputeAuthorLLMEvalReport = (runID: number, base = llmBase) =>
 /** One side of an accepted adversarial suite item, as the models saw it. */
 export interface AuthorLLMAdversarialSide {
     names: string[];
+    /** Nicknames and other written forms of the side (E4h round 2). */
+    variants?: string[];
     size: string;
+    /** The Wikidata item a mixed-script card names: label and QID. */
+    wikidata?: string;
+    wikidata_id?: string;
     books: {
         title: string;
+        samizdat?: boolean;
         year?: string;
         genres?: string[];
         lang?: string;
@@ -850,6 +857,16 @@ export interface AuthorLLMAdversarialItem {
 export const getAuthorLLMAdversarial = (runID: number) =>
     http.get<{ review: { run_id: number; items: AuthorLLMAdversarialItem[] } }>(
         `${llmMergeBase}/eval-report/${runID}/adversarial`,
+    );
+
+/**
+ * getAuthorLLMAudit lists a merge eval run's audit sample (E4c, migration 70):
+ * the applied census or holdout items the report samples, each labelled like
+ * a suite item; a pending or two-people label fails its kind.
+ */
+export const getAuthorLLMAudit = (runID: number) =>
+    http.get<{ review: { run_id: number; items: AuthorLLMAdversarialItem[] } }>(
+        `${llmMergeBase}/eval-report/${runID}/audit`,
     );
 
 /** adjudicateAuthorLLMItem labels an accepted suite item; recompute the report to apply it. */

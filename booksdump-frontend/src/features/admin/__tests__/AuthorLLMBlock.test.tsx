@@ -191,24 +191,127 @@ describe('AuthorLLMBlock', () => {
                         },
                         verdicts: { production_a: 'same' },
                     },
+                    {
+                        eval_item_id: 16208,
+                        stratum: 'translit_mixed.cyrl-latn',
+                        a: {
+                            names: ['Mikhail Bulgakov', 'Михаил Афанасьевич Булгаков'],
+                            variants: ['Мастер'],
+                            size: '100+',
+                            books: [{ title: 'Мастер и Маргарита' }],
+                            wikidata: 'Михаил Афанасьевич Булгаков',
+                            wikidata_id: 'Q835',
+                        },
+                        b: {
+                            names: ['Mihail Bulgakov'],
+                            size: '2-3',
+                            books: [{ title: 'Belaya gvardiya' }],
+                        },
+                        verdicts: { production_a: 'same' },
+                    },
                 ],
             },
         });
         api.adjudicateAuthorLLMItem.mockResolvedValue(undefined);
         render(<AuthorLLMBlock merge />);
         expect(await screen.findByText('A: А. Сальников — Отдел')).toBeInTheDocument();
+        // A mixed side's identity evidence, as the models saw it.
+        expect(
+            screen.getByText(
+                'A: Mikhail Bulgakov, Михаил Афанасьевич Булгаков (also: Мастер) [Wikidata Q835: Михаил Афанасьевич Булгаков] — Мастер и Маргарита',
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getByText('B: Mihail Bulgakov — Belaya gvardiya')).toBeInTheDocument();
         expect(
             screen.getByText('B: Алексей Борисович Сальников — Бесполезное'),
         ).toBeInTheDocument();
-        expect(screen.getByText('Not labelled')).toBeInTheDocument();
+        expect(screen.getAllByText('Not labelled')).toHaveLength(2);
         expect(api.getAuthorLLMAdversarial).toHaveBeenCalledWith(41);
         expect(screen.getByRole('button', { name: 'Recompute report' })).toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Two people' }));
+        fireEvent.click(screen.getAllByRole('button', { name: 'Two people' })[0]);
         await waitFor(() =>
             expect(api.adjudicateAuthorLLMItem).toHaveBeenCalledWith(16207, 'different'),
         );
         await waitFor(() => expect(api.getAuthorLLMAdversarial).toHaveBeenCalledTimes(2));
+    });
+
+    it('lists the audit sample from the audit endpoint and labels it', async () => {
+        show(
+            status({
+                steps: [],
+                run: llmRun({
+                    mode: 'merge7',
+                    status: 'completed',
+                    stage: undefined,
+                    progress: undefined,
+                    report: {
+                        sha256: 'ab',
+                        strata_total: 1,
+                        strata_passed: 0,
+                        excerpt_helps: 0,
+                        registrable: false,
+                    },
+                }),
+            }),
+        );
+        api.getAuthorLLMAdversarial.mockResolvedValue({ review: { run_id: 41, items: [] } });
+        api.adjudicateAuthorLLMItem.mockResolvedValue(undefined);
+        // The real audit loader, over the network: only fetch is stubbed.
+        const audit = {
+            review: {
+                run_id: 41,
+                items: [
+                    {
+                        eval_item_id: 30001,
+                        stratum: 'translit_mixed.cyrl-latn',
+                        a: {
+                            names: ['Mihail Afanasyevich Bulgakov', 'Михаил Афанасьевич Булгаков'],
+                            variants: ['Мастер'],
+                            size: '4-10',
+                            books: [{ title: 'Мастер и Маргарита' }],
+                            wikidata: 'Михаил Афанасьевич Булгаков',
+                            wikidata_id: 'Q835',
+                        },
+                        b: {
+                            names: ['Mihail Afanasievich Bulgakov'],
+                            size: '2-3',
+                            books: [{ title: 'Morfij' }],
+                        },
+                        verdicts: { production_a: 'same' },
+                    },
+                ],
+            },
+        };
+        const fetchSpy = vi.fn().mockImplementation(async (url: string) =>
+            url.endsWith('/llm/merge/eval-report/41/audit')
+                ? new Response(JSON.stringify(audit), {
+                      status: 200,
+                      headers: { 'Content-Type': 'application/json' },
+                  })
+                : new Response('{}', { status: 404 }),
+        );
+        globalThis.fetch = fetchSpy as unknown as typeof fetch;
+        render(<AuthorLLMBlock merge />);
+        expect(
+            await screen.findByText('Audit sample: 1. Label each, then recompute the report.'),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                'A: Mihail Afanasyevich Bulgakov, Михаил Афанасьевич Булгаков (also: Мастер) [Wikidata Q835: Михаил Афанасьевич Булгаков] — Мастер и Маргарита',
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getByText('Not labelled')).toBeInTheDocument();
+        const audits = () =>
+            fetchSpy.mock.calls.filter(([url]) => (url as string).endsWith('/eval-report/41/audit'))
+                .length;
+        expect(audits()).toBe(1);
+
+        fireEvent.click(screen.getByRole('button', { name: 'One person' }));
+        await waitFor(() =>
+            expect(api.adjudicateAuthorLLMItem).toHaveBeenCalledWith(30001, 'same'),
+        );
+        await waitFor(() => expect(audits()).toBe(2));
     });
 
     it('lists no namesakes on the names block', async () => {
