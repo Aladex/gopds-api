@@ -131,10 +131,10 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 }
 
 // LoadMergeNotSame reads the digests of the merge candidates the production
-// pair answered different (either of the two: a first answer of a merge
-// eval, or an answer of a merge run) and did not split on: the build's
-// conflict rule (§4.2) refuses a union that would join the two sides of
-// such a pair. A same from either production participant on any answer of
+// pair answered different (either of the two, on any answer: a merge
+// eval's first answer or its repeat, or a merge run's) and did not split
+// on: the build's conflict rule (§4.2) refuses a union that would join the
+// two sides of such a pair. A same from either production participant on any answer of
 // the pair — the other's first answer, a repeat, another eval or a merge
 // run — splits it (E4f): a split is no decision of one person, and no
 // evidence of two either, unless the pair's different answers outnumber
@@ -161,8 +161,7 @@ func LoadMergeNotSame(ctx context.Context, db pg.DBI) ([][32]byte, error) {
 			WHERE j.purpose = ?4 AND j.status = 'answered' AND j.eval_item_id IS NULL AND j.extractor_version = ?3),
 		tally AS (
 			SELECT source_fingerprint,
-				bool_or(slot IN (?5, ?6) AND canonical_sha256 = ?7
-					AND (purpose = ?4 OR (purpose = ?0 AND repeat_no = 0))) AS different,
+				bool_or(slot IN (?5, ?6) AND canonical_sha256 = ?7) AS different,
 				bool_or(slot IN (?5, ?6) AND canonical_sha256 = ?8) AS split,
 				count(*) FILTER (WHERE canonical_sha256 = ?7) AS differents,
 				count(*) FILTER (WHERE canonical_sha256 = ?8) AS sames

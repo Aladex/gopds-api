@@ -138,15 +138,20 @@ func TestACannotTellPairNoLongerBlocksItsComponent(t *testing.T) {
 
 // A different on A–C that no production answer contradicts still keeps A
 // and C apart — both production participants different, or one different
-// and the other cannot_tell: of the two decisions that together would join
-// them, the first in order (B–C, the lower id) applies and the second,
-// which would bridge the pair, is held (not_same, E4c) — never the whole
-// component.
+// and the other cannot_tell, or a production different only when the pair
+// was asked again, or a repeat's different in a different majority after a
+// production same: of the two decisions that together would join them, the
+// first in order (B–C, the lower id) applies and the second, which would
+// bridge the pair, is held (not_same, E4c) — never the whole component.
 func TestADifferentPairStillBlocksItsComponent(t *testing.T) {
+	d, s, c := llmreq.MergeDifferent, llmreq.MergeSame, llmreq.MergeCannotTell
 	for name, answers := range map[string]map[string][]string{
-		"both different": {"gpt-6-luna": {llmreq.MergeDifferent}, "deepseek-v4-pro": {llmreq.MergeDifferent}},
-		"different and cannot_tell": {"gpt-6-luna": {llmreq.MergeCannotTell},
-			"deepseek-v4-pro": {llmreq.MergeDifferent}},
+		"both different":            {"gpt-6-luna": {d}, "deepseek-v4-pro": {d}},
+		"different and cannot_tell": {"gpt-6-luna": {c}, "deepseek-v4-pro": {d}},
+		"a production different only on a repeat": {"gpt-6-luna": {c, d}, "deepseek-v4-pro": {c},
+			"gpt-6-sol": {c}, "claude-opus-5": {c}},
+		"a repeat different in a different majority": {"gpt-6-luna": {s, d}, "deepseek-v4-pro": {c, d},
+			"gpt-6-sol": {d}, "claude-opus-5": {d}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newTriangleFixture(t, triangleAnswers(answers))
