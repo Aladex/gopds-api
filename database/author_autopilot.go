@@ -12,8 +12,8 @@ import (
 
 // The author autopilot's storage (migration 62): its one row — the switch,
 // the ticking pod's lease, what the last tick found and did, a failed
-// tick's backoff — and the selection marks, which say an entity pass is to
-// do. Every time is the caller's clock, so a test moves it; the pods' clocks
+// tick's backoff, and (migration 76) the merge step's switch and check —
+// and the selection marks, which say an entity pass is to do. Every time is the caller's clock, so a test moves it; the pods' clocks
 // are the cluster's.
 
 // AuthorAutopilotState is the autopilot's row.
@@ -29,7 +29,13 @@ type AuthorAutopilotState struct {
 	// open inputs it found to ask.
 	ResolveNote   *string `pg:"resolve_note" json:"resolve_note,omitempty"`
 	ResolveInputs int     `pg:"resolve_inputs,use_zero" json:"resolve_inputs"`
-	// LastAction is the last run it started: resolve or build.
+	// MergeEnabled is the merge step's switch (migration 76, off by
+	// default); MergeNote is how the last merge check came out,
+	// MergeCandidates the candidates it found due.
+	MergeEnabled    bool    `pg:"merge_enabled,use_zero" json:"merge_enabled"`
+	MergeNote       *string `pg:"merge_note" json:"merge_note,omitempty"`
+	MergeCandidates int     `pg:"merge_candidates,use_zero" json:"merge_candidates"`
+	// LastAction is the last run it started: resolve, build or merge.
 	LastAction      *string    `pg:"last_action" json:"last_action,omitempty"`
 	LastActionRunID *int64     `pg:"last_action_run_id" json:"last_action_run_id,omitempty"`
 	LastActionAt    *time.Time `pg:"last_action_at" json:"last_action_at,omitempty"`
@@ -42,8 +48,8 @@ type AuthorAutopilotState struct {
 }
 
 const authorAutopilotColumns = `enabled, lease_owner, lease_expires_at, state, state_run_id, resolve_note,
-	resolve_inputs, last_action, last_action_run_id, last_action_at, failures, last_error_class, next_attempt_at,
-	updated_at`
+	resolve_inputs, merge_enabled, merge_note, merge_candidates, last_action, last_action_run_id, last_action_at,
+	failures, last_error_class, next_attempt_at, updated_at`
 
 // What the last tick found.
 const (
@@ -56,10 +62,14 @@ const (
 	// active (StateRunID), whoever started it; the autopilot does nothing.
 	AuthorAutopilotStateLLMRunActive      = "llm_run_active"
 	AuthorAutopilotStateEntityBuildActive = "entity_build_active"
-	// AuthorAutopilotStateResolveStarted and BuildStarted: the tick started
-	// that run (StateRunID).
+	// AuthorAutopilotStateResolveStarted, BuildStarted and MergeStarted: the
+	// tick started that run (StateRunID).
 	AuthorAutopilotStateResolveStarted = "resolve_started"
 	AuthorAutopilotStateBuildStarted   = "build_started"
+	AuthorAutopilotStateMergeStarted   = "merge_started"
+	// AuthorAutopilotStateBuildBackoff: a pass is to do, but the newest
+	// passes failed their census (StateRunID the newest); the next waits.
+	AuthorAutopilotStateBuildBackoff = "build_backoff"
 	// AuthorAutopilotStateIdle: nothing to do.
 	AuthorAutopilotStateIdle = "idle"
 )
@@ -68,13 +78,14 @@ const (
 func AuthorAutopilotStates() []string {
 	return []string{AuthorAutopilotStateNotQuiet, AuthorAutopilotStateNormalizing, AuthorAutopilotStateLLMRunActive,
 		AuthorAutopilotStateEntityBuildActive, AuthorAutopilotStateResolveStarted, AuthorAutopilotStateBuildStarted,
-		AuthorAutopilotStateIdle}
+		AuthorAutopilotStateMergeStarted, AuthorAutopilotStateBuildBackoff, AuthorAutopilotStateIdle}
 }
 
 // The runs the autopilot starts.
 const (
 	AuthorAutopilotActionResolve = "resolve"
 	AuthorAutopilotActionBuild   = "build"
+	AuthorAutopilotActionMerge   = "merge"
 )
 
 // ErrAuthorAutopilotLeaseLost is a write of a pod whose lease ran out or
@@ -85,6 +96,10 @@ var ErrAuthorAutopilotLeaseLost = errors.New("database: the author autopilot lea
 // off: nothing is written, and a run started in the same transaction is
 // undone with it.
 var ErrAuthorAutopilotOff = errors.New("database: the author autopilot is switched off")
+
+// ErrAuthorAutopilotMergeOff is a merge start of a pod after the merge
+// step was switched off: nothing is written, and the run is undone.
+var ErrAuthorAutopilotMergeOff = errors.New("database: the author autopilot's merge step is switched off")
 
 // GetAuthorAutopilot reads the autopilot's row.
 func GetAuthorAutopilot(ctx context.Context, db pg.DBI) (*AuthorAutopilotState, error) {
@@ -105,6 +120,21 @@ func SetAuthorAutopilotEnabled(ctx context.Context, db pg.DBI, enabled bool, act
 		UPDATE public.author_autopilot SET enabled = ?, updated_by_user_id = ?, updated_at = now()`,
 		enabled, by); err != nil {
 		return fmt.Errorf("switching the author autopilot: %w", err)
+	}
+	return nil
+}
+
+// SetAuthorAutopilotMergeEnabled switches the autopilot's merge step on or
+// off.
+func SetAuthorAutopilotMergeEnabled(ctx context.Context, db pg.DBI, enabled bool, actor int64) error {
+	var by interface{}
+	if actor > 0 {
+		by = actor
+	}
+	if _, err := db.ExecContext(ctx, `
+		UPDATE public.author_autopilot SET merge_enabled = ?, updated_by_user_id = ?, updated_at = now()`,
+		enabled, by); err != nil {
+		return fmt.Errorf("switching the author autopilot's merge step: %w", err)
 	}
 	return nil
 }
@@ -136,28 +166,55 @@ func ClaimAuthorAutopilot(
 // it is the lease holder's, made while the autopilot is on: a switch that
 // committed first refuses it, one that comes later waits for it.
 func LockAuthorAutopilot(ctx context.Context, tx pg.DBI, owner uuid.UUID, lease time.Duration, now time.Time) error {
-	var enabled []bool
-	if _, err := tx.QueryContext(ctx, &enabled, `
+	_, err := lockAuthorAutopilot(ctx, tx, owner, lease, now)
+	return err
+}
+
+// LockAuthorAutopilotMerge is LockAuthorAutopilot for a merge start: it
+// also refuses once the merge step is switched off
+// (ErrAuthorAutopilotMergeOff).
+func LockAuthorAutopilotMerge(
+	ctx context.Context, tx pg.DBI, owner uuid.UUID, lease time.Duration, now time.Time,
+) error {
+	merge, err := lockAuthorAutopilot(ctx, tx, owner, lease, now)
+	if err == nil && !merge {
+		return ErrAuthorAutopilotMergeOff
+	}
+	return err
+}
+
+// lockAuthorAutopilot locks the row and renews the lease (see
+// LockAuthorAutopilot); it returns the merge step's switch.
+func lockAuthorAutopilot(
+	ctx context.Context, tx pg.DBI, owner uuid.UUID, lease time.Duration, now time.Time,
+) (bool, error) {
+	var rows []struct {
+		Enabled bool `pg:"enabled,use_zero"`
+		Merge   bool `pg:"merge_enabled,use_zero"`
+	}
+	if _, err := tx.QueryContext(ctx, &rows, `
 		UPDATE public.author_autopilot SET lease_expires_at = ?2::timestamptz + ?1 * interval '1 millisecond'
 		WHERE lease_owner = ?0 AND lease_expires_at > ?2
-		RETURNING enabled`, owner, lease.Milliseconds(), now); err != nil {
-		return fmt.Errorf("locking the author autopilot: %w", err)
+		RETURNING enabled, merge_enabled`, owner, lease.Milliseconds(), now); err != nil {
+		return false, fmt.Errorf("locking the author autopilot: %w", err)
 	}
-	if len(enabled) == 0 {
-		return ErrAuthorAutopilotLeaseLost
+	if len(rows) == 0 {
+		return false, ErrAuthorAutopilotLeaseLost
 	}
-	if !enabled[0] {
-		return ErrAuthorAutopilotOff
+	if !rows[0].Enabled {
+		return false, ErrAuthorAutopilotOff
 	}
-	return nil
+	return rows[0].Merge, nil
 }
 
 // AuthorAutopilotTick is what one tick found, as the row records it.
 type AuthorAutopilotTick struct {
-	State         string
-	StateRunID    int64
-	ResolveNote   string
-	ResolveInputs int
+	State           string
+	StateRunID      int64
+	ResolveNote     string
+	ResolveInputs   int
+	MergeNote       string
+	MergeCandidates int
 }
 
 // RecordAuthorAutopilotTick records what a tick found, in the caller's
@@ -171,10 +228,11 @@ func RecordAuthorAutopilotTick(ctx context.Context, tx pg.DBI, t *AuthorAutopilo
 	}
 	res, err := tx.ExecContext(ctx, `
 		UPDATE public.author_autopilot SET state = ?0, state_run_id = ?1, resolve_note = nullif(?2, ''),
-			resolve_inputs = ?3, failures = 0, last_error_class = NULL, next_attempt_at = NULL, updated_at = ?4
-		WHERE (state, state_run_id, resolve_note, resolve_inputs, failures)
-			IS DISTINCT FROM (?0::text, ?1::bigint, nullif(?2, ''), ?3::int, 0)`,
-		t.State, runID, t.ResolveNote, t.ResolveInputs, now)
+			resolve_inputs = ?3, merge_note = nullif(?5, ''), merge_candidates = ?6, failures = 0,
+			last_error_class = NULL, next_attempt_at = NULL, updated_at = ?4
+		WHERE (state, state_run_id, resolve_note, resolve_inputs, merge_note, merge_candidates, failures)
+			IS DISTINCT FROM (?0::text, ?1::bigint, nullif(?2, ''), ?3::int, nullif(?5, ''), ?6::int, 0)`,
+		t.State, runID, t.ResolveNote, t.ResolveInputs, now, t.MergeNote, t.MergeCandidates)
 	if err != nil {
 		return false, fmt.Errorf("recording the author autopilot's tick: %w", err)
 	}
@@ -235,6 +293,37 @@ func ReadAuthorAutopilotBuildDebt(ctx context.Context, db pg.DBI) (*AuthorAutopi
 		return nil, fmt.Errorf("reading what the entity passes owe: %w", err)
 	}
 	return &debt, nil
+}
+
+// AuthorAutopilotCensusFailures are the newest passes that failed their
+// census in a row (AuthorEntityBuildErrorCensus), whoever started them:
+// how many, the newest of them and when it finished. A pass that ended any
+// other way ends the streak.
+type AuthorAutopilotCensusFailures struct {
+	Passes   int        `pg:"passes,use_zero"`
+	RunID    int64      `pg:"run_id,use_zero"`
+	Finished *time.Time `pg:"finished"`
+}
+
+// ReadAuthorAutopilotCensusFailures reads the newest passes' streak of
+// census failures (class names the failure, census_failed).
+func ReadAuthorAutopilotCensusFailures(
+	ctx context.Context, db pg.DBI, class string,
+) (*AuthorAutopilotCensusFailures, error) {
+	var f AuthorAutopilotCensusFailures
+	if _, err := db.QueryOneContext(ctx, &f, `
+		WITH recent AS (
+			SELECT id, status = 'failed' AND last_error_class IS NOT DISTINCT FROM ?1 AS census, finished_at,
+				row_number() OVER (ORDER BY id DESC) AS n
+			FROM (SELECT id, status, last_error_class, finished_at FROM public.author_entity_build_run
+				ORDER BY id DESC LIMIT ?0) r),
+		streak AS (SELECT * FROM recent WHERE n < coalesce((SELECT min(n) FROM recent WHERE NOT census), ?0 + 1))
+		SELECT (SELECT count(*) FROM streak) AS passes,
+			coalesce((SELECT id FROM streak WHERE n = 1), 0) AS run_id,
+			(SELECT finished_at FROM streak WHERE n = 1) AS finished`, authorAutopilotDebtWindow, class); err != nil {
+		return nil, fmt.Errorf("reading the passes' census failures: %w", err)
+	}
+	return &f, nil
 }
 
 // AuthorAutopilotQuiet is the quiet gate's view: when the newest snapshot

@@ -47,6 +47,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
         startAuthorEntityBuild: vi.fn(),
         startWikidataFetch: vi.fn(),
         setAuthorAutopilot: vi.fn(),
+        setAuthorAutopilotMerge: vi.fn(),
         getAuthorMerges: vi.fn(),
         revokeMergeDecision: vi.fn(),
         retireMergeVeto: vi.fn(),
@@ -156,6 +157,9 @@ const autopilot = (overrides: Partial<AuthorAutopilotStatus> = {}): AuthorAutopi
     waiting_jobs: 0,
     build_pending: false,
     skipped_units: 0,
+    merge_enabled: false,
+    merge_candidates: 0,
+    census_failures: 0,
     ...overrides,
 });
 
@@ -572,6 +576,95 @@ describe('AuthorEntityBlock', () => {
             expect(api.getAuthorEntityStatus).toHaveBeenCalledTimes(1);
         } finally {
             vi.useRealTimers();
+        }
+    });
+
+    it('shows the merge step off by default, with what it would and would not do', async () => {
+        showAutopilot(
+            autopilot({ state: 'idle', merge_note: 'switched_off', merge_candidates: 0 }),
+        );
+        render(<AuthorEntityBlock />);
+        const merge = await screen.findByRole('switch', { name: 'Merge step' });
+        expect(merge).not.toBeChecked();
+        expect(
+            screen.getByText('Merge step off: merge candidates wait for the button.'),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/^Merges:/)).toBeNull();
+        expect(screen.getByText(/never a check \(eval\)/)).toBeInTheDocument();
+        expect(
+            screen.getByText(/count as asked and are not asked again until their card changes/),
+        ).toBeInTheDocument();
+    });
+
+    it('switches the merge step on and reads the state again', async () => {
+        showAutopilot(autopilot());
+        api.setAuthorAutopilotMerge.mockResolvedValue({
+            autopilot: autopilot({ merge_enabled: true }),
+        });
+        render(<AuthorEntityBlock />);
+        fireEvent.click(await screen.findByRole('switch', { name: 'Merge step' }));
+        await waitFor(() => expect(api.setAuthorAutopilotMerge).toHaveBeenCalledWith(true));
+        expect(api.setAuthorAutopilot).not.toHaveBeenCalled();
+        await waitFor(() => expect(api.getAuthorEntityStatus).toHaveBeenCalledTimes(2));
+    });
+
+    it('says what the merge step found and started', async () => {
+        const at = new Date(Date.now() - 60_000).toISOString();
+        const retry = new Date(Date.now() + 300_000).toISOString();
+        const cases: [Partial<AuthorAutopilotStatus>, string[]][] = [
+            [
+                {
+                    state: 'merge_started',
+                    state_run_id: 41,
+                    merge_note: 'started',
+                    merge_candidates: 1250,
+                    last_action: 'merge',
+                    last_action_run_id: 41,
+                    last_action_at: at,
+                },
+                [
+                    `Started merge run 41 for ${n(1250)} candidates.`,
+                    `Last started: merge run 41, ${time(at)}.`,
+                ],
+            ],
+            [
+                { state: 'idle', merge_note: 'veto_unanchored' },
+                ['Merges: a veto is unanchored (retire or re-anchor it).'],
+            ],
+            [
+                { state: 'idle', merge_note: 'budget_exhausted', merge_candidates: 22 },
+                [`Merges: the run's estimate exceeds the budget left (${n(22)} candidates due).`],
+            ],
+            [
+                { state: 'idle', merge_note: 'nothing_to_merge' },
+                ['Merges: no candidate left to ask.'],
+            ],
+            [
+                {
+                    state: 'build_backoff',
+                    state_run_id: 33,
+                    build_pending: true,
+                    merge_note: 'build_due',
+                    census_failures: 2,
+                    census_retry_at: retry,
+                },
+                [
+                    `Entity pass 33 failed its census (2 in a row); the next pass waits until ${time(retry)}.`,
+                    'Merges: an entity pass is due first.',
+                ],
+            ],
+        ];
+        for (const [overrides, lines] of cases) {
+            showAutopilot(autopilot({ merge_enabled: true, ...overrides }));
+            render(<AuthorEntityBlock />);
+            expect(await screen.findByText(lines[0])).toBeInTheDocument();
+            for (const line of lines.slice(1)) {
+                expect(screen.getByText(line)).toBeInTheDocument();
+            }
+            expect(screen.getByRole('switch', { name: 'Merge step' })).toBeChecked();
+            expect(screen.queryByText(/^Merge step off/)).toBeNull();
+            expect(screen.queryByText(/a pass is due/)).toBeNull();
+            cleanup();
         }
     });
 

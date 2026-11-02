@@ -160,12 +160,15 @@ const (
 	// The author autopilot (migration 62). State: what a tick found changed
 	// (Status: the state, ItemID: the run it waits for or started);
 	// ResolveStarted: it started a resolve run (RunID, Count: the inputs never
-	// asked); BuildStarted: it started an entity pass (RunID); StepFailed: a
-	// tick failed and is retried after a backoff; Switched: an administrator
-	// switched it (Status: on or off).
+	// asked); BuildStarted: it started an entity pass (RunID); MergeStarted:
+	// it started a merge run (RunID, Count: the candidates due); StepFailed:
+	// a tick failed and is retried after a backoff; Switched: an
+	// administrator switched it or its merge step (Status: on, off,
+	// merge_on or merge_off).
 	AuthorMetadataEventAutopilotState          AuthorMetadataEventName = "author_metadata.autopilot_state"
 	AuthorMetadataEventAutopilotResolveStarted AuthorMetadataEventName = "author_metadata.autopilot_resolve_started"
 	AuthorMetadataEventAutopilotBuildStarted   AuthorMetadataEventName = "author_metadata.autopilot_build_started"
+	AuthorMetadataEventAutopilotMergeStarted   AuthorMetadataEventName = "author_metadata.autopilot_merge_started"
 	AuthorMetadataEventAutopilotStepFailed     AuthorMetadataEventName = "author_metadata.autopilot_step_failed"
 	AuthorMetadataEventAutopilotSwitched       AuthorMetadataEventName = "author_metadata.autopilot_switched"
 )
@@ -204,7 +207,8 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,
 		AuthorMetadataEventWikidataFetchStepFailed,
 		AuthorMetadataEventAutopilotState, AuthorMetadataEventAutopilotResolveStarted,
-		AuthorMetadataEventAutopilotBuildStarted, AuthorMetadataEventAutopilotStepFailed, AuthorMetadataEventAutopilotSwitched,
+		AuthorMetadataEventAutopilotBuildStarted, AuthorMetadataEventAutopilotMergeStarted,
+		AuthorMetadataEventAutopilotStepFailed, AuthorMetadataEventAutopilotSwitched,
 	}
 }
 

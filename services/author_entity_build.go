@@ -785,6 +785,15 @@ func (a *AuthorEntityAdmin) SetAutopilot(ctx context.Context, enabled bool, acto
 	return ReadAuthorAutopilotStatus(ctx, a.db, a.quiet)
 }
 
+// SetAutopilotMerge switches the autopilot's merge step on or off and
+// returns the autopilot's block.
+func (a *AuthorEntityAdmin) SetAutopilotMerge(ctx context.Context, enabled bool, actor int64) (*AuthorAutopilotStatus, error) {
+	if err := SetAuthorAutopilotMerge(ctx, a.db, enabled, actor); err != nil {
+		return nil, err
+	}
+	return ReadAuthorAutopilotStatus(ctx, a.db, a.quiet)
+}
+
 // Start records a new pass; the worker picks it up.
 func (a *AuthorEntityAdmin) Start(ctx context.Context, actor int64) (*database.AuthorEntityBuildRun, error) {
 	run, err := database.StartAuthorEntityBuild(ctx, a.db, actor)

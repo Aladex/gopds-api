@@ -595,11 +595,17 @@ export interface AuthorAutopilotStatus {
         | 'entity_build_active'
         | 'resolve_started'
         | 'build_started'
+        | 'merge_started'
+        | 'build_backoff'
         | 'idle';
     state_run_id?: number;
     resolve_note?: string;
     resolve_inputs: number;
-    last_action?: 'resolve' | 'build';
+    /** The merge step's switch (off by default), how its last check came out and the candidates it found due. */
+    merge_enabled: boolean;
+    merge_note?: string;
+    merge_candidates: number;
+    last_action?: 'resolve' | 'build' | 'merge';
     last_action_run_id?: number;
     last_action_at?: string;
     failures: number;
@@ -613,6 +619,9 @@ export interface AuthorAutopilotStatus {
     /** Units the newest completed pass skipped (a row was held), retried at the time given. */
     skipped_units: number;
     skipped_retry_at?: string;
+    /** Newest passes that failed their census in a row; the next pass waits until the time given. */
+    census_failures: number;
+    census_retry_at?: string;
 }
 
 /** The entity step of the card: the newest pass and the newest report. */
@@ -639,6 +648,10 @@ export const startWikidataFetch = () =>
 /** setAuthorAutopilot switches the autopilot on or off. */
 export const setAuthorAutopilot = (enabled: boolean) =>
     http.post<{ autopilot: AuthorAutopilotStatus }>(`${entityBase}/autopilot`, { enabled });
+
+/** setAuthorAutopilotMerge switches the autopilot's merge step on or off. */
+export const setAuthorAutopilotMerge = (enabled: boolean) =>
+    http.post<{ autopilot: AuthorAutopilotStatus }>(`${entityBase}/autopilot/merge`, { enabled });
 
 /** One side of a model merge decision: its entity now, a name it goes by, its books. */
 export interface AuthorMergeSide {

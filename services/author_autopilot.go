@@ -30,7 +30,16 @@ import (
 //     skipped units (a row another writer held) and its retry is due, it
 //     starts an entity pass. The retry waits a backoff that doubles with
 //     every completed pass in a row that skipped units, so a refusal that
-//     persists costs a pass now and then, not one a minute.
+//     persists costs a pass now and then, not one a minute. Passes that
+//     failed their census in a row (census_failed: their marks were given
+//     back) are spaced out the same way; any other failure is built again
+//     on the next quiet tick.
+//  5. Otherwise, when its merge step is switched on (migration 76, off by
+//     default), it starts one merge run of the merge configuration over the
+//     candidates due (AuthorLLMAdmin.StartAutopilotMerge, under the merge
+//     card's limits; never an eval). It does so only with no pass to do —
+//     the candidates are the last completed pass's — and the decisions the
+//     run inserts mark the pass after it.
 //
 // Correctness is convergence, not one action per event: whatever a tick
 // misses — a commit that lands late or during a pass, a run an administrator
@@ -58,7 +67,11 @@ type AuthorAutopilotConfig struct {
 	MaxBackoff     time.Duration
 	DebtBackoff    time.Duration
 	MaxDebtBackoff time.Duration
-	Now            func() time.Time
+	// CensusBackoff and MaxCensusBackoff space the passes after passes that
+	// failed their census in a row.
+	CensusBackoff    time.Duration
+	MaxCensusBackoff time.Duration
+	Now              func() time.Time
 }
 
 const (
@@ -73,6 +86,10 @@ const (
 	// is retried a few times a day.
 	defaultAuthorAutopilotDebtBackoff    = 5 * time.Minute
 	defaultAuthorAutopilotMaxDebtBackoff = 6 * time.Hour
+	// A census that failed for a passing read error passes on the next
+	// pass; one that keeps failing is a defect, retried a few times a day.
+	defaultAuthorAutopilotCensusBackoff    = 5 * time.Minute
+	defaultAuthorAutopilotMaxCensusBackoff = 6 * time.Hour
 )
 
 func (c AuthorAutopilotConfig) withDefaults() AuthorAutopilotConfig {
@@ -97,6 +114,12 @@ func (c AuthorAutopilotConfig) withDefaults() AuthorAutopilotConfig {
 	if c.MaxDebtBackoff <= 0 {
 		c.MaxDebtBackoff = defaultAuthorAutopilotMaxDebtBackoff
 	}
+	if c.CensusBackoff <= 0 {
+		c.CensusBackoff = defaultAuthorAutopilotCensusBackoff
+	}
+	if c.MaxCensusBackoff <= 0 {
+		c.MaxCensusBackoff = defaultAuthorAutopilotMaxCensusBackoff
+	}
 	if c.Now == nil {
 		c.Now = time.Now
 	}
@@ -110,8 +133,10 @@ type AuthorAutopilotLLM func(ctx context.Context) (*AuthorLLMAdmin, error)
 
 // AuthorAutopilot is the autopilot's worker.
 type AuthorAutopilot struct {
-	db    *pg.DB
-	llm   AuthorAutopilotLLM
+	db  *pg.DB
+	llm AuthorAutopilotLLM
+	// merge gives the merge configuration's admin; nil: no merge step.
+	merge AuthorAutopilotLLM
 	cfg   AuthorAutopilotConfig
 	owner uuid.UUID
 }
@@ -119,6 +144,13 @@ type AuthorAutopilot struct {
 // NewAuthorAutopilot builds the worker; zero fields take the defaults.
 func NewAuthorAutopilot(db *pg.DB, llm AuthorAutopilotLLM, cfg AuthorAutopilotConfig) *AuthorAutopilot {
 	return &AuthorAutopilot{db: db, llm: llm, cfg: cfg.withDefaults(), owner: uuid.New()}
+}
+
+// WithMerge gives the worker the merge configuration's admin, for its
+// merge step.
+func (l *AuthorAutopilot) WithMerge(merge AuthorAutopilotLLM) *AuthorAutopilot {
+	l.merge = merge
+	return l
 }
 
 // authorAutopilotName is the worker's log label.
@@ -161,7 +193,7 @@ func (l *AuthorAutopilot) RunOnce(ctx context.Context) (bool, error) {
 	if st.NextAttemptAt != nil && st.NextAttemptAt.After(now) {
 		return false, nil
 	}
-	started, err := l.tick(ctx, now)
+	started, err := l.tick(ctx, st, now)
 	if fenced(err) {
 		// Another pod holds the lease now, or the autopilot was switched off:
 		// nothing was written.
@@ -173,14 +205,16 @@ func (l *AuthorAutopilot) RunOnce(ctx context.Context) (bool, error) {
 	return started, nil
 }
 
-// fenced reports an error that means another pod holds the lease or the
-// autopilot was switched off: the write was refused, and nothing failed.
+// fenced reports an error that means another pod holds the lease, the
+// autopilot was switched off, or its merge step (for a merge start): the
+// write was refused, and nothing failed.
 func fenced(err error) bool {
-	return errors.Is(err, database.ErrAuthorAutopilotLeaseLost) || errors.Is(err, database.ErrAuthorAutopilotOff)
+	return errors.Is(err, database.ErrAuthorAutopilotLeaseLost) || errors.Is(err, database.ErrAuthorAutopilotOff) ||
+		errors.Is(err, database.ErrAuthorAutopilotMergeOff)
 }
 
 // tick looks at the state and does at most one thing.
-func (l *AuthorAutopilot) tick(ctx context.Context, now time.Time) (bool, error) {
+func (l *AuthorAutopilot) tick(ctx context.Context, st *database.AuthorAutopilotState, now time.Time) (bool, error) {
 	if err := database.SettleAuthorAutopilotMarks(ctx, l.db); err != nil {
 		return false, err
 	}
@@ -210,44 +244,78 @@ func (l *AuthorAutopilot) tick(ctx context.Context, now time.Time) (bool, error)
 		found.State = database.AuthorAutopilotStateLLMRunActive
 		return false, l.record(ctx, found, now)
 	}
-	needed, err := l.buildNeeded(ctx, now)
-	if err != nil || !needed {
-		if err != nil {
-			return false, err
-		}
+	needed, held, err := l.buildNeeded(ctx, now)
+	switch {
+	case err != nil:
+		return false, err
+	case held != 0:
+		found.State, found.StateRunID, found.MergeNote = database.AuthorAutopilotStateBuildBackoff, held,
+			AutopilotMergeBuildDue
 		return false, l.record(ctx, found, now)
+	case needed:
+		return l.build(ctx, found, now)
 	}
-	return l.build(ctx, found, now)
+	return l.mergeStep(ctx, st, found, now)
 }
 
 // buildNeeded reports whether a pass is to do now: the selections changed
 // since the last one started, or the newest completed one skipped units and
-// their retry is due.
-func (l *AuthorAutopilot) buildNeeded(ctx context.Context, now time.Time) (bool, error) {
+// their retry is due. A pass to do after passes that failed their census in
+// a row waits its backoff: held is then the newest of them.
+func (l *AuthorAutopilot) buildNeeded(ctx context.Context, now time.Time) (needed bool, held int64, err error) {
 	changed, err := database.AuthorAutopilotBuildNeeded(ctx, l.db)
-	if err != nil || changed {
-		return changed, err
+	if err != nil {
+		return false, 0, err
+	}
+	if changed {
+		census, censusErr := database.ReadAuthorAutopilotCensusFailures(ctx, l.db, AuthorEntityBuildErrorCensus)
+		if censusErr != nil {
+			return false, 0, censusErr
+		}
+		if due := l.cfg.censusDue(census); due != nil && due.After(now) {
+			return false, census.RunID, nil
+		}
+		return true, 0, nil
 	}
 	debt, err := database.ReadAuthorAutopilotBuildDebt(ctx, l.db)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	due := l.cfg.debtDue(debt)
-	return due != nil && !due.After(now), nil
+	return due != nil && !due.After(now), 0, nil
 }
 
 // debtDue is when the retry of the units the newest completed pass skipped
 // is due: after it finished, a backoff that doubles with every completed
 // pass in a row that skipped units; nil when nothing is owed.
-func (c AuthorAutopilotConfig) debtDue(debt *database.AuthorAutopilotBuildDebt) *time.Time {
-	if debt.Units == 0 || debt.Finished == nil {
+func (c *AuthorAutopilotConfig) debtDue(debt *database.AuthorAutopilotBuildDebt) *time.Time {
+	if debt.Units == 0 {
 		return nil
 	}
-	d := c.DebtBackoff
-	for i := 1; i < debt.Passes && d < c.MaxDebtBackoff; i++ {
+	return doublingDue(debt.Finished, debt.Passes, c.DebtBackoff, c.MaxDebtBackoff)
+}
+
+// censusDue is when the next pass is due after passes that failed their
+// census in a row: after the newest finished, a backoff that doubles with
+// every one of them; nil when the newest pass did not fail its census.
+func (c *AuthorAutopilotConfig) censusDue(f *database.AuthorAutopilotCensusFailures) *time.Time {
+	if f.Passes == 0 {
+		return nil
+	}
+	return doublingDue(f.Finished, f.Passes, c.CensusBackoff, c.MaxCensusBackoff)
+}
+
+// doublingDue is finished plus a backoff of base doubled with each of
+// passes after the first, at most ceiling; nil without a finish.
+func doublingDue(finished *time.Time, passes int, base, ceiling time.Duration) *time.Time {
+	if finished == nil {
+		return nil
+	}
+	d := base
+	for i := 1; i < passes && d < ceiling; i++ {
 		d *= 2
 	}
-	due := debt.Finished.Add(min(d, c.MaxDebtBackoff))
+	due := finished.Add(min(d, ceiling))
 	return &due
 }
 
@@ -295,6 +363,7 @@ func (l *AuthorAutopilot) record(ctx context.Context, t *database.AuthorAutopilo
 const (
 	authorAutopilotHookResolve = "resolve"
 	authorAutopilotHookBuild   = "build"
+	authorAutopilotHookMerge   = "merge"
 )
 
 // resolve starts the resolve run when one is due, recording it in the
@@ -332,6 +401,55 @@ func (l *AuthorAutopilot) resolve(ctx context.Context, now time.Time) (*Autopilo
 		})
 	}
 	return res, nil
+}
+
+// mergeStep starts the merge run when the merge step is switched on and a
+// run is due, recording it in the start's transaction (under the lock,
+// which re-reads both switches), or records why it started none.
+func (l *AuthorAutopilot) mergeStep(
+	ctx context.Context, st *database.AuthorAutopilotState, found *database.AuthorAutopilotTick, now time.Time,
+) (bool, error) {
+	if l.merge == nil || !st.MergeEnabled {
+		found.MergeNote = AutopilotMergeSwitchedOff
+		return false, l.record(ctx, found, now)
+	}
+	if authorAutopilotHook != nil {
+		if err := authorAutopilotHook(authorAutopilotHookMerge); err != nil {
+			return false, err
+		}
+	}
+	admin, err := l.merge(ctx)
+	if err != nil {
+		return false, err
+	}
+	res, err := admin.StartAutopilotMerge(ctx, func(tx *pg.Tx, runID int64, candidates int) error {
+		if lockErr := database.LockAuthorAutopilotMerge(ctx, tx, l.owner, l.cfg.Lease, now); lockErr != nil {
+			return lockErr
+		}
+		if actionErr := database.RecordAuthorAutopilotAction(ctx, tx, database.AuthorAutopilotActionMerge, runID,
+			now); actionErr != nil {
+			return actionErr
+		}
+		_, recordErr := database.RecordAuthorAutopilotTick(ctx, tx, &database.AuthorAutopilotTick{
+			State: database.AuthorAutopilotStateMergeStarted, StateRunID: runID, ResolveNote: found.ResolveNote,
+			ResolveInputs: found.ResolveInputs, MergeNote: AutopilotMergeStarted, MergeCandidates: candidates}, now)
+		return recordErr
+	})
+	if err != nil {
+		return false, err
+	}
+	if res.RunID != 0 {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventAutopilotMergeStarted, Stage: AuthorMetadataStageAutopilot, RunID: res.RunID,
+			Count: res.Candidates, Worker: authorAutopilotName,
+		})
+		return true, nil
+	}
+	found.MergeNote, found.MergeCandidates = res.Note, res.Candidates
+	if res.Note == AutopilotMergeRunActive {
+		found.State = database.AuthorAutopilotStateLLMRunActive
+	}
+	return false, l.record(ctx, found, now)
 }
 
 // build starts an entity pass, recording it in the same transaction; the
@@ -433,6 +551,10 @@ type AuthorAutopilotStatus struct {
 	// retry is due at SkippedRetryAt.
 	SkippedUnits   int        `json:"skipped_units"`
 	SkippedRetryAt *time.Time `json:"skipped_retry_at,omitempty"`
+	// CensusFailures are the newest passes that failed their census in a
+	// row; the next pass is due at CensusRetryAt.
+	CensusFailures int        `json:"census_failures"`
+	CensusRetryAt  *time.Time `json:"census_retry_at,omitempty"`
 }
 
 // ReadAuthorAutopilotStatus reads the card's block, with the configuration's
@@ -454,9 +576,14 @@ func ReadAuthorAutopilotStatus(ctx context.Context, db pg.DBI, quiet time.Durati
 	if err != nil {
 		return nil, err
 	}
+	census, err := database.ReadAuthorAutopilotCensusFailures(ctx, db, AuthorEntityBuildErrorCensus)
+	if err != nil {
+		return nil, err
+	}
+	defaults := AuthorAutopilotConfig{}.withDefaults()
 	out := &AuthorAutopilotStatus{AuthorAutopilotState: st, QuietSeconds: int64(quiet / time.Second),
 		WaitingJobs: q.WaitingJobs, BuildPending: pending, SkippedUnits: debt.Units,
-		SkippedRetryAt: AuthorAutopilotConfig{}.withDefaults().debtDue(debt)}
+		SkippedRetryAt: defaults.debtDue(debt), CensusFailures: census.Passes, CensusRetryAt: defaults.censusDue(census)}
 	if q.NewestSnapshotAt != nil {
 		if until := q.NewestSnapshotAt.Add(quiet); until.After(time.Now()) {
 			out.QuietUntil = &until
@@ -465,10 +592,13 @@ func ReadAuthorAutopilotStatus(ctx context.Context, db pg.DBI, quiet time.Durati
 	return out, nil
 }
 
-// Switch states of the autopilot's log.
+// Switch states of the autopilot's log: the autopilot's, and its merge
+// step's.
 const (
-	autopilotSwitchedOn  = "on"
-	autopilotSwitchedOff = "off"
+	autopilotSwitchedOn       = "on"
+	autopilotSwitchedOff      = "off"
+	autopilotMergeSwitchedOn  = "merge_on"
+	autopilotMergeSwitchedOff = "merge_off"
 )
 
 // SetAuthorAutopilot switches the autopilot on or off.
@@ -486,8 +616,25 @@ func SetAuthorAutopilot(ctx context.Context, db pg.DBI, enabled bool, actor int6
 	return nil
 }
 
+// SetAuthorAutopilotMerge switches the autopilot's merge step on or off. A
+// merge run it started already goes on: switching off stops the next.
+func SetAuthorAutopilotMerge(ctx context.Context, db pg.DBI, enabled bool, actor int64) error {
+	if err := database.SetAuthorAutopilotMergeEnabled(ctx, db, enabled, actor); err != nil {
+		return err
+	}
+	status := autopilotMergeSwitchedOff
+	if enabled {
+		status = autopilotMergeSwitchedOn
+	}
+	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventAutopilotSwitched, Stage: AuthorMetadataStageAutopilot, Status: status,
+	})
+	return nil
+}
+
 // AuthorAutopilotStatuses are the closed values the autopilot logs as a
-// status: what a tick found, and the switch.
+// status: what a tick found, and the switches.
 func AuthorAutopilotStatuses() []string {
-	return append(database.AuthorAutopilotStates(), autopilotSwitchedOn, autopilotSwitchedOff)
+	return append(database.AuthorAutopilotStates(), autopilotSwitchedOn, autopilotSwitchedOff,
+		autopilotMergeSwitchedOn, autopilotMergeSwitchedOff)
 }

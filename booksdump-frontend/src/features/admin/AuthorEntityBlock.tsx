@@ -276,6 +276,40 @@ const RESOLVE_NOTES: Record<string, [string, string]> = {
     llm_run_active: ['authorEntity.autopilot.note.runActive', 'another LLM run started meanwhile'],
 };
 
+/** How the last merge check came out, by its closed note. */
+const MERGE_NOTES: Record<string, [string, string]> = {
+    switched_off: ['authorEntity.autopilot.mergeNote.off', 'the merge step is off'],
+    build_due: ['authorEntity.autopilot.mergeNote.buildDue', 'an entity pass is due first'],
+    llm_not_configured: [
+        'authorEntity.autopilot.mergeNote.llmOff',
+        'the merge configuration is off',
+    ],
+    no_merge_eval: [
+        'authorEntity.autopilot.mergeNote.noEval',
+        'no merge check completed under this configuration',
+    ],
+    no_registered_kinds: ['authorEntity.autopilot.mergeNote.noKinds', 'no registered kind'],
+    veto_unanchored: [
+        'authorEntity.autopilot.mergeNote.veto',
+        'a veto is unanchored (retire or re-anchor it)',
+    ],
+    drift_held: ['authorEntity.autopilot.mergeNote.drift', 'a model drifted'],
+    llm_paused: ['authorEntity.autopilot.mergeNote.paused', 'a model or the endpoint is paused'],
+    nothing_to_merge: ['authorEntity.autopilot.mergeNote.nothing', 'no candidate left to ask'],
+    budget_exhausted: [
+        'authorEntity.autopilot.mergeNote.budget',
+        "the run's estimate exceeds the budget left",
+    ],
+    evidence_changed: [
+        'authorEntity.autopilot.mergeNote.evidence',
+        'the checks or registrations changed meanwhile',
+    ],
+    llm_run_active: [
+        'authorEntity.autopilot.mergeNote.runActive',
+        'another LLM run started meanwhile',
+    ],
+};
+
 /** What the last check found, as one line. */
 const stateLine = (t: T, a: AuthorAutopilotStatus): string => {
     const id = a.state_run_id ?? '';
@@ -311,6 +345,20 @@ const stateLine = (t: T, a: AuthorAutopilotStatus): string => {
                 defaultValue: 'Started entity pass {{id}}.',
                 id,
             });
+        case 'merge_started':
+            return t('authorEntity.autopilot.state.mergeStarted', {
+                defaultValue: 'Started merge run {{id}} for {{candidates}} candidates.',
+                id,
+                candidates: formatNumber(a.merge_candidates),
+            });
+        case 'build_backoff':
+            return t('authorEntity.autopilot.state.buildBackoff', {
+                defaultValue:
+                    'Entity pass {{id}} failed its census ({{failures}} in a row); the next pass waits until {{date}}.',
+                id,
+                failures: a.census_failures,
+                date: a.census_retry_at ? formatTime(a.census_retry_at) : '',
+            });
         case 'idle':
             return t('authorEntity.autopilot.state.idle', 'Nothing to do.');
         default:
@@ -330,7 +378,27 @@ const autopilotLines = (t: T, a: AuthorAutopilotStatus): string[] => {
             }),
         );
     }
-    if (a.build_pending && a.state !== 'build_started' && a.state !== 'entity_build_active') {
+    const merge = MERGE_NOTES[a.merge_note ?? ''];
+    if (a.merge_enabled && merge) {
+        lines.push(
+            a.merge_candidates > 0
+                ? t('authorEntity.autopilot.mergeLineDue', {
+                      defaultValue: 'Merges: {{note}} ({{candidates}} candidates due).',
+                      note: t(merge[0], merge[1]),
+                      candidates: formatNumber(a.merge_candidates),
+                  })
+                : t('authorEntity.autopilot.mergeLine', {
+                      defaultValue: 'Merges: {{note}}.',
+                      note: t(merge[0], merge[1]),
+                  }),
+        );
+    }
+    if (
+        a.build_pending &&
+        a.state !== 'build_started' &&
+        a.state !== 'entity_build_active' &&
+        a.state !== 'build_backoff'
+    ) {
         lines.push(
             t(
                 'authorEntity.autopilot.buildPending',
@@ -349,21 +417,34 @@ const autopilotLines = (t: T, a: AuthorAutopilotStatus): string[] => {
         );
     }
     if (a.last_action && a.last_action_at) {
-        lines.push(
-            a.last_action === 'resolve'
-                ? t('authorEntity.autopilot.lastResolve', {
-                      defaultValue: 'Last started: resolve run {{id}}, {{date}}.',
-                      id: a.last_action_run_id ?? '',
-                      date: formatTime(a.last_action_at),
-                  })
-                : t('authorEntity.autopilot.lastBuild', {
-                      defaultValue: 'Last started: entity pass {{id}}, {{date}}.',
-                      id: a.last_action_run_id ?? '',
-                      date: formatTime(a.last_action_at),
-                  }),
-        );
+        lines.push(lastActionLine(t, a.last_action, a.last_action_run_id ?? '', a.last_action_at));
     }
     return lines;
+};
+
+/** The last run the autopilot started, as one line. */
+const lastActionLine = (t: T, action: string, id: number | string, at: string): string => {
+    const date = formatTime(at);
+    switch (action) {
+        case 'resolve':
+            return t('authorEntity.autopilot.lastResolve', {
+                defaultValue: 'Last started: resolve run {{id}}, {{date}}.',
+                id,
+                date,
+            });
+        case 'merge':
+            return t('authorEntity.autopilot.lastMerge', {
+                defaultValue: 'Last started: merge run {{id}}, {{date}}.',
+                id,
+                date,
+            });
+        default:
+            return t('authorEntity.autopilot.lastBuild', {
+                defaultValue: 'Last started: entity pass {{id}}, {{date}}.',
+                id,
+                date,
+            });
+    }
 };
 
 /** The autopilot section: the switch and what the autopilot sees and does. */
@@ -375,11 +456,11 @@ const AutopilotSection: React.FC<{
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
 
-    const toggle = async (enabled: boolean) => {
+    const toggle = (set: (enabled: boolean) => Promise<unknown>) => async (enabled: boolean) => {
         setBusy(true);
         setErrorText(null);
         try {
-            await adminApi.setAuthorAutopilot(enabled);
+            await set(enabled);
         } catch {
             setErrorText(t('authorEntity.error.other', 'The action failed.'));
         } finally {
@@ -398,7 +479,7 @@ const AutopilotSection: React.FC<{
                     id="author-autopilot"
                     disabled={busy}
                     checked={autopilot.enabled}
-                    onCheckedChange={toggle}
+                    onCheckedChange={toggle(adminApi.setAuthorAutopilot)}
                 />
             </div>
             <p className="text-sm text-muted-foreground">
@@ -408,10 +489,35 @@ const AutopilotSection: React.FC<{
                     minutes: formatNumber(Math.round(autopilot.quiet_seconds / 60)),
                 })}
             </p>
+            <div className="flex items-center justify-between gap-3">
+                <label htmlFor="author-autopilot-merge" className="text-sm font-medium">
+                    {t('authorEntity.autopilot.merge.title', 'Merge step')}
+                </label>
+                <Switch
+                    id="author-autopilot-merge"
+                    disabled={busy}
+                    checked={autopilot.merge_enabled}
+                    onCheckedChange={toggle(adminApi.setAuthorAutopilotMerge)}
+                />
+            </div>
+            <p className="text-sm text-muted-foreground">
+                {t(
+                    'authorEntity.autopilot.merge.hint',
+                    "With the autopilot on and nothing else to do (the scan quiet, the names resolved, the entities built), it starts one merge run over the merge candidates due: of a registered kind and never asked, the new ones and those whose card changed. It is the ordinary merge run, never a check (eval); the entity pass after it applies the decisions. It waits while any LLM run is active, a veto is unanchored, a model drifted or is paused, or the run's estimate exceeds the budget left. Only one LLM run is active at a time, so while its merge run runs an administrator's run is refused. Pausing and closing that run frees the slot, but the candidates it has not answered then count as asked and are not asked again until their card changes: keep the step off while running checks by hand.",
+                )}
+            </p>
             {errorText !== null && (
                 <Alert variant="destructive">
                     <AlertDescription>{errorText}</AlertDescription>
                 </Alert>
+            )}
+            {autopilot.enabled && !autopilot.merge_enabled && (
+                <p className="text-sm">
+                    {t(
+                        'authorEntity.autopilot.merge.off',
+                        'Merge step off: merge candidates wait for the button.',
+                    )}
+                </p>
             )}
             {!autopilot.enabled ? (
                 <p className="text-sm">

@@ -17,7 +17,7 @@ import (
 // its status — the newest pass with its progress, the newest report, the
 // Wikidata reference and the autopilot — the start of a pass and the fetch
 // of the Wikidata reference (E4w), both going on in the background, and the
-// autopilot's switch. Admin only: the group
+// autopilot's switches, its own and its merge step's. Admin only: the group
 // is mounted behind AdminMiddleware. A second pass or fetch while one is
 // active is a 409 active_run_exists.
 
@@ -28,6 +28,7 @@ type AuthorEntityAdminService interface {
 	Start(ctx context.Context, actor int64) (*database.AuthorEntityBuildRun, error)
 	StartWikidataFetch(ctx context.Context, actor int64) (*database.WikidataExtract, error)
 	SetAutopilot(ctx context.Context, enabled bool, actor int64) (*services.AuthorAutopilotStatus, error)
+	SetAutopilotMerge(ctx context.Context, enabled bool, actor int64) (*services.AuthorAutopilotStatus, error)
 	MergeDecisions(ctx context.Context) (*database.MergeDecisionsView, error)
 	RevokeMergeDecision(ctx context.Context, decisionID, actor int64) (int64, error)
 	RetireMergeVeto(ctx context.Context, vetoID, actor int64) error
@@ -67,6 +68,10 @@ func (unavailableAuthorEntityAdmin) StartWikidataFetch(context.Context, int64) (
 }
 
 func (unavailableAuthorEntityAdmin) SetAutopilot(context.Context, bool, int64) (*services.AuthorAutopilotStatus, error) {
+	return nil, errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) SetAutopilotMerge(context.Context, bool, int64) (*services.AuthorAutopilotStatus, error) {
 	return nil, errAuthorEntityServiceUnavailable
 }
 
@@ -118,6 +123,7 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	r.POST("/build", h.start)
 	r.POST("/wikidata", h.fetchWikidata)
 	r.POST("/autopilot", h.setAutopilot)
+	r.POST("/autopilot/merge", h.setAutopilotMerge)
 	r.GET("/merges", h.merges)
 	r.POST("/merges/decisions/:id/revoke", h.revoke)
 	r.POST("/merges/vetoes/:id/retire", h.retire)
@@ -251,6 +257,30 @@ type autopilotRequest struct {
 // @Success 200 {object} map[string]services.AuthorAutopilotStatus
 // @Router /api/admin/author-metadata/entities/autopilot [post]
 func (h *authorEntityHandler) setAutopilot(c *gin.Context) {
+	h.switchAutopilot(c, h.svc().SetAutopilot)
+}
+
+// setAutopilotMerge godoc
+// @Summary Switch the author autopilot's merge step on or off
+// @Description With the autopilot on and nothing else to do, the merge step starts a merge run of the merge
+// @Description configuration over the candidates due (registered kinds, never asked), never an eval; the build after
+// @Description it lands the decisions. Off by default. Switched off it starts no merge run; one it started goes on.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param body body autopilotRequest true "The switch"
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]services.AuthorAutopilotStatus
+// @Router /api/admin/author-metadata/entities/autopilot/merge [post]
+func (h *authorEntityHandler) setAutopilotMerge(c *gin.Context) {
+	h.switchAutopilot(c, h.svc().SetAutopilotMerge)
+}
+
+// switchAutopilot sets one of the autopilot's switches from an explicit on
+// or off and answers the autopilot's block.
+func (h *authorEntityHandler) switchAutopilot(c *gin.Context,
+	set func(ctx context.Context, enabled bool, actor int64) (*services.AuthorAutopilotStatus, error),
+) {
 	var req autopilotRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
 		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
@@ -261,7 +291,7 @@ func (h *authorEntityHandler) setAutopilot(c *gin.Context) {
 		abortRun(c, http.StatusInternalServerError, codeInternalError)
 		return
 	}
-	st, err := h.svc().SetAutopilot(c.Request.Context(), *req.Enabled, actor)
+	st, err := set(c.Request.Context(), *req.Enabled, actor)
 	if err != nil {
 		abortEntityError(c, err)
 		return

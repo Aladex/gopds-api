@@ -97,6 +97,10 @@ type AuthorLLMMergeRunStart struct {
 	EstimateTokens int64
 	// CreatedBy is the administrator who started it; zero for none.
 	CreatedBy int64
+	// Within, when set, runs in the start's transaction once the run is
+	// written (the autopilot records its start there); an error it returns
+	// undoes the start.
+	Within func(tx *pg.Tx, runID int64) error
 }
 
 // StartAuthorLLMMergeRun creates a running merge run under the claim lock,
@@ -138,7 +142,10 @@ func StartAuthorLLMMergeRun(ctx context.Context, db *pg.DB, s *AuthorLLMMergeRun
 			VALUES (?6, ?0, 'running', ?1, 'enqueue', ?2::jsonb, ?3::jsonb, ?4::jsonb, ?5, now(), ?7)
 			RETURNING id`, s.Mode, s.ConfigVersion, string(settings), string(s.Evidence.ExpectedModels),
 			string(s.Evidence.Reference), by, string(models.AuthorLLMRunMerge), s.EstimateTokens)
-		return insertErr
+		if insertErr != nil || s.Within == nil {
+			return insertErr
+		}
+		return s.Within(tx, id)
 	})
 	if err != nil {
 		switch pgErrorCode(err) {

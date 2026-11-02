@@ -450,3 +450,24 @@ func TestTheWiringStartsBothLLMWorkers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"", "merge"}, configs, "one stored configuration each")
 }
+
+// The wiring gives the autopilot its merge step (E4e): with the step
+// switched on and the workers off, its check says the merge configuration
+// is off — not that the step has no admin, as an autopilot built without it
+// would.
+func TestTheWiringGivesTheAutopilotItsMergeStep(t *testing.T) {
+	db := scratchDB(t)
+	c := wiringConfig()
+	c.Enabled = false
+	ctx := context.Background()
+	_, err := db.Exec(`DELETE FROM author_autopilot_mark`)
+	require.NoError(t, err)
+	require.NoError(t, services.SetAuthorAutopilotMerge(ctx, db, true, 0))
+
+	_, err = newAuthorAutopilot(db, &c).RunOnce(ctx)
+	require.NoError(t, err)
+	st, err := database.GetAuthorAutopilot(ctx, db)
+	require.NoError(t, err)
+	require.NotNil(t, st.MergeNote)
+	assert.Equal(t, services.AutopilotMergeLLMOff, *st.MergeNote)
+}

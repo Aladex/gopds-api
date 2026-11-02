@@ -157,6 +157,32 @@ func authorAutopilotLLM(db *pg.DB, c *config.AuthorMetadataConfig) services.Auth
 	}
 }
 
+// newAuthorAutopilot is the autopilot's worker: the resolve check under the
+// name normalization's admin, the merge step under the merge
+// configuration's.
+func newAuthorAutopilot(db *pg.DB, c *config.AuthorMetadataConfig) *services.AuthorAutopilot {
+	return services.NewAuthorAutopilot(db, authorAutopilotLLM(db, c),
+		services.AuthorAutopilotConfig{Quiet: c.Autopilot.QuietPeriod}).WithMerge(authorAutopilotMergeLLM(db, c))
+}
+
+// authorAutopilotMergeLLM gives the autopilot's merge step the merge
+// configuration's admin (E4c), built and kept as authorAutopilotLLM keeps
+// the name normalization's.
+func authorAutopilotMergeLLM(db *pg.DB, c *config.AuthorMetadataConfig) services.AuthorAutopilotLLM {
+	var admin *services.AuthorLLMAdmin
+	return func(ctx context.Context) (*services.AuthorLLMAdmin, error) {
+		if admin != nil {
+			return admin, nil
+		}
+		built, err := services.NewAuthorLLMMergeAdminFromConfig(ctx, db, c, config.LLM())
+		if err != nil {
+			return nil, err
+		}
+		admin = built
+		return admin, nil
+	}
+}
+
 // errNoDatabase refuses to start the runner without a pool.
 var errNoDatabase = errors.New("no database pool")
 
@@ -202,15 +228,15 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 	// read the model, which the scan and the admin's edits keep marking. The
 	// author entity build runs the passes an administrator or the autopilot
 	// starts, and the Wikidata fetch only the fetches. The autopilot starts
-	// its resolve runs only when the LLM workers run (its admin says so).
+	// its resolve runs, and its merge step its merge runs, only when the LLM
+	// workers run (their admins say so).
 	api.SetAuthorEntityAdminService(services.NewAuthorEntityAdmin(db).WithAutopilotQuiet(c.Autopilot.QuietPeriod))
 	workers := []services.AuthorMetadataStageWorker{
 		services.NewAuthorAcceptancePass(db),
 		services.NewAuthorDisplayModelLoop(db, services.AuthorDisplayModelConfig{}),
 		services.NewAuthorEntityBuildLoop(db, services.AuthorEntityBuildConfig{}),
 		services.NewWikidataFetchLoop(db, services.NewQLeverSource(), services.WikidataFetchConfig{}),
-		services.NewAuthorAutopilot(db, authorAutopilotLLM(db, c),
-			services.AuthorAutopilotConfig{Quiet: c.Autopilot.QuietPeriod}),
+		newAuthorAutopilot(db, c),
 	}
 	if c.Enabled {
 		// Workers that cannot be built do not stop the acceptance pass.

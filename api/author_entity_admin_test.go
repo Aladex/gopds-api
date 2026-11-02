@@ -28,8 +28,10 @@ type fakeEntityAdmin struct {
 	calls []string
 	actor int64
 	err   error
-	// enabled is the autopilot switch the last call set.
+	// enabled is the autopilot switch the last call set, merge its merge
+	// step's.
 	enabled *bool
+	merge   *bool
 }
 
 func (f *fakeEntityAdmin) record(call string) {
@@ -77,6 +79,17 @@ func (f *fakeEntityAdmin) SetAutopilot(_ context.Context, enabled bool, actor in
 	f.enabled = &enabled
 	return &services.AuthorAutopilotStatus{AuthorAutopilotState: &database.AuthorAutopilotState{Enabled: enabled},
 		QuietSeconds: 1800}, nil
+}
+
+func (f *fakeEntityAdmin) SetAutopilotMerge(_ context.Context, enabled bool, actor int64) (*services.AuthorAutopilotStatus, error) {
+	f.record("autopilot_merge")
+	f.actor = actor
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.merge = &enabled
+	return &services.AuthorAutopilotStatus{AuthorAutopilotState: &database.AuthorAutopilotState{Enabled: true,
+		MergeEnabled: enabled}, QuietSeconds: 1800}, nil
 }
 
 func (f *fakeEntityAdmin) MergeDecisions(context.Context) (*database.MergeDecisionsView, error) {
@@ -168,7 +181,8 @@ func TestAuthorEntityRoutesRequireAnAdministrator(t *testing.T) {
 
 	routes := []struct{ method, path, body string }{{http.MethodGet, entityBase + "/status", ""},
 		{http.MethodPost, entityBase + "/build", ""}, {http.MethodPost, entityBase + "/wikidata", ""},
-		{http.MethodPost, entityBase + "/autopilot", `{"enabled":false}`}, {http.MethodGet, entityBase + "/merges", ""},
+		{http.MethodPost, entityBase + "/autopilot", `{"enabled":false}`},
+		{http.MethodPost, entityBase + "/autopilot/merge", `{"enabled":false}`}, {http.MethodGet, entityBase + "/merges", ""},
 		{http.MethodPost, entityBase + "/merges/decisions/9/revoke", ""},
 		{http.MethodPost, entityBase + "/merges/vetoes/3/retire", ""},
 		{http.MethodPost, entityBase + "/merges/vetoes/3/reanchor",
@@ -259,14 +273,42 @@ func TestTheAutopilotSwitch(t *testing.T) {
 	require.NotNil(t, svc.enabled)
 	assert.False(t, *svc.enabled)
 	assert.Equal(t, adminActorID, svc.actor)
-	assert.JSONEq(t, `{"autopilot":{"enabled":false,"resolve_inputs":0,"failures":0,"updated_at":"0001-01-01T00:00:00Z",
-		"quiet_seconds":1800,"waiting_jobs":0,"build_pending":false,"skipped_units":0}}`, rec.Body.String())
+	assert.JSONEq(t, `{"autopilot":{"enabled":false,"resolve_inputs":0,"merge_enabled":false,"merge_candidates":0,
+		"failures":0,"updated_at":"0001-01-01T00:00:00Z","quiet_seconds":1800,"waiting_jobs":0,"build_pending":false,
+		"skipped_units":0,"census_failures":0}}`, rec.Body.String())
 	rec = runsRequest(t, r, http.MethodPost, entityBase+"/autopilot", `{"enabled":true}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.True(t, *svc.enabled)
 
 	svc.err = errAuthorEntityServiceUnavailable
 	rec = runsRequest(t, r, http.MethodPost, entityBase+"/autopilot", `{"enabled":true}`)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// The merge step's switch, apart from the autopilot's: an explicit on or
+// off by the administrator, anything else refused before the service.
+func TestTheAutopilotMergeSwitch(t *testing.T) {
+	svc := &fakeEntityAdmin{}
+	r := entityRouter(svc)
+	for _, body := range []string{"", `{}`, `{"enabled":"yes"}`, `not json`} {
+		rec := runsRequest(t, r, http.MethodPost, entityBase+"/autopilot/merge", body)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		assert.JSONEq(t, `{"error":"invalid_request"}`, rec.Body.String(), body)
+	}
+	assert.Empty(t, svc.calls, "a malformed switch reached the service")
+
+	rec := runsRequest(t, r, http.MethodPost, entityBase+"/autopilot/merge", `{"enabled":true}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, svc.merge)
+	assert.True(t, *svc.merge)
+	assert.Nil(t, svc.enabled, "the autopilot's own switch was set")
+	assert.Equal(t, adminActorID, svc.actor)
+	assert.JSONEq(t, `{"autopilot":{"enabled":true,"resolve_inputs":0,"merge_enabled":true,"merge_candidates":0,
+		"failures":0,"updated_at":"0001-01-01T00:00:00Z","quiet_seconds":1800,"waiting_jobs":0,"build_pending":false,
+		"skipped_units":0,"census_failures":0}}`, rec.Body.String())
+
+	svc.err = errAuthorEntityServiceUnavailable
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/autopilot/merge", `{"enabled":false}`)
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 

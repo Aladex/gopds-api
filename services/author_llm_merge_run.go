@@ -77,15 +77,33 @@ func StartAuthorLLMMergeRun(ctx context.Context, db *pg.DB, version, mode string
 	if ev == nil || len(registrations) == 0 || len(due) == 0 {
 		return 0, ErrAuthorLLMPrerequisite
 	}
+	return startMergeRun(ctx, db, &mergeRunStart{version: version, mode: mode, admin: admin, evidence: ev,
+		registrations: registrations, due: len(due)})
+}
+
+// mergeRunStart is a merge run to start: what its start read, and within,
+// which runs in the start's transaction once the run is written.
+type mergeRunStart struct {
+	version, mode string
+	admin         int64
+	evidence      *database.AuthorLLMEvalEvidence
+	registrations []database.MergeRegistration
+	due           int
+	within        func(tx *pg.Tx, runID int64) error
+}
+
+// startMergeRun writes a merge run of what its start read.
+func startMergeRun(ctx context.Context, db *pg.DB, s *mergeRunStart) (int64, error) {
+	ev, registrations, version, mode, admin := s.evidence, s.registrations, s.version, s.mode, s.admin
 	ids := make([]int64, 0, len(registrations))
 	for i := range registrations {
 		ids = append(ids, registrations[i].ID)
 	}
 	id, err := database.StartAuthorLLMMergeRun(ctx, db, &database.AuthorLLMMergeRunStart{
-		ConfigVersion: version, Mode: mode, Evidence: ev, EstimateTokens: mergeRunEstimate(len(due)),
+		ConfigVersion: version, Mode: mode, Evidence: ev, EstimateTokens: mergeRunEstimate(s.due),
 		Settings: database.AuthorLLMMergeRunSettings{EvidenceRunID: ev.RunID, EvidenceReportID: ev.ReportID,
 			EvidenceSHA256: hex.EncodeToString(ev.ReportSHA256), Registrations: ids},
-		CreatedBy: admin})
+		CreatedBy: admin, Within: s.within})
 	if errors.Is(err, database.ErrAuthorLLMNoEvidence) || errors.Is(err, database.ErrAuthorLLMRunEvidence) {
 		return 0, ErrAuthorLLMPrerequisite
 	}
@@ -93,7 +111,7 @@ func StartAuthorLLMMergeRun(ctx context.Context, db *pg.DB, version, mode string
 		return 0, err
 	}
 	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{Name: AuthorMetadataEventLLMMergeRunStarted,
-		Stage: AuthorMetadataStageRunner, RunID: id, Count: len(due), Worker: authorLLMMergeRunDriverName})
+		Stage: AuthorMetadataStageRunner, RunID: id, Count: s.due, Worker: authorLLMMergeRunDriverName})
 	return id, nil
 }
 

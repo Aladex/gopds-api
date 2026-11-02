@@ -147,6 +147,172 @@ func (a *AuthorLLMAdmin) autopilotLimit(ctx context.Context) (string, error) {
 	return "", nil
 }
 
+// The merge step of the autopilot (E4e, plan §6): a merge run of the merge
+// configuration — the admin's ordinary run, mode full, never an eval —
+// over the candidates of the stored census a run would ask (of a
+// registered, not withdrawn kind, of a script not blocked, never asked
+// under the configuration; a lapsed decision's new candidate among them),
+// started under the merge card's limits: a completed merge eval to rest
+// on, a live registration, no live veto unanchored, no participant drifted
+// or paused, and the run's estimate within what is left of the budget.
+
+// How the merge check came out.
+const (
+	AutopilotMergeStarted = "started"
+	// AutopilotMergeSwitchedOff: the merge step's switch is off.
+	AutopilotMergeSwitchedOff = "switched_off"
+	// AutopilotMergeBuildDue: a pass is to do first; the candidates are the
+	// last completed pass's.
+	AutopilotMergeBuildDue     = "build_due"
+	AutopilotMergeLLMOff       = "llm_not_configured"
+	AutopilotMergeNoEval       = "no_merge_eval"
+	AutopilotMergeNoRegistered = "no_registered_kinds"
+	AutopilotMergeVetoHeld     = "veto_unanchored"
+	AutopilotMergeDriftHeld    = "drift_held"
+	AutopilotMergeLLMPaused    = "llm_paused"
+	AutopilotMergeNothing      = "nothing_to_merge"
+	AutopilotMergeBudget       = "budget_exhausted"
+	// AutopilotMergeEvidence: the eval or the registrations changed under
+	// the start; a later tick plans again.
+	AutopilotMergeEvidence = "evidence_changed"
+	// AutopilotMergeRunActive: an LLM run started under the start.
+	AutopilotMergeRunActive = "llm_run_active"
+)
+
+// AutopilotMergeNotes are every note of the merge check.
+func AutopilotMergeNotes() []string {
+	return []string{AutopilotMergeStarted, AutopilotMergeSwitchedOff, AutopilotMergeBuildDue, AutopilotMergeLLMOff,
+		AutopilotMergeNoEval, AutopilotMergeNoRegistered, AutopilotMergeVetoHeld, AutopilotMergeDriftHeld,
+		AutopilotMergeLLMPaused, AutopilotMergeNothing, AutopilotMergeBudget, AutopilotMergeEvidence,
+		AutopilotMergeRunActive}
+}
+
+// AutopilotMerge is what the merge check did: the run it started, or why
+// it started none (Note), with the candidates it found due.
+type AutopilotMerge struct {
+	RunID      int64
+	Note       string
+	Candidates int
+}
+
+// StartAutopilotMerge starts the autopilot's merge run, or says why it
+// starts none. within runs in the start's transaction once the run is
+// written, with the candidates due (the autopilot records it there); an
+// error it returns undoes the start and is returned. The caller has
+// checked that no LLM run is active and no pass is to do; a run that
+// starts meanwhile refuses the start (llm_run_active).
+func (a *AuthorLLMAdmin) StartAutopilotMerge(
+	ctx context.Context, within func(tx *pg.Tx, runID int64, candidates int) error,
+) (*AutopilotMerge, error) {
+	plan, err := a.autopilotMergePlan(ctx)
+	if err != nil || plan.note != "" {
+		if err != nil {
+			return nil, err
+		}
+		return &AutopilotMerge{Note: plan.note, Candidates: plan.due}, nil
+	}
+	id, err := startMergeRun(ctx, a.db, &mergeRunStart{version: a.version, mode: models.AuthorLLMEvalModeFull,
+		evidence: plan.evidence, registrations: plan.registrations, due: plan.due,
+		within: func(tx *pg.Tx, runID int64) error {
+			if within == nil {
+				return nil
+			}
+			return within(tx, runID, plan.due)
+		}})
+	switch {
+	case errors.Is(err, database.ErrAuthorLLMActiveRun):
+		return &AutopilotMerge{Note: AutopilotMergeRunActive, Candidates: plan.due}, nil
+	case errors.Is(err, database.ErrAuthorLLMEvidenceChanged), errors.Is(err, ErrAuthorLLMPrerequisite):
+		return &AutopilotMerge{Note: AutopilotMergeEvidence, Candidates: plan.due}, nil
+	case err != nil:
+		return nil, err
+	}
+	return &AutopilotMerge{RunID: id, Note: AutopilotMergeStarted, Candidates: plan.due}, nil
+}
+
+// autopilotMergePlan is what the merge run would start on: the eval it
+// rests on, the live registrations and the candidates due; or the note
+// that keeps it from starting.
+type autopilotMergePlan struct {
+	evidence      *database.AuthorLLMEvalEvidence
+	registrations []database.MergeRegistration
+	due           int
+	note          string
+}
+
+// autopilotMergePlan reads the merge run's plan under the merge card's
+// limits.
+func (a *AuthorLLMAdmin) autopilotMergePlan(ctx context.Context) (*autopilotMergePlan, error) {
+	if a.disabled != "" || !a.merge {
+		return &autopilotMergePlan{note: AutopilotMergeLLMOff}, nil
+	}
+	ev, err := database.LatestAuthorLLMMergeEval(ctx, a.db, a.version)
+	if err != nil {
+		return nil, err
+	}
+	if ev == nil {
+		return &autopilotMergePlan{note: AutopilotMergeNoEval}, nil
+	}
+	registrations, err := liveMergeRegistrations(ctx, a.db, a.version)
+	if err != nil {
+		return nil, err
+	}
+	if len(registrations) == 0 {
+		return &autopilotMergePlan{note: AutopilotMergeNoRegistered}, nil
+	}
+	if held, holdErr := a.mergeHold(ctx); holdErr != nil || held != "" {
+		if holdErr != nil {
+			return nil, holdErr
+		}
+		return &autopilotMergePlan{note: held}, nil
+	}
+	due, err := database.MergeCandidatesDue(ctx, a.db, a.version)
+	if err != nil {
+		return nil, err
+	}
+	plan := &autopilotMergePlan{evidence: ev, registrations: registrations, due: len(due)}
+	if plan.due == 0 {
+		plan.note = AutopilotMergeNothing
+		return plan, nil
+	}
+	spent, err := database.AuthorLLMTokensSpentAll(ctx, a.db)
+	if err != nil {
+		return nil, err
+	}
+	if spent+mergeRunEstimate(plan.due) > a.settings.Budget.OneOffTokens {
+		plan.note = AutopilotMergeBudget
+	}
+	return plan, nil
+}
+
+// mergeHold is what holds the merge step, or "" when nothing does: a live
+// veto unanchored, a participant drifted, a participant or the endpoint
+// paused.
+func (a *AuthorLLMAdmin) mergeHold(ctx context.Context) (string, error) {
+	unanchored, err := database.AuthorEntityVetoUnanchored(ctx, a.db)
+	if err != nil {
+		return "", err
+	}
+	if unanchored {
+		return AutopilotMergeVetoHeld, nil
+	}
+	drifted, err := database.MergeApplyDriftHeld(ctx, a.db, a.version, 0)
+	if err != nil {
+		return "", err
+	}
+	if drifted {
+		return AutopilotMergeDriftHeld, nil
+	}
+	paused, err := a.llmPaused(ctx)
+	if err != nil {
+		return "", err
+	}
+	if paused {
+		return AutopilotMergeLLMPaused, nil
+	}
+	return "", nil
+}
+
 // ActiveAuthorLLMRun is the pending, running or paused LLM run of any
 // configuration — at most one is (author_llm_run_one_active); 0 when none
 // is.
