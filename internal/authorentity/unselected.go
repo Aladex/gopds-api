@@ -221,6 +221,7 @@ func (b *builder) admitUnselected() {
 	}
 	b.rep.Unselected = &UnselectedReport{Rules: map[string]int{}}
 	sel := b.selectedNames()
+	b.givenKnown = sel.given
 	in := *b.in
 	in.Credits = slices.Clip(in.Credits)
 	for i := range b.in.Unselected {

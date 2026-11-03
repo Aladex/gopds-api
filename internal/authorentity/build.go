@@ -183,6 +183,8 @@ type builder struct {
 	noKey          []int
 	leftUnselected []*Unselected
 	fallback       []fallbackCredit
+	// givenKnown are the selected credits' given names (lists.go).
+	givenKnown givenNames
 	// keyItemsFolded is foldedKeyItems' index.
 	keyItemsFolded map[string][]ItemName
 	// revive is the revived entity each credit's synthetic membership

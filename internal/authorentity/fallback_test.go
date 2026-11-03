@@ -134,3 +134,64 @@ func TestTheDisplayNameJoinsTheEntityOfItsName(t *testing.T) {
 	fallback(t, p, 22)
 	apart(t, p, 12, 22)
 }
+
+// knownGiven adds selected people of given across knownGiven families, so the
+// catalog knows the name.
+func (c *catalog) knownGiven(given string, book, id int64) *catalog {
+	for i, f := range []string{"Аров", "Боров", "Варов", "Гаров", "Даров"} {
+		n := id + int64(i)
+		c.book(book+int64(i), "Книга").credit(n, book+int64(i), "fp-known-"+given+f, person(f, given))
+	}
+	return c
+}
+
+// A list of names is a segment per person: one joins the entity of its
+// name, the others get their own; «Family, Given» is one person; an
+// organization with a comma stays one collective.
+func TestAListOfNamesIsOnePersonPerName(t *testing.T) {
+	list := &name{displayAs: "Александр Силецкий, Эзиз Овезов, Станислав Лем", script: "Cyrl",
+		given: "Александр", family: "Силецкий"}
+	inverted := &name{displayAs: "Feifer, George", script: "Latn", family: "Feifer, George"}
+	org := &name{displayAs: "Общество Сторожевой Башни, Библий и трактатов Пенсильвании", script: "Cyrl",
+		family: "Общество"}
+	richelieu := &name{displayAs: "Арман Жан, де Ришелье", script: "Cyrl", family: "Ришелье"}
+	c := newCatalog(t).book(1, "Солярис").book(2, "Сборник").book(3, "Russia").book(4, "Журнал").
+		credit(10, 1, "fp-lem", person("Лем", "Станислав")).
+		unselected(20, 2, "fp-list", "unusual_characters", nil, list).done().
+		unselected(21, 3, "fp-inverted", "unusual_characters", nil, inverted).done().
+		unselected(22, 4, "fp-org", "unusual_characters", nil, org).done().
+		book(5, "Политическое завещание").
+		unselected(23, 5, "fp-richelieu", "unusual_characters", nil, richelieu).done()
+	c.knownGiven("Александр", 100, 100).knownGiven("Эзиз", 200, 200).knownGiven("George", 300, 300).
+		knownGiven("Станислав", 400, 400).knownGiven("Жан", 500, 500)
+	p := c.build()
+	state := authorentity.NewState()
+	p.Apply(state)
+	row := func(ordinal int) authorentity.AssignmentRow {
+		return state.Fingerprints[authorentity.FPKey{Fingerprint: "fp-list", ExtractorVersion: "v1", Ordinal: ordinal}]
+	}
+	assert.Equal(t, p.EntityOf(10), row(2).EntityID, "Станислав Лем joins his entity")
+	assert.Equal(t, authorentity.RuleSameName, row(2).Rule)
+	assert.Equal(t, authorentity.RuleListed, row(0).Rule)
+	assert.NotEqual(t, row(0).EntityID, row(1).EntityID)
+	assert.Equal(t, "Эзиз Овезов", p.Entity(row(1).EntityID).DisplayName)
+	assert.Equal(t, "George Feifer", p.Entity(p.EntityOf(21)).DisplayName)
+	assert.Equal(t, authorentity.KindPerson, p.Entity(p.EntityOf(21)).Kind)
+	assert.Equal(t, authorentity.KindCollective, p.Entity(p.EntityOf(22)).Kind)
+	_, segmented := state.Fingerprints[authorentity.FPKey{Fingerprint: "fp-richelieu", ExtractorVersion: "v1", Ordinal: 1}]
+	assert.False(t, segmented, "«де Ришелье» ends a name")
+}
+
+// Initials written onto the family are a name of their own in a list.
+func TestAListOfGluedInitialsSplits(t *testing.T) {
+	list := &name{displayAs: "П.И.Бакулин, Э.В.Кононович, В.И. Мороз", script: "Cyrl", family: "Бакулин"}
+	p := newCatalog(t).book(1, "Курс общей астрономии").
+		unselected(20, 1, "fp-list", "unusual_characters", nil, list).done().build()
+	state := authorentity.NewState()
+	p.Apply(state)
+	for i, want := range []string{"П.И. Бакулин", "Э.В. Кононович", "В.И. Мороз"} {
+		row := state.Fingerprints[authorentity.FPKey{Fingerprint: "fp-list", ExtractorVersion: "v1", Ordinal: i}]
+		require.NotNil(t, p.Entity(row.EntityID), "segment %d", i)
+		assert.Equal(t, want, p.Entity(row.EntityID).DisplayName)
+	}
+}

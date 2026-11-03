@@ -182,6 +182,8 @@ type fallbackCredit struct {
 	// pending is a credit the same-name join reads: it joins there when
 	// one entity has its name, and comes here when none or several do.
 	pending bool
+	// ordinal is the segment of a list's credit (lists.go); 0 otherwise.
+	ordinal int
 }
 
 // collectFallback appends the credits the pass leaves without an entity to
@@ -204,19 +206,24 @@ func (b *builder) collectFallback() {
 		us = append(us, w.u)
 	}
 	for _, u := range slices.Concat(us, b.leftUnselected, ptrs(b.in.Fallback)) {
-		ci := len(in.Credits)
 		c := u.Credit
 		res := *c.Result
 		c.Result = &res
-		nonPerson := fallbackNonPerson[u.Class] || res.Kind != KindPerson
+		one, segments := b.readListed(&c)
+		if len(segments) > 1 {
+			b.collectSegments(&in, c, segments, u.Tag == 0)
+			continue
+		}
+		ci := len(in.Credits)
+		nonPerson := (fallbackNonPerson[u.Class] || c.Kind != KindPerson) && !one
 		in.Credits = append(in.Credits, c)
 		f := fallbackOf(ci, &in.Credits[ci], nonPerson)
-		if f.person {
+		if f.person && !one {
 			f.name, _ = u.sameNameOf()
 			f.pending = pending[u]
 		}
-		if u.Tag == 0 && !sameNameExcluded[u.Class] && f.rule != RulePlaceholder {
-			f.shown = shownName(&u.Credit)
+		if u.Tag == 0 && (one || !sameNameExcluded[u.Class]) && f.rule != RulePlaceholder {
+			f.shown = shownName(&in.Credits[ci])
 		}
 		b.fallback = append(b.fallback, f)
 	}
@@ -224,6 +231,24 @@ func (b *builder) collectFallback() {
 		b.creditKey = append(b.creditKey, -1)
 	}
 	b.in = &in
+}
+
+// collectSegments appends a list's segments (lists.go) to in, each a
+// person of its own read as written, joining by its shown name when the
+// credit has no namesake tag (shown).
+func (b *builder) collectSegments(in *Input, c Credit, segments []*Result, shown bool) {
+	for i, r := range segments {
+		seg := c
+		seg.Result = r
+		ci := len(in.Credits)
+		in.Credits = append(in.Credits, seg)
+		k := keyOf(&seg)
+		f := fallbackCredit{ci: ci, group: "p|" + k.String(), rule: RuleListed, person: true, ordinal: i}
+		if shown {
+			f.shown = shownName(&seg)
+		}
+		b.fallback = append(b.fallback, f)
+	}
 }
 
 // ptrs are pointers to the elements of us.
@@ -447,13 +472,14 @@ func (pl *planner) wantFallback(groups []*group, joined map[int]int, pairs map[i
 	}
 	rep := &FallbackReport{Entities: map[string]int{}, Rows: map[string]int{}}
 	b.rep.Fallback = rep
-	rule := map[int]string{}
+	rule, ordinal := map[int]string{}, map[int]int{}
 	for i := range b.fallback {
-		rule[b.fallback[i].ci] = b.fallback[i].rule
+		f := &b.fallback[i]
+		rule[f.ci], ordinal[f.ci] = f.rule, f.ordinal
 		rep.Credits++
 	}
 	for _, ci := range sortedKeys(joined) {
-		if id, ok := pl.rootEntity[joined[ci]]; ok && pl.fallbackRow(ci, 0, id, RuleSameName) {
+		if id, ok := pl.rootEntity[joined[ci]]; ok && pl.fallbackRow(ci, ordinal[ci], id, RuleSameName) {
 			rep.Joined++
 		}
 	}
@@ -468,7 +494,7 @@ func (pl *planner) wantFallback(groups []*group, joined map[int]int, pairs map[i
 		r := rule[g.credits[0]]
 		rep.Entities[r]++
 		for _, ci := range g.credits {
-			if pl.fallbackRow(ci, 0, g.id, rule[ci]) {
+			if pl.fallbackRow(ci, ordinal[ci], g.id, rule[ci]) {
 				rep.Rows[rule[ci]]++
 			}
 		}
