@@ -309,3 +309,17 @@ func TestAnInitialNoItemCarriesStaysApart(t *testing.T) {
 	w := decidedWorld(t, ch, newReference().item("Q39829", []string{"Стивен Кинг", "Stephen King"}))
 	apart(t, w.pass(), 1, 2)
 }
+
+// A pen name the item goes by joins its spelling in the other script
+// (E4m): «George Orwell», the English main label and a P742 of Q3335, the
+// item's only Latin main label, beside «Джордж Оруэлл».
+func TestAPenNameTheItemGoesByJoins(t *testing.T) {
+	ch := &churn{t: t, c: newCatalog(t), fields: map[int64]authorentity.CardBookFields{}}
+	ch.c.book(1, "1984 (рус)").book(2, "1984").
+		credit(1, 1, "ru", person("Оруэлл", "Джордж")).
+		credit(2, 2, "en", shown("George Orwell", person("Orwell", "George").latin()))
+	withSwap(ch.c)
+	w := decidedWorld(t, ch, newReference().item("Q3335", []string{"Джордж Оруэлл", "George Orwell"},
+		"pseudonym:George Orwell"))
+	same(t, w.pass(), 1, 2)
+}

@@ -21,7 +21,13 @@ import (
 //   - an entity is named by any name of its credits that is a main label of
 //     one item alone, every such name naming the same item (rules 1 and 2);
 //   - a pseudonym keeps apart only an entity one of whose names it is
-//     (rule 3), not every entity of an item recording one;
+//     (rule 3), not every entity of an item recording one, and not when it
+//     is the name the item goes by: its main label, the item having one
+//     main label per script («George Orwell» / «Джордж Оруэлл», «Danielle
+//     Steel» / «Даниэла Стил»), so the pen name and its spelling in the
+//     other script are one person's (E4m). A pen name beside a second main
+//     label of its script («Agatha Mallowan» beside «Agatha Christie»)
+//     keeps apart as before;
 //   - an initial keeps apart only an entity whose name with it the item
 //     does not carry alone: «J. R. R. Tolkien», «John R. R. Tolkien» and
 //     «George R. R. Martin» are names of their items and of no other, so
@@ -200,9 +206,13 @@ func (b *builder) namedBy(c *component) string {
 // merges: a name of it the item's pseudonym (rule 3), an initial (rule 4),
 // a short name's bucket (rule 5), a namesake tag.
 func (b *builder) excludedAfter(c *component, qid string) string {
-	pens := b.in.Reference.Items[qid].PseudonymKeys
+	item := b.in.Reference.Items[qid]
+	goesBy := onePerScript(item.MainLabelKeys)
+	pen := func(n string) bool {
+		return slices.Contains(item.PseudonymKeys, n) && (!goesBy || !slices.Contains(item.MainLabelKeys, n))
+	}
 	switch {
-	case slices.ContainsFunc(c.names, func(n string) bool { return slices.Contains(pens, n) }):
+	case slices.ContainsFunc(c.names, pen):
 		return WikidataExcludedPseudonym
 	case b.initialsIn(c) && !b.initialsOfItem(c, qid):
 		return WikidataExcludedInitials
@@ -212,6 +222,19 @@ func (b *builder) excludedAfter(c *component, qid string) string {
 		return WikidataExcludedNamesake
 	}
 	return ""
+}
+
+// onePerScript reports main labels of one key per script.
+func onePerScript(keys []string) bool {
+	byScript := map[string]string{}
+	for _, k := range keys {
+		s := scriptOf(k)
+		if have, ok := byScript[s]; ok && have != k {
+			return false
+		}
+		byScript[s] = k
+	}
+	return true
 }
 
 // initialsOfItem reports every credit name of a component with an initial
