@@ -36,6 +36,9 @@ type Report struct {
 	// TypoMerges counts the patronymic typos merged on evidence.
 	TypoMerges int            `json:"typo_merges"`
 	NoEntity   map[string]int `json:"no_entity"`
+	// Retired counts the live entities the pass removed: no fingerprint,
+	// credit or manual row named them any more (abandonedUnits).
+	Retired int `json:"retired"`
 	// Fallback is the fallback step (E4p); nil without a credit for it.
 	Fallback *FallbackReport `json:"fallback,omitempty"`
 	Buckets  BucketReport    `json:"buckets"`

@@ -250,6 +250,10 @@ type Unit struct {
 	EntityID uuid.UUID
 	// Entity is the row to insert or update; nil when it is stored as is.
 	Entity *EntityRow
+	// DeleteEntity removes the entity row itself: the pass leaves it with
+	// no fingerprint, credit or manual row, so nothing names it any more
+	// (abandonedUnits); its non-pinned references and names go with it.
+	DeleteEntity bool
 	// Absorb are the old entities this one takes over: each gets
 	// merged_into and is logged.
 	Absorb             []MergeRow
@@ -270,6 +274,9 @@ func (u *Unit) Changes() int {
 	if u.Entity != nil {
 		n++
 	}
+	if u.DeleteEntity {
+		n++
+	}
 	return n
 }
 
@@ -278,6 +285,16 @@ func (u *Unit) Changes() int {
 func (u *Unit) Apply(s *State) {
 	if s.ModelMerges == nil {
 		s.ModelMerges = map[uuid.UUID]ModelMerge{}
+	}
+	if u.DeleteEntity {
+		delete(s.Entities, u.EntityID)
+		delete(s.ModelMerges, u.EntityID)
+		for k := range s.References {
+			if k.EntityID == u.EntityID && !s.References[k].Pinned {
+				delete(s.References, k)
+			}
+		}
+		return
 	}
 	if u.Entity != nil {
 		// A written entity row is live: a revived one is merged no more.

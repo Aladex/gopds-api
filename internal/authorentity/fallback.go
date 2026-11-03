@@ -67,7 +67,10 @@ var organizationWords = func() map[string]bool {
 // («Алексей "фон Раух" Смирнов») is no such name.
 var quotedName = regexp.MustCompile(`^\s*[«"„“][^«»"„“]+[»"“”]\s*$`)
 
-// organizationName reports a name an organization writes (see above).
+// organizationName reports a name an organization writes (see above): its
+// first word an organization word — whole, or as one hyphen part of a
+// compound («Интернет-журнал Виноградова №4, 2011») — or a comma part that
+// begins with a lower-case word no name uses (see commaRole).
 func organizationName(display string) bool {
 	if quotedName.MatchString(display) {
 		return true
@@ -76,7 +79,13 @@ func organizationName(display string) bool {
 	if len(words) == 0 {
 		return false
 	}
-	if organizationWords[strings.ToLower(strings.Trim(words[0], ".,:;"))] {
+	first := strings.ToLower(strings.Trim(words[0], ".,:;"))
+	for _, part := range strings.Split(first, "-") {
+		if organizationWords[part] {
+			return true
+		}
+	}
+	if commaRole(display) {
 		return true
 	}
 	if len(words) <= 1 {
@@ -89,6 +98,80 @@ func organizationName(display string) bool {
 		}
 	}
 	return true
+}
+
+// commaTitles are the rank and dignity words a person's name carries after
+// a comma («Николай II, император», «Пьер де Бурдей, сьер де Брантом»): a
+// name, not a role the credit names a publication by.
+var commaTitles = func() map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Fields(`сьер сир папа император императрица царь царица царевич царевна
+		король королева князь княгиня княжна граф графиня барон баронесса маркиз маркиза герцог герцогиня
+		эрцгерцог эрцгерцогиня кардинал эмир султан шах хан ханша раджа махараджа дофин регент кот`) {
+		set[w] = true
+	}
+	return set
+}()
+
+// commaOccupations are the plain occupation and degree words a source
+// writes after a person's name («Питер Браун художник, детский писатель»,
+// «Священник Даниил Сысоев кандидат богословия»): a name, not a
+// publication's role mark.
+var commaOccupations = func() map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Fields(`поэт поэтесса писатель писательница прозаик драматург критик литературовед
+		филолог историк философ ученый учёный журналист сценарист режиссер режиссёр актер актёр композитор
+		музыкант певец певица скульптор архитектор художник художница переводчик переводчица иллюстратор
+		лингвист востоковед синолог японовед германист англист славист социолог психолог экономист
+		математик физик химик биолог географ геолог геодезист инженер врач юрист правовед богослов теолог
+		священник протоиерей иеромонах монах диакон преподаватель педагог учитель лектор редактор
+		составитель библиограф краевед адвокат судья дипломат политик философ кандидат доктор профессор
+		академик член-корр`) {
+		set[w] = true
+	}
+	return set
+}()
+
+// commaRole reports a display whose part after a comma begins with a
+// lower-case word a person's name never begins with: a role the credit
+// names its holder by («Горкин А. П., гл. редактор»), a phrase («Автор,
+// пиши еще!»), a list of generic words («Конспекты, шпаргалки, учебники
+// «ЭКСМО»»). A particle («Арман Жан, де Ришелье»), a generational suffix
+// («Д М Маршалл, мл.»), a title (nameTitles, commaTitles), a plain
+// occupation (commaOccupations) and a lone handle of a digit or an
+// underscore («… Тай Алтай-87, altai87») belong to a name.
+func commaRole(display string) bool {
+	for _, part := range commaSeparator.Split(display, -1)[1:] {
+		words := strings.Fields(part)
+		if len(words) == 0 {
+			continue
+		}
+		w := strings.Trim(words[0], ".,")
+		if w == "" {
+			continue
+		}
+		if len(words) == 1 && strings.ContainsAny(w, "0123456789_") {
+			continue
+		}
+		first, _ := utf8.DecodeRuneInString(w)
+		if unicode.IsUpper(first) || unicode.IsDigit(first) {
+			continue
+		}
+		lower := strings.ToLower(strings.TrimSuffix(w, "."))
+		if nameParticles[lower] || nameTitles[lower] || commaTitles[lower] || commaOccupations[lower] ||
+			listSuffix.MatchString(w) {
+			continue
+		}
+		// An occupation may follow its modifier («детский писатель»); an
+		// abbreviated role mark («гл. редактор») names a publication.
+		if !strings.HasSuffix(words[0], ".") && len(words) > 1 {
+			if second := strings.ToLower(strings.TrimSuffix(strings.Trim(words[1], ".,"), ".")); commaOccupations[second] {
+				continue
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // pairWords is how many words a pair has: two given names, «и», a family.

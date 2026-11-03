@@ -142,12 +142,17 @@ func collapseWhitespace(s string) string {
 }
 
 // SearchKey derives the search representation of contract 3.5: NFC, full
-// Unicode case folding, ё→е, then every run of punctuation, separators and
-// white space becomes one U+0020, trimmed at the edges. Diacritics, digits
-// and symbols are kept; nothing is transliterated.
+// Unicode case folding, ё→е, the combining marks U+0300–U+036F (the stress
+// marks the sources write into names) dropped, then every run of
+// punctuation, separators and white space becomes one U+0020, trimmed at
+// the edges. Other diacritics, digits and symbols are kept; nothing is
+// transliterated. The fold changes no kind, class or name part — only the
+// derived key — so it is no new NormalizerVersion; stored results re-derive
+// their key whenever they are normalized again.
 func SearchKey(s string) string {
 	folded := cases.Fold().String(norm.NFC.String(s))
 	folded = strings.ReplaceAll(folded, "ё", "е")
+	folded = stripCombiningMarks(folded)
 
 	var b strings.Builder
 	b.Grow(len(folded))
@@ -164,6 +169,33 @@ func SearchKey(s string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// combiningMarkLo and combiningMarkHi bound the combining diacritical marks
+// block the sources write Russian stress with: a stressed name keys like
+// the plain one («Хо́рхе» and «Хорхе» are one key).
+const (
+	combiningMarkLo = 0x0300
+	combiningMarkHi = 0x036F
+)
+
+// stripCombiningMarks drops every rune of the U+0300–U+036F block.
+func stripCombiningMarks(s string) string {
+	if !strings.ContainsFunc(s, isCombiningMark) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if !isCombiningMark(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func isCombiningMark(r rune) bool {
+	return r >= combiningMarkLo && r <= combiningMarkHi
 }
 
 type letterScript struct {

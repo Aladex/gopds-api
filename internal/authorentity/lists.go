@@ -196,7 +196,10 @@ func (b *builder) readListed(c *Credit) (one bool, segments []*Result) {
 			named++
 		}
 	}
-	if 2*named < len(parts) {
+	// A pair of shaped names is two people even when the catalog knows
+	// neither given name («Дженика Шоу, Сем Крезент»); three or more parts
+	// still need a known name in half of them.
+	if 2*named < len(parts) && !(len(parts) == minGroup && strings.Contains(c.DisplayName, ",")) {
 		return false, nil
 	}
 	for _, p := range parts {

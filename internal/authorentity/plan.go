@@ -303,6 +303,7 @@ func (b *builder) plan() *Plan {
 			p.Units = append(p.Units, *u)
 		}
 	}
+	p.Units = append(p.Units, pl.abandonedUnits()...)
 	p.Units = append(p.Units, pl.cleanupUnits()...)
 	p.components = b.components(p.Units)
 	p.decisions = b.wdDecisions
@@ -521,6 +522,54 @@ func (pl *planner) diffCredits() {
 			pl.cleanup.DeleteCredits = append(pl.cleanup.DeleteCredits, key)
 		}
 	}
+}
+
+// abandonedUnits are the units that remove a live entity no row names any
+// more: every fingerprint and credit it had moved to another entity in an
+// earlier pass — a fallback entity beside the one its credits joined — so
+// nothing a reader sees reaches it, yet it stayed live because only a merge
+// ever unset that. An entity the pass writes, one a manual row, a pinned
+// reference, a pinned name or a merge log holds, and one merged into
+// another, stay; the database refuses the row for its own reasons and the
+// unit is skipped alone, as any refused unit is.
+func (pl *planner) abandonedUnits() []Unit {
+	b := pl.b
+	if len(b.old.Entities) == 0 {
+		return nil
+	}
+	named := make(map[uuid.UUID]bool, len(b.old.Fingerprints))
+	for _, row := range b.old.Fingerprints {
+		named[row.EntityID] = true
+	}
+	for _, row := range b.old.Credits {
+		if row.EntityID != nil {
+			named[*row.EntityID] = true
+		}
+	}
+	for key, row := range b.old.References {
+		if row.Pinned {
+			named[key.EntityID] = true
+		}
+	}
+	for _, m := range b.old.Merges {
+		named[m.From] = true
+		named[m.To] = true
+	}
+	ids := make([]uuid.UUID, 0, len(b.old.Entities))
+	for id := range b.old.Entities {
+		ids = append(ids, id)
+	}
+	slices.SortFunc(ids, func(x, y uuid.UUID) int { return strings.Compare(x.String(), y.String()) })
+	var out []Unit
+	for _, id := range ids {
+		e := b.old.Entities[id]
+		if e.MergedInto != nil || e.NamePinned || named[id] || pl.units[id] != nil {
+			continue
+		}
+		b.rep.Retired++
+		out = append(out, Unit{EntityID: id, DeleteEntity: true})
+	}
+	return out
 }
 
 // cleanupUnits split the cleanup by the old entity of each removed row, in

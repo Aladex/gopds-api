@@ -1009,7 +1009,7 @@ func sortedUUIDs[V any](m map[uuid.UUID]V) []uuid.UUID {
 // resetPlanReport clears what planning counts, before a pass plans again.
 func (b *builder) resetPlanReport() {
 	r := &b.rep
-	r.Entities, r.InitialsEntities, r.Changes = 0, 0, 0
+	r.Entities, r.InitialsEntities, r.Changes, r.Retired = 0, 0, 0, 0
 	r.EntitiesByKind, r.Rules = map[string]int{}, map[string]int{}
 	r.Sizes, r.Top = nil, nil
 	r.IDs = IDReport{}

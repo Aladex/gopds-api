@@ -307,12 +307,31 @@ func LoadAuthorEntityState(ctx context.Context, db pg.DBI) (*authorentity.State,
 	s := authorentity.NewState()
 	for _, load := range []func(context.Context, pg.DBI, *authorentity.State) error{
 		loadStoredEntities, loadStoredFingerprints, loadStoredCredits, loadStoredReferences, loadStoredModelMerges,
+		loadStoredMergeSides,
 	} {
 		if err := load(ctx, db, s); err != nil {
 			return nil, err
 		}
 	}
 	return s, nil
+}
+
+// loadStoredMergeSides reads which entities a merge log row names: a row an
+// entity ever absorbed or was absorbed into keeps its row (the retirement's
+// hold, plan.go).
+func loadStoredMergeSides(ctx context.Context, db pg.DBI, s *authorentity.State) error {
+	var sides []struct {
+		From uuid.UUID `pg:"from_id,type:uuid"`
+		To   uuid.UUID `pg:"to_id,type:uuid"`
+	}
+	if _, err := db.QueryContext(ctx, &sides, `
+		SELECT from_id, to_id FROM public.author_entity_merge_log`); err != nil {
+		return fmt.Errorf("reading the merge log sides: %w", err)
+	}
+	for _, m := range sides {
+		s.Merges = append(s.Merges, authorentity.MergeRow{From: m.From, To: m.To})
+	}
+	return nil
 }
 
 func loadStoredEntities(ctx context.Context, db pg.DBI, s *authorentity.State) error {
@@ -589,8 +608,29 @@ func bigintArray(ids []int64) string {
 // row is never replaced or removed.
 func writeEntityUnits(ctx context.Context, tx pg.DBI, runID int64, units []authorentity.Unit) error {
 	var c entityUnitColumns
+	var gone []string
 	for i := range units {
 		c.add(&units[i])
+		if units[i].DeleteEntity {
+			gone = append(gone, units[i].EntityID.String())
+		}
+	}
+	if len(gone) > 0 {
+		// The guards of the plan's retirement hold at write time too: a row
+		// another writer put on the entity, a pin of its name, a pinned
+		// reference or a merge log that names it keeps it, and the delete
+		// removes nothing.
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM public.author_entity e USING unnest(?::uuid[]) AS d(id)
+			WHERE e.id = d.id AND e.merged_into IS NULL AND NOT e.name_pinned
+				AND NOT EXISTS (SELECT 1 FROM public.author_entity_assignment a WHERE a.entity_id = e.id)
+				AND NOT EXISTS (SELECT 1 FROM public.author_entity_credit_assignment c WHERE c.entity_id = e.id)
+				AND NOT EXISTS (SELECT 1 FROM public.author_entity_reference r WHERE r.entity_id = e.id AND r.pinned)
+				AND NOT EXISTS (SELECT 1 FROM public.author_entity_merge_log l
+					WHERE l.from_id = e.id OR l.to_id = e.id)`,
+			pg.Array(gone)); err != nil {
+			return err
+		}
 	}
 	for _, s := range c.steps(runID) {
 		if s.skip {

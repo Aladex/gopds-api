@@ -12,6 +12,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -42,6 +43,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -72,6 +74,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -102,6 +105,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -132,6 +136,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -200,6 +205,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -230,6 +236,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -260,6 +267,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -290,6 +298,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -320,6 +329,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -350,6 +360,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -380,6 +391,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -410,6 +422,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -440,6 +453,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -480,6 +494,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -510,6 +525,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -540,6 +556,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -570,6 +587,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -600,6 +618,7 @@
           "NamePinned": false,
           "MergedInto": null
         },
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": [
           {
@@ -804,6 +823,7 @@
       "no_entity": {
         "placeholder": 1
       },
+      "retired": 0,
       "sizes": [
         {
           "label": "1",
@@ -1110,6 +1130,7 @@
       "no_entity": {
         "placeholder": 1
       },
+      "retired": 0,
       "sizes": [
         {
           "label": "1",
@@ -1235,6 +1256,7 @@
       {
         "EntityID": "00000000-0000-7000-8000-000000000005",
         "Entity": null,
+        "DeleteEntity": false,
         "Absorb": [
           {
             "From": "00000000-0000-7000-8000-000000000004",
@@ -1453,6 +1475,7 @@
       "no_entity": {
         "placeholder": 1
       },
+      "retired": 0,
       "sizes": [
         {
           "label": "1",
@@ -1574,6 +1597,7 @@
       {
         "EntityID": "00000000-0000-7000-8000-000000000006",
         "Entity": null,
+        "DeleteEntity": false,
         "Absorb": [
           {
             "From": "00000000-0000-7000-8000-000000000015",
@@ -1620,6 +1644,7 @@
       {
         "EntityID": "00000000-0000-7000-8000-000000000007",
         "Entity": null,
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": null,
         "DeleteFingerprints": null,
@@ -1641,6 +1666,7 @@
       {
         "EntityID": "00000000-0000-7000-8000-000000000016",
         "Entity": null,
+        "DeleteEntity": false,
         "Absorb": null,
         "Fingerprints": null,
         "DeleteFingerprints": null,
@@ -1850,6 +1876,7 @@
       "no_entity": {
         "placeholder": 1
       },
+      "retired": 0,
       "sizes": [
         {
           "label": "1",

@@ -182,8 +182,10 @@ func TestACoauthorAddedToABookDoesNotTakeTheEntityOnIt(t *testing.T) {
 
 // E2 §0: an entity whose every credit is gone — since E4p a credit that
 // stays always names an entity — is retired: no successor, its fingerprint
-// rows go (the read model then drops it and its names); its row stays (IDs
-// are never reused). A second pass writes nothing.
+// rows go (the read model then drops it and its names). The pass after that
+// removes the row itself, which nothing names any more (E4r; IDs are never
+// reused — a later entity of the same name gets a fresh one). The next pass
+// writes nothing.
 func TestARetiredEntityLosesItsRows(t *testing.T) {
 	c := newCatalog(t).book(1, "Мост").book(2, "Река").
 		credit(10, 1, "fp-real", person("Петров", "Иван", "Сергеевич")).
@@ -200,7 +202,7 @@ func TestARetiredEntityLosesItsRows(t *testing.T) {
 		t.Errorf("an unrelated entity changed")
 	}
 	if _, ok := s.Entities[retired]; !ok {
-		t.Errorf("the retired entity's row was removed")
+		t.Fatalf("the entity row went before its rows did")
 	}
 	for _, row := range s.Fingerprints {
 		if row.EntityID == retired {
@@ -209,6 +211,13 @@ func TestARetiredEntityLosesItsRows(t *testing.T) {
 	}
 	if second.Report.IDs.Orphaned != 1 {
 		t.Errorf("ids: got %+v", second.Report.IDs)
+	}
+	third := rebuild(t, c, s)
+	if _, ok := s.Entities[retired]; ok {
+		t.Errorf("the retired entity's row stayed with nothing naming it")
+	}
+	if third.Report.Retired != 1 {
+		t.Errorf("retired: got %d", third.Report.Retired)
 	}
 	if n := rebuild(t, c, s).Changes(); n != 0 {
 		t.Errorf("a pass after the retirement: want 0 changes, got %d", n)
