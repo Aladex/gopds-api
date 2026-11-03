@@ -396,7 +396,8 @@ func runReasons(in *Input, o *Options) []string {
 // shows, and 200 of it can never exist; a holdout and K's gate sample a
 // bigger population and keep the full sample. The census is the measured
 // items the repeat stage draws from: the suite's and the supplement's are
-// never repeated.
+// never repeated. An empty census keeps MinRepeatItems: no census item is no
+// evidence, not a census repeated in full.
 func repeatNeed(in *Input, o *Options) int {
 	if o.GateRule != GateRuleCensus && o.GateRule != GateRuleCensusAudit {
 		return MinRepeatItems
@@ -406,6 +407,9 @@ func repeatNeed(in *Input, o *Options) int {
 		if it := &in.Items[i]; it.Holdout && !it.Adversarial && !it.Supplement {
 			census++
 		}
+	}
+	if census == 0 {
+		return MinRepeatItems
 	}
 	return min(MinRepeatItems, census)
 }

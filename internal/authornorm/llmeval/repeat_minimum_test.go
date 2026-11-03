@@ -58,6 +58,7 @@ func TestASmallCensusNeedsEveryItemRepeated(t *testing.T) {
 			want: missing(121, 122)},
 		"a census of 122 beside a suite and a supplement": {opts: auditOpts, census: 122, suite: 300, extra: 100,
 			repeated: 121, want: missing(121, 122)},
+		"a census of one, repeated":       {opts: auditOpts, census: 1, repeated: 1},
 		"a census of 300 still needs 200": {opts: auditOpts, census: 300, repeated: 199, want: missing(199, 200)},
 		"a census of 300, 200 repeated":   {opts: auditOpts, census: 300, repeated: 200},
 		"a holdout of 122 still needs 200": {opts: holdoutOpts, census: 122, repeated: 122,
@@ -76,6 +77,36 @@ func TestASmallCensusNeedsEveryItemRepeated(t *testing.T) {
 			in.Repeat = repeatedBy(c.repeated)
 			r := EvaluateWith(&in, &c.opts)
 			assert.Equal(t, c.want, repeatEvidence(&r))
+		})
+	}
+}
+
+// An empty census is no evidence a small one repeated in full: with no census
+// item it still needs MinRepeatItems, so a report with no census, or only the
+// suite's or the supplement's items, cannot register on its repeats.
+func TestAnEmptyCensusStillNeedsTheFullRepeat(t *testing.T) {
+	for name, c := range map[string]struct {
+		opts         Options
+		suite, extra int
+	}{
+		"a census audit with no item":            {opts: auditOpts},
+		"a plain census with no item":            {opts: censusOpts},
+		"a census audit of the suite alone":      {opts: auditOpts, suite: 300},
+		"a census audit of the supplement alone": {opts: auditOpts, extra: 100},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := auditStratum(0)
+			same := Answer{Valid: true, Canonical: "same", Tier: "merge"}
+			for i := range c.suite + c.extra {
+				in.Items = append(in.Items, Item{ID: int64(10000 + i), Stratum: "bucket", Script: "cyrl", Weight: 1,
+					Holdout: true, Judges: [2]Answer{same, same},
+					Candidates:  map[Combo][2]Answer{{Arm: ArmA, Batch: 1}: {same, same}},
+					Adversarial: i < c.suite, Supplement: i >= c.suite})
+			}
+			in.Repeat = repeatedBy(0)
+			r := EvaluateWith(&in, &c.opts)
+			assert.Equal(t, missing(0, MinRepeatItems), repeatEvidence(&r))
+			assert.False(t, r.Decision.Registrable)
 		})
 	}
 }
