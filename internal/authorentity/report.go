@@ -408,4 +408,6 @@ type UnselectedReport struct {
 	SameName  int `json:"same_name"`
 	Ambiguous int `json:"ambiguous"`
 	Particles int `json:"particles"`
+	// Rules are the credits each deterministic read read as selected (E4l).
+	Rules map[string]int `json:"read_as_selected,omitempty"`
 }

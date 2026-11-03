@@ -45,6 +45,9 @@ type Reference struct {
 	// NameKey is the key (public.search_normalize) of every display name
 	// of the credits.
 	NameKey map[string]string
+	// ReviewNameKey is the key of every display name of the credits under
+	// review that NameKey has not: only the mononym read reads it (E4l).
+	ReviewNameKey map[string]string
 	// KeyItems are the items carrying each key, by kind of name.
 	KeyItems map[string][]ItemName
 	// Items are the items KeyItems reaches.

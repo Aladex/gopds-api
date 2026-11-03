@@ -534,7 +534,7 @@ func LoadWikidataReference(ctx context.Context, db pg.DBI, in *authorentity.Inpu
 		return nil, nil
 	}
 	id := ext[0].ID
-	ref := &authorentity.Reference{Extract: *ext[0].ContentID, NameKey: map[string]string{},
+	ref := &authorentity.Reference{Extract: *ext[0].ContentID, NameKey: map[string]string{}, ReviewNameKey: map[string]string{},
 		KeyItems: map[string][]authorentity.ItemName{}, Items: map[string]*authorentity.Item{}}
 	if err := loadWikidataNameKeys(ctx, db, in, ref); err != nil {
 		return nil, err
@@ -573,6 +573,24 @@ func loadWikidataNameKeys(ctx context.Context, db pg.DBI, in *authorentity.Input
 			names = append(names, n)
 		}
 	}
+	if err := keyWikidataNames(ctx, db, names, ref.NameKey); err != nil {
+		return err
+	}
+	// The names under review are keyed apart: the mononym read checks a
+	// single name against the items (E4l), and the rules of the selected
+	// credits read the names they read before.
+	var review []string
+	for i := range in.Unselected {
+		if n := in.Unselected[i].DisplayName; n != "" && !seen[n] {
+			seen[n] = true
+			review = append(review, n)
+		}
+	}
+	return keyWikidataNames(ctx, db, review, ref.ReviewNameKey)
+}
+
+// keyWikidataNames keys the names into keys.
+func keyWikidataNames(ctx context.Context, db pg.DBI, names []string, keys map[string]string) error {
 	for start := 0; start < len(names); start += wikidataLoadPage {
 		page := names[start:min(start+wikidataLoadPage, len(names))]
 		var rows []struct {
@@ -585,7 +603,7 @@ func loadWikidataNameKeys(ctx context.Context, db pg.DBI, in *authorentity.Input
 		}
 		for _, r := range rows {
 			if r.Key != "" {
-				ref.NameKey[r.Name] = r.Key
+				keys[r.Name] = r.Key
 			}
 		}
 	}
@@ -596,10 +614,12 @@ func loadWikidataNameKeys(ctx context.Context, db pg.DBI, in *authorentity.Input
 func loadWikidataKeyItems(ctx context.Context, db pg.DBI, extractID int64, ref *authorentity.Reference) error {
 	seen := map[string]bool{}
 	var keys []string
-	for _, k := range ref.NameKey {
-		if !seen[k] {
-			seen[k] = true
-			keys = append(keys, k)
+	for _, names := range []map[string]string{ref.NameKey, ref.ReviewNameKey} {
+		for _, k := range names {
+			if !seen[k] {
+				seen[k] = true
+				keys = append(keys, k)
+			}
 		}
 	}
 	for start := 0; start < len(keys); start += wikidataLoadPage {

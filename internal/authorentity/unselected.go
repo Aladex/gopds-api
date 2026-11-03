@@ -205,7 +205,10 @@ func (u *Unselected) particleOnly() bool {
 	count := len(strings.Fields(u.DisplayName))
 	bare := func(w string) bool { return authornorm.BareParticleWord(w, count) }
 	given, family := strings.Fields(u.Given), strings.Fields(u.Family)
-	return !bare(given[0]) && !bare(family[len(family)-1])
+	// A one-word given name that is a particle is a name of its own (Бен
+	// Бова, Ал Коруд) when the family neither starts nor ends with one.
+	ledByParticle := bare(given[0]) && (len(given) > 1 || bare(family[0]))
+	return !ledByParticle && !bare(family[len(family)-1])
 }
 
 // admitUnselected sorts the unselected credits before the pass keys the
@@ -216,38 +219,77 @@ func (b *builder) admitUnselected() {
 	if len(b.in.Unselected) == 0 {
 		return
 	}
-	b.rep.Unselected = &UnselectedReport{}
-	have := map[string]bool{}
-	cache := map[int64]keyed{}
-	for i := range b.in.Credits {
-		c := &b.in.Credits[i]
-		k, reason := b.keyOfCredit(c, cache)
-		if reason != "" {
-			continue
-		}
-		if n, ok := namesOf(&k); ok {
-			have[n.key], have[n.sequence] = true, true
-			if n.anyOrder != "" {
-				have[n.anyOrder] = true
-			}
-		}
-	}
+	b.rep.Unselected = &UnselectedReport{Rules: map[string]int{}}
+	sel := b.selectedNames()
 	in := *b.in
 	in.Credits = slices.Clip(in.Credits)
 	for i := range b.in.Unselected {
 		u := &b.in.Unselected[i]
 		b.rep.Unselected.Read++
 		n, ok := u.sameNameOf()
-		if ok && (have[n.key] || have[n.sequence] || (n.anyOrder != "" && have[n.anyOrder])) {
+		if ok && (sel.have[n.key] || sel.have[n.sequence] || (n.anyOrder != "" && sel.have[n.anyOrder])) {
 			b.sameName = append(b.sameName, pendingJoin{u: u, n: n})
 			continue
 		}
 		if u.particleOnly() {
 			in.Credits = append(in.Credits, u.Credit)
 			b.rep.Unselected.Particles++
+			continue
+		}
+		if c, read := b.read(u, sel); read {
+			in.Credits = append(in.Credits, c)
 		}
 	}
 	b.in = &in
+}
+
+// selectedKeys is what the unselected credits are sorted against: the
+// names, the bases of the keys and the given names of the selected credits.
+type selectedKeys struct {
+	have, bases map[string]bool
+	given       givenNames
+}
+
+func (b *builder) selectedNames() selectedKeys {
+	sel := selectedKeys{have: map[string]bool{}, bases: map[string]bool{}, given: givenNames{}}
+	cache := map[int64]keyed{}
+	for i := range b.in.Credits {
+		c := &b.in.Credits[i]
+		sel.given.add(c)
+		k, reason := b.keyOfCredit(c, cache)
+		if reason != "" {
+			continue
+		}
+		kb := k.base()
+		sel.bases[kb.String()] = true
+		if n, ok := namesOf(&k); ok {
+			sel.have[n.key], sel.have[n.sequence] = true, true
+			if n.anyOrder != "" {
+				sel.have[n.anyOrder] = true
+			}
+		}
+	}
+	return sel
+}
+
+// read is an unselected credit a deterministic read reads as selected. A
+// read gives no selected name a new full name or spelling: it would change
+// the entities D3 and the merges already settled, so such a credit is held.
+func (b *builder) read(u *Unselected, sel selectedKeys) (Credit, bool) {
+	res, rule, ok := b.readAsSelected(u, sel.given)
+	if !ok {
+		return Credit{}, false
+	}
+	c := u.Credit
+	res.ResultID = u.ResultID
+	c.Result = res
+	k := keyOf(&c)
+	if kb := k.base(); sel.bases[kb.String()] {
+		b.rep.Unselected.Rules[rule+"_held"]++
+		return Credit{}, false
+	}
+	b.rep.Unselected.Rules[rule]++
+	return c, true
 }
 
 // pendingJoin is an unselected credit waiting for the same-name join.
