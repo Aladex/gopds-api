@@ -240,6 +240,8 @@ type candItem struct {
 	// credit is a book item's bucket credit, by index into Input.Credits;
 	// -1 for a pair.
 	credit int
+	// short is an orphan whose side a is a short name (E4q).
+	short bool
 }
 
 // candidates is what generation keeps for the seal.
@@ -277,6 +279,7 @@ func (b *builder) collectCandidates(p *Plan, groups []*group) {
 		}
 	}
 	items := g.ordered()
+	items = append(items, g.nameItems(items)...)
 	items = append(items, b.bucketItems(sides)...)
 	r := &b.rep.Candidates
 	for _, it := range items {

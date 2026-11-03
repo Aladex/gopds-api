@@ -189,11 +189,13 @@ type builder struct {
 	keyItemsFolded map[string][]ItemName
 	// revive is the revived entity each credit's synthetic membership
 	// names, revived the revivable entities; oldOf and oldVia the stored
-	// membership the IDs were given out by (oldVia: through a credit row).
-	revive  map[int]uuid.UUID
-	revived map[uuid.UUID]*revivedEntity
-	oldOf   map[int]uuid.UUID
-	oldVia  map[int]bool
+	// membership the IDs were given out by (oldVia: through a credit row),
+	// oldCredits oldOf's credits by entity, sorted (heldBy).
+	revive     map[int]uuid.UUID
+	revived    map[uuid.UUID]*revivedEntity
+	oldOf      map[int]uuid.UUID
+	oldVia     map[int]bool
+	oldCredits map[uuid.UUID][]int
 	// The live vetoes (E4b-3): their effective sides, the veto sides of each
 	// raw fingerprint (nil without a veto), and the key-group pieces a
 	// widened side split off.

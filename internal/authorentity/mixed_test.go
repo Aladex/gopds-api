@@ -40,7 +40,8 @@ func bulgakovs(t *testing.T) *churn {
 // The mixed side pairs through its matching keys: a translit with the Latin
 // «Mihail Bulgakov» (Cyrl-Latn), a variant with «Афанасиевич» (Cyrl), and
 // each bucket book against it (Cyrl) — every one a _mixed kind, none a
-// mixed_script exclusion, none a plain kind.
+// mixed_script exclusion, none a plain kind. The name kinds have no mixed
+// kind: they keep a mixed side out.
 func TestAMixedSidePairsThroughItsMatchingKey(t *testing.T) {
 	p := sealed(t, bulgakovs(t).c, nil)
 	same(t, p, 1, 4)
@@ -56,6 +57,9 @@ func TestAMixedSidePairsThroughItsMatchingKey(t *testing.T) {
 		assert.Equal(t, authorentity.ItemBook, c.ItemKind)
 	}
 	for kind, scripts := range p.Report.Candidates.ByKind {
+		if authorentity.NameKind(kind) {
+			continue
+		}
 		for script, counts := range scripts {
 			assert.Zero(t, counts.Excluded[authorentity.ExcludedMixedScript], "%s %s", kind, script)
 		}

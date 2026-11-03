@@ -327,7 +327,8 @@ const (
 	// merge0 the pilot, merge1..merge6 one pooled kind each (merge5, the
 	// variant census, E4f, migration 73; merge6, the initials_hub census,
 	// E4g, migration 74); merge7 the five mixed-script kinds (E4h,
-	// migration 75).
+	// migration 75); merge8 the name kinds, orphan and pen_name (E4q,
+	// migration 78).
 	AuthorLLMEvalModeMerge  = "merge"
 	AuthorLLMEvalModeMerge0 = "merge0"
 	AuthorLLMEvalModeMerge1 = "merge1"
@@ -337,6 +338,7 @@ const (
 	AuthorLLMEvalModeMerge5 = "merge5"
 	AuthorLLMEvalModeMerge6 = "merge6"
 	AuthorLLMEvalModeMerge7 = "merge7"
+	AuthorLLMEvalModeMerge8 = "merge8"
 )
 
 // AuthorLLMEvalStageModes lists the stage eval modes in order.
@@ -353,7 +355,7 @@ func IsAuthorLLMEvalStageMode(mode string) bool {
 func AuthorLLMEvalMergeModes() []string {
 	return []string{AuthorLLMEvalModeMerge, AuthorLLMEvalModeMerge0, AuthorLLMEvalModeMerge1, AuthorLLMEvalModeMerge2,
 		AuthorLLMEvalModeMerge3, AuthorLLMEvalModeMerge4, AuthorLLMEvalModeMerge5, AuthorLLMEvalModeMerge6,
-		AuthorLLMEvalModeMerge7}
+		AuthorLLMEvalModeMerge7, AuthorLLMEvalModeMerge8}
 }
 
 // IsAuthorLLMEvalMergeMode reports a merge eval mode.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"gopds-api/database"
+	"gopds-api/internal/authorentity"
 	"gopds-api/internal/authornorm/llmeval"
 	"gopds-api/internal/authornorm/llmreq"
 	"gopds-api/models"
@@ -188,14 +189,33 @@ func mergeVerdictJobs(answers []database.AuthorLLMEvalAnswer) map[int64]map[stri
 }
 
 // mergeApplyAccepted reports an item the production rule accepts: the pair
-// agreed same and both judges answered same, first answers.
-func mergeApplyAccepted(answers map[string]string) bool {
+// agreed same and both judges answered same, first answers. An orphan's
+// same joins every book of its side over the bucket kind's answers, so the
+// rule asks of it a same of every production answer too, a repeat
+// included (dissent, E4q).
+func mergeApplyAccepted(kind string, answers map[string]string, dissent bool) bool {
 	for _, slot := range llmreq.Slots() {
 		if answers[string(slot)] != llmreq.MergeSame {
 			return false
 		}
 	}
-	return true
+	return kind != authorentity.CandidateOrphan || !dissent
+}
+
+// mergeProductionDissent are the items a production participant answered
+// other than same in any answer, a repeat included.
+func mergeProductionDissent(answers []database.AuthorLLMEvalAnswer) map[int64]bool {
+	out := map[int64]bool{}
+	for i := range answers {
+		a := &answers[i]
+		production := a.Slot == string(llmreq.SlotProductionA) || a.Slot == string(llmreq.SlotProductionB)
+		asked := a.Purpose == string(models.AuthorLLMPurposeEvalCandidate) ||
+			a.Purpose == string(models.AuthorLLMPurposeEvalRepeat)
+		if production && asked && mergeAnswerWord(a) != llmreq.MergeSame {
+			out[a.EvalItemID] = true
+		}
+	}
+	return out
 }
 
 // ApplyMergeEval inserts the decisions of a live registration's eval: every
@@ -232,13 +252,13 @@ func (a *AuthorEntityAdmin) ApplyMergeEval(
 	if err != nil {
 		return nil, err
 	}
-	verdicts, jobs := mergeVerdicts(answers), mergeVerdictJobs(answers)
+	verdicts, jobs, dissent := mergeVerdicts(answers), mergeVerdictJobs(answers), mergeProductionDissent(answers)
 	rep := &AuthorEntityMergeApplyReport{RegistrationID: reg.ID, Kind: reg.Kind, RunID: reg.RunID,
 		ReportID: reg.EvidenceReportID, Items: len(items)}
 	var accepted []database.MergeVerdict
 	for i := range items {
 		it := &items[i]
-		if !mergeApplyAccepted(verdicts[it.ID]) {
+		if !mergeApplyAccepted(reg.Kind, verdicts[it.ID], dissent[it.ID]) {
 			continue
 		}
 		v := database.MergeVerdict{ConfigVersion: reg.ConfigVersion, Kind: reg.Kind, ReportID: reg.EvidenceReportID}

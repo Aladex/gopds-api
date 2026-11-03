@@ -264,6 +264,11 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	case CandidateVariant:
 		nameX = nx.given + " " + nx.additional + " " + nx.family
 		nameY = nx.given + " " + Respell(nx.additional) + " " + nx.family
+	case CandidateOrphan, CandidatePenName:
+		// One written name on both: two people the name alone never tells
+		// apart (E4q).
+		nameX = nx.given + " " + nx.family
+		nameY = ny.given + " " + ny.family
 	default:
 		nameX = nx.given + " " + nx.family
 		nameY = ny.family + " " + ny.given

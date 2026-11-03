@@ -125,6 +125,10 @@ var mergeEvalModes = map[string]mergeEvalMode{
 	// Wikidata items is a namesake, asked in the suite.
 	models.AuthorLLMEvalModeMerge7: {kinds: authorentity.MixedKinds, census: true, wikidataSuite: true,
 		sizedEstimate: true},
+	// merge8 (E4q): the census of the name kinds, orphan and pen_name, each
+	// its own stratum and audit. No Wikidata suite: two sides an item names
+	// are what pen_name asks, not namesakes.
+	models.AuthorLLMEvalModeMerge8: {kinds: authorentity.NameKinds, census: true},
 }
 
 // AuthorLLMMergeEvalSizes are a merge eval's sizes (§7).

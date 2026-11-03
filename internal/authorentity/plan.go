@@ -166,7 +166,7 @@ func (b *builder) assignIDs(groups []*group) map[uuid.UUID][]MergeRow {
 // larger group, then by ID and group order.
 func (b *builder) overlaps(groups []*group) []overlap {
 	oldOf, via, oldBooks := b.oldMembership()
-	b.oldOf, b.oldVia = oldOf, via
+	b.oldOf, b.oldVia, b.oldCredits = oldOf, via, nil
 	wdRule := b.wikidataCreditRules()
 	var pairs []overlap
 	for order, g := range groups {

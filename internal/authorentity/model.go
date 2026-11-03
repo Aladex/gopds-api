@@ -79,6 +79,9 @@ const (
 	// ConflictGivenName: the union would join two full Cyrillic given
 	// names (or patronymics) of one family that are not one name (E4c).
 	ConflictGivenName = "given_name"
+	// ConflictSharedBook: an orphan's union would put one entity twice on a
+	// book (E4q).
+	ConflictSharedBook = "shared_book"
 )
 
 // DecisionState is what a pass did with one decision.
@@ -203,6 +206,7 @@ type modelStep struct {
 	states      map[int64]*DecisionState
 	entityDecs  []decided
 	bookDecs    []decided
+	orphanDecs  []decided
 	applied     map[int64]bool
 	pinStates   []PinState
 	rep         ModelReport
@@ -288,6 +292,9 @@ func (m *modelStep) evaluate() {
 			m.set(d.ID, DecisionLapsed, reason)
 		case si.credit != nil:
 			m.bookDecs = append(m.bookDecs, decided{d, si})
+		case si.it.kind == CandidateOrphan:
+			// An orphan joins after the book moves (joinOrphans, E4q).
+			m.orphanDecs = append(m.orphanDecs, decided{d, si})
 		default:
 			m.entityDecs = append(m.entityDecs, decided{d, si})
 		}
@@ -513,10 +520,11 @@ func (m *modelStep) replan() *Plan {
 	b.moveShortNameBooks()
 	m.moveDecidedBooks()
 	b.moveBucketRests()
+	orphans := m.joinOrphans()
 	wikidata := m.mergeWikidataAfterDecisions()
 	language := m.mergeOtherLanguages()
 	marks := m.mergeMarks()
-	if m.applyPins() || marks || language || wikidata {
+	if m.applyPins() || marks || language || wikidata || orphans {
 		m.retryTwoTargets()
 	}
 	b.prepareRevival(func(mm *ModelMerge) bool {
@@ -768,12 +776,16 @@ func (b *builder) componentOf(id uuid.UUID, g *group) int {
 // heldBy is what a stored entity holds in the pass: the fingerprints of its
 // credits and the credit rows that put the others in it.
 func (b *builder) heldBy(id uuid.UUID) ([]FPKey, []CreditKey) {
+	if b.oldCredits == nil {
+		// One index for the pass: a pass absorbs thousands of entities.
+		b.oldCredits = map[uuid.UUID][]int{}
+		for _, ci := range sortedKeys(b.oldOf) {
+			b.oldCredits[b.oldOf[ci]] = append(b.oldCredits[b.oldOf[ci]], ci)
+		}
+	}
 	var fps []FPKey
 	var credits []CreditKey
-	for _, ci := range sortedKeys(b.oldOf) {
-		if b.oldOf[ci] != id {
-			continue
-		}
+	for _, ci := range b.oldCredits[id] {
 		c := &b.in.Credits[ci]
 		if b.oldVia[ci] {
 			credits = append(credits, CreditKey{CreditID: c.ID})
