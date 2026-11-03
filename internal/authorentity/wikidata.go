@@ -354,25 +354,20 @@ func (b *builder) mergeItemInto(w *WikidataReport, qid string, cs []*component, 
 }
 
 // mergeSet merges a set of components into the one of most books, unless
-// two of them are credited on one book, or apart keeps two of them apart.
+// two of them are credited on one book. A component apart keeps from one
+// already taken stays out alone (E4m): «Герберт Дж. Уэллс», held from
+// «Герберт Уэллс» on the given name, does not keep «Herbert George Wells»
+// out of the item's merge.
 func (b *builder) mergeSet(w *WikidataReport, qid, rule string, set []*component,
 	apart func(x, y *component) string) {
-	if len(set) < minGroup {
+	if len(set) < minGroup || sharedBookIn(w, set) {
 		return
 	}
-	for i, x := range set {
-		for _, y := range set[i+1:] {
-			if sharesBook(x.books, y.books) {
-				w.SharedBook++
-				return
-			}
-			if apart == nil {
-				continue
-			}
-			if reason := apart(x, y); reason != "" {
-				w.Excluded[reason]++
-				return
-			}
+	set = slices.Clone(set)
+	slices.SortStableFunc(set, func(x, y *component) int { return len(y.books) - len(x.books) })
+	if apart != nil {
+		if set = compatible(w, set, apart); len(set) < minGroup {
+			return
 		}
 	}
 	// Two components a live veto keeps apart: the set is left apart whole.
@@ -384,8 +379,6 @@ func (b *builder) mergeSet(w *WikidataReport, qid, rule string, set []*component
 			}
 		}
 	}
-	set = slices.Clone(set)
-	slices.SortStableFunc(set, func(x, y *component) int { return len(y.books) - len(x.books) })
 	anchor := set[0]
 	for _, m := range set[1:] {
 		b.union(m.root, anchor.root)
@@ -400,6 +393,39 @@ func (b *builder) mergeSet(w *WikidataReport, qid, rule string, set []*component
 		b.wdDecisions = append(b.wdDecisions, WikidataDecision{Kind: kind, QID: qid,
 			Member: b.creditIDs(m.credits), Anchor: b.creditIDs(anchor.credits)})
 	}
+}
+
+// sharedBookIn reports two components of a set credited on one book.
+func sharedBookIn(w *WikidataReport, set []*component) bool {
+	for i, x := range set {
+		for _, y := range set[i+1:] {
+			if sharesBook(x.books, y.books) {
+				w.SharedBook++
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// compatible is the set, the component of most books first, without each
+// component apart keeps from one taken before it.
+func compatible(w *WikidataReport, set []*component, apart func(x, y *component) string) []*component {
+	taken := set[:1:1]
+	for _, m := range set[1:] {
+		reason := ""
+		for _, t := range taken {
+			if reason = apart(m, t); reason != "" {
+				break
+			}
+		}
+		if reason != "" {
+			w.Excluded[reason]++
+			continue
+		}
+		taken = append(taken, m)
+	}
+	return taken
 }
 
 func (b *builder) creditIDs(credits []int) []int64 {

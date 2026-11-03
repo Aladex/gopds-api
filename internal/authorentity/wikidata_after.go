@@ -3,6 +3,7 @@ package authorentity
 import (
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"gopds-api/internal/authornorm"
 )
@@ -54,6 +55,10 @@ const (
 	WikidataExcludedGivenName = "given_name"
 )
 
+// WikidataOtherName is a merge by another language's name of the item
+// (E4m: «Joanne K. Rowlingová»).
+const WikidataOtherName = "other_name"
+
 // mergeWikidataAfterDecisions joins the entities after the decisions that
 // one item names (see above) and reports whether it joined any.
 func (m *modelStep) mergeWikidataAfterDecisions() bool {
@@ -63,19 +68,7 @@ func (m *modelStep) mergeWikidataAfterDecisions() bool {
 	}
 	w := &WikidataReport{Extract: b.in.Reference.Extract, Excluded: map[string]int{}, Merges: map[string]int{}}
 	m.rep.Wikidata = w
-	byItem := map[string][]*component{}
-	for _, c := range b.componentsAfterDecisions() {
-		qid := b.namedBy(c)
-		if qid == "" || wikidataAfterDenied[qid] {
-			continue
-		}
-		w.Named++
-		if reason := b.excludedAfter(c, qid); reason != "" {
-			w.Excluded[reason]++
-			continue
-		}
-		byItem[qid] = append(byItem[qid], c)
-	}
+	byItem, others := b.namedAfterDecisions(w)
 	partners := m.notSamePartners()
 	names := map[int]nameClasses{}
 	nameOf := func(root int) nameClasses {
@@ -97,6 +90,9 @@ func (m *modelStep) mergeWikidataAfterDecisions() bool {
 	before := len(b.wdDecisions)
 	for _, qid := range sortedKeys(byItem) {
 		b.mergeItemInto(w, qid, byItem[qid], apart)
+	}
+	for _, qid := range sortedKeys(others) {
+		b.mergeOthersInto(w, qid, byItem[qid], others[qid], apart)
 	}
 	if len(b.wdDecisions) == before {
 		return false
@@ -200,6 +196,139 @@ func (b *builder) namedBy(c *component) string {
 		}
 	}
 	return qid
+}
+
+// namedAfterDecisions are the person entities after the decisions by the
+// item main labels name, and by the item another language's name names.
+func (b *builder) namedAfterDecisions(w *WikidataReport) (byItem, others map[string][]*component) {
+	byItem, others = map[string][]*component{}, map[string][]*component{}
+	for _, c := range b.componentsAfterDecisions() {
+		qid := b.namedBy(c)
+		if qid == "" {
+			// No main label names it: a name the item alone carries in
+			// another language («Joanne K. Rowlingová», a Czech alias)
+			// joins it to an item main labels name (E4m).
+			if q := b.otherNameOf(c); q != "" && !wikidataAfterDenied[q] && b.excludedAfter(c, q) == "" {
+				others[q] = append(others[q], c)
+			}
+			continue
+		}
+		if wikidataAfterDenied[qid] {
+			continue
+		}
+		w.Named++
+		if reason := b.excludedAfter(c, qid); reason != "" {
+			w.Excluded[reason]++
+			continue
+		}
+		byItem[qid] = append(byItem[qid], c)
+	}
+	return byItem, others
+}
+
+// mergeOthersInto joins the components another language's name names to
+// the item's component of most books, after the item's own merge: one at a
+// time, none credited on a book of it nor kept apart from it. They stay out
+// of the one key per script rule, which reads the item's main labels.
+func (b *builder) mergeOthersInto(w *WikidataReport, qid string, named, others []*component,
+	apart func(x, y *component) string) {
+	if len(named) == 0 {
+		return
+	}
+	anchor := named[0]
+	for _, c := range named[1:] {
+		if len(c.books) > len(anchor.books) {
+			anchor = c
+		}
+	}
+	rule := WikidataRule(qid, b.in.Reference.Extract)
+	for _, o := range others {
+		if sharesBook(o.books, anchor.books) {
+			w.SharedBook++
+			continue
+		}
+		if reason := apart(o, anchor); reason != "" {
+			w.Excluded[reason]++
+			continue
+		}
+		if b.vetoApart(b.find(o.root), b.find(anchor.root)) {
+			b.vetoRefused(VetoRefusedWikidata)
+			continue
+		}
+		b.union(o.root, anchor.root)
+		for _, k := range o.keys {
+			b.wdRule[k] = rule
+		}
+		w.Merges[WikidataOtherName]++
+		b.wdDecisions = append(b.wdDecisions, WikidataDecision{Kind: WikidataOtherName, QID: qid,
+			Member: b.creditIDs(o.credits), Anchor: b.creditIDs(anchor.credits)})
+	}
+}
+
+// otherNameOf is the item every name of a component that Wikidata knows
+// names alone — as a label of any language, an alias or a native name,
+// never a pseudonym — and that spells a main label's family name, inflected
+// or not («Rowlingová» of «Rowling»; never «Roman Burevoj», another
+// language's label of a pen name); empty when none does, or two items do. It sets the
+// component's key and script to that name.
+func (b *builder) otherNameOf(c *component) string {
+	ref := b.in.Reference
+	qid, key := "", ""
+	for _, name := range c.names {
+		items := ref.KeyItems[name]
+		if len(items) == 0 {
+			continue
+		}
+		q := items[0].QID
+		for _, it := range items {
+			if it.QID != q || it.Kind == NamePseudonym {
+				return ""
+			}
+		}
+		if qid != "" && q != qid {
+			return ""
+		}
+		if !familyOfItem(name, ref.Items[q]) {
+			return ""
+		}
+		qid, key = q, name
+	}
+	if qid != "" && key != c.key {
+		c.key = key
+		c.script = scriptOf(key)
+	}
+	return qid
+}
+
+// familyOfItem reports a name that spells one of the item's main labels in
+// another language: its last word starts, in the sound skeleton, as the
+// label's last word does (an inflected family: «Rowlingová»), and its first
+// word is the label's first word in that skeleton or the initial of it
+// («Joanne» of «J.»). «Beth Smith» beside a main label «Anna Smith» is
+// another person.
+func familyOfItem(name string, item *Item) bool {
+	if item == nil {
+		return false
+	}
+	own := strings.Fields(name)
+	if len(own) < minGroup {
+		return false
+	}
+	return slices.ContainsFunc(item.MainLabelKeys, func(k string) bool {
+		label := strings.Fields(k)
+		if len(label) < minGroup {
+			return false
+		}
+		f := soundSkeleton(label[len(label)-1])
+		if utf8.RuneCountInString(f) < minTranslitSkeleton || !strings.HasPrefix(soundSkeleton(own[len(own)-1]), f) {
+			return false
+		}
+		first, given := soundSkeleton(own[0]), soundSkeleton(label[0])
+		if utf8.RuneCountInString(label[0]) == 1 {
+			return strings.HasPrefix(first, given)
+		}
+		return first == given
+	})
 }
 
 // excludedAfter is why an entity named by an item stays out of the step's

@@ -323,3 +323,16 @@ func TestAPenNameTheItemGoesByJoins(t *testing.T) {
 		"pseudonym:George Orwell"))
 	same(t, w.pass(), 1, 2)
 }
+
+// Another language's name of the item joins its entity its main label names when it
+// spells the label's given and family name (E4m): «Joanne K. Rowlingová», a
+// Czech alias, beside «J. K. Rowling».
+func TestAnotherLanguagesNameJoins(t *testing.T) {
+	ch := &churn{t: t, c: newCatalog(t), fields: map[int64]authorentity.CardBookFields{}}
+	ch.c.book(1, "Harry Potter").book(2, "Harry Potter a Kámen mudrců").
+		credit(1, 1, "en", shown("Joanne Rowling", person("Rowling", "Joanne").latin())).
+		credit(2, 2, "cs", shown("Joanne Rowlingová", person("Rowlingová", "Joanne").latin()))
+	withSwap(ch.c)
+	w := decidedWorld(t, ch, newReference().item("Q34660", []string{"Joanne Rowling"}, "alias:Joanne Rowlingová"))
+	same(t, w.pass(), 1, 2)
+}
