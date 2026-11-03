@@ -103,8 +103,8 @@ func TestTheStepKeepsOnlyThePseudonymApart(t *testing.T) {
 	assert.Equal(t, map[string]int{authorentity.WikidataExcludedPseudonym: 1}, p.Report.Model.Wikidata.Excluded)
 }
 
-// The rule's holds after the decisions as at level 0: a namesake tag, an
-// initial, one key per script — the reviewed counterexamples stay apart
+// The rule's holds after the decisions as at level 0: a namesake tag, one
+// key per script — the reviewed counterexamples stay apart
 // (Mary Jones / Beth Smith through a label of another language; Марианна
 // Алферова / Roman Burevoj through a Czech label of the pen name).
 func TestTheStepKeepsTheReviewedCounterexamplesApart(t *testing.T) {
@@ -118,12 +118,6 @@ func TestTheStepKeepsTheReviewedCounterexamplesApart(t *testing.T) {
 				credit(1, 1, "ru", person("Кинг", "Стивен").withTag(2)).
 				credit(2, 2, "en", shown("Stephen King", person("King", "Stephen").latin()))
 			return newReference().item("Q39829", []string{"Стивен Кинг", "Stephen King"})
-		}, [][2]int64{{1, 2}}},
-		{"an initial", func(c *catalog) *reference {
-			c.book(1, "Оно").book(2, "It").
-				credit(1, 1, "ru", shown("С. Кинг", person("Кинг", "С."))).
-				credit(2, 2, "en", shown("Stephen King", person("King", "Stephen").latin()))
-			return newReference().item("Q39829", []string{"С. Кинг", "Stephen King"})
 		}, [][2]int64{{1, 2}}},
 		{"r6-1 Mary Jones / Beth Smith", func(c *catalog) *reference {
 			c.book(1, "One", 900).book(2, "Two").book(3, "Three", 900).
@@ -288,4 +282,30 @@ func TestTheStepNamesNoEntityOfTwoItemsAndNoCollective(t *testing.T) {
 	apart(t, p, 1, 10)
 	apart(t, p, 9, 4)
 	assert.Empty(t, p.Report.Model.Wikidata.Merges)
+}
+
+// An initial the item carries alone joins (E4m): «С. Кинг», a name of
+// Q39829 and of no other item, is Stephen King's, not a hub of several
+// people.
+func TestAnInitialTheItemCarriesJoins(t *testing.T) {
+	ch := &churn{t: t, c: newCatalog(t), fields: map[int64]authorentity.CardBookFields{}}
+	ch.c.book(1, "Оно").book(2, "It").
+		credit(1, 1, "ru", shown("С. Кинг", person("Кинг", "С."))).
+		credit(2, 2, "en", shown("Stephen King", person("King", "Stephen").latin()))
+	withSwap(ch.c)
+	w := decidedWorld(t, ch, newReference().item("Q39829", []string{"С. Кинг", "Stephen King"}))
+	same(t, w.pass(), 1, 2)
+}
+
+// An initial no item carries, with no full name it stands for in the
+// entity, keeps the entity apart (rule 4 as before E4m).
+func TestAnInitialNoItemCarriesStaysApart(t *testing.T) {
+	ch := &churn{t: t, c: newCatalog(t), fields: map[int64]authorentity.CardBookFields{}}
+	ch.c.book(1, "Оно").book(2, "It").
+		credit(1, 1, "ru", shown("С. Кинг", person("Кинг", "С."))).
+		credit(2, 2, "en", shown("Stephen King", person("King", "Stephen").latin())).
+		book(3, "Мизери").credit(3, 3, "ru-full", person("Кинг", "Стивен"))
+	withSwap(ch.c)
+	w := decidedWorld(t, ch, newReference().item("Q39829", []string{"Стивен Кинг", "Stephen King"}))
+	apart(t, w.pass(), 1, 2)
 }

@@ -200,9 +200,9 @@ func TestAPinnedNameIsMatchedBy(t *testing.T) {
 }
 
 // The Wikidata step after the decisions names a component by its matching
-// name too: «H. Kuttner», the biggest result, is an initial, so the side is
-// kept out (rule 4) and never joined to «Генри Каттнер», though it is
-// shown under its Russian full form.
+// name too: the side of «H. Kuttner», the biggest result, is shown under its
+// Russian full form, and joins «Генри Каттнер»: its initial stands for the
+// full name «Henry Kuttner» of the side, a name of the item alone (E4m).
 func TestTheStepAfterTheDecisionsReadsTheMatchingName(t *testing.T) {
 	c := newCatalog(t)
 	for i := int64(1); i <= 3; i++ {
@@ -220,7 +220,7 @@ func TestTheStepAfterTheDecisionsReadsTheMatchingName(t *testing.T) {
 	p := w.pass()
 	same(t, p, 31, 32)
 	assert.Equal(t, "Генри Каттнер", p.Entity(p.EntityOf(1)).DisplayName)
-	apart(t, p, 1, 11)
+	same(t, p, 1, 11)
 }
 
 // A Russian full form beats Latin only when the Cyrillic forms hold a

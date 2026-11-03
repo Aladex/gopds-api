@@ -2,6 +2,9 @@ package authorentity
 
 import (
 	"slices"
+	"strings"
+
+	"gopds-api/internal/authornorm"
 )
 
 // The Wikidata step after the decisions (E4f, Wikidata labels (2)). Level
@@ -19,6 +22,10 @@ import (
 //     one item alone, every such name naming the same item (rules 1 and 2);
 //   - a pseudonym keeps apart only an entity one of whose names it is
 //     (rule 3), not every entity of an item recording one;
+//   - an initial keeps apart only an entity whose name with it the item
+//     does not carry alone: «J. R. R. Tolkien», «John R. R. Tolkien» and
+//     «George R. R. Martin» are names of their items and of no other, so
+//     the initials are the item's, not a hub of several people (E4m);
 //
 // and two more holds, for a union the decisions may have answered already:
 //   - two entities the production pair answered other than same on are
@@ -26,8 +33,7 @@ import (
 //   - two full Cyrillic given names or patronymics of one family that are
 //     not one name are never joined (given_name, as for a decision).
 //
-// Everything else holds as at level 0: one key per script, no initial, no
-// short name's bucket (the books left in it), no namesake tag, no shared
+// Everything else holds as at level 0: one key per script, no short name's bucket (the books left in it), no namesake tag, no shared
 // book, no veto. A bucket book whose two targets the step joins moves, its
 // two_targets decisions applied.
 
@@ -198,7 +204,7 @@ func (b *builder) excludedAfter(c *component, qid string) string {
 	switch {
 	case slices.ContainsFunc(c.names, func(n string) bool { return slices.Contains(pens, n) }):
 		return WikidataExcludedPseudonym
-	case b.initialsIn(c):
+	case b.initialsIn(c) && !b.initialsOfItem(c, qid):
 		return WikidataExcludedInitials
 	case slices.ContainsFunc(c.keys, b.shortBesideFull):
 		return WikidataExcludedShortName
@@ -206,6 +212,54 @@ func (b *builder) excludedAfter(c *component, qid string) string {
 		return WikidataExcludedNamesake
 	}
 	return ""
+}
+
+// initialsOfItem reports every credit name of a component with an initial
+// the item's: a name the item carries alone (a label, an alias or a native
+// name of it, of no other item), or the initials of a full name of the
+// same family in the component that the item carries alone («Джон Р. Р.
+// Толкин» beside «Джон Рональд Руэл Толкин», the decisions having joined
+// them already).
+func (b *builder) initialsOfItem(c *component, qid string) bool {
+	ref := b.in.Reference
+	alone := func(cr *Credit) bool {
+		items := ref.KeyItems[ref.NameKey[cr.DisplayName]]
+		return len(items) > 0 && !slices.ContainsFunc(items, func(n ItemName) bool { return n.QID != qid })
+	}
+	var full []*Credit
+	for _, ci := range c.credits {
+		if cr := &b.in.Credits[ci]; !creditInitials(cr) && alone(cr) {
+			full = append(full, cr)
+		}
+	}
+	for _, ci := range c.credits {
+		cr := &b.in.Credits[ci]
+		if !creditInitials(cr) || alone(cr) {
+			continue
+		}
+		if !slices.ContainsFunc(full, func(f *Credit) bool { return initialsOfName(cr, f) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// creditInitials reports a credit name with an initial.
+func creditInitials(cr *Credit) bool {
+	return hasInitial(cr.DisplayName) || hasInitial(cr.Given) || slices.ContainsFunc(cr.Additional, hasInitial)
+}
+
+// initialsOfName reports a credit name of initials that stand for a full
+// one of the same family: each word an initial of the full name's word in
+// its place, or that word.
+func initialsOfName(initials, full *Credit) bool {
+	if authornorm.SearchKey(initials.Family) != authornorm.SearchKey(full.Family) || full.Family == "" {
+		return false
+	}
+	words := func(cr *Credit) []string {
+		return strings.Fields(authornorm.SearchKey(cr.Given + " " + strings.Join(cr.Additional, " ")))
+	}
+	return initialsFit(words(initials), words(full))
 }
 
 // notSamePartners are the level-0 components the production pair answered
