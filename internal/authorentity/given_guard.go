@@ -25,8 +25,10 @@ import (
 // none) adds nothing new. Initials are never compared, nor Latin names,
 // nor names of two families (a swapped name's given name is the other's
 // family). A patronymic written first and a given name second are read the
-// other way round. The guard never holds a decision the previous pass
-// applied.
+// other way round, and a given name of several words as the given name and
+// middle names (splitGiven). Middle names, not patronymics, are one name
+// when one spells the other (oneMiddleName, E4n). The guard never holds a
+// decision the previous pass applied.
 
 // familyNames are one family's full names in a component, folded: given
 // names and patronymics.
@@ -91,6 +93,7 @@ func (b *builder) nameClassesOf(root int) nameClasses {
 		if patronymic(given) && !patronymic(additional) {
 			given, additional = additional, given
 		}
+		given, additional = splitGiven(given, additional)
 		if fullName(given) {
 			f.given = addName(f.given, foldName(given))
 		}
@@ -101,20 +104,61 @@ func (b *builder) nameClassesOf(root int) nameClasses {
 	return out
 }
 
+// splitGiven reads a given name of several words as the given name and the
+// middle names before the additional part (E4n): «Джоан Кэтлин» is «Джоан»
+// with the middle name «Кэтлин», as another credit of hers writes it.
+func splitGiven(given, additional string) (first, middle string) {
+	words := strings.Fields(given)
+	if len(words) <= 1 {
+		return given, additional
+	}
+	return words[0], strings.Join(append(words[1:], strings.Fields(additional)...), " ")
+}
+
 // joins reports a union of the two components that would join two people:
 // in some family both hold full names, and together they hold more than
-// either alone.
+// either alone. Middle names count as one when one spells the other
+// (oneMiddleName).
 func (n nameClasses) joins(o nameClasses) bool {
 	for family, x := range n {
 		y := o[family]
 		if y == nil {
 			continue
 		}
-		if grows(x.given, y.given) || grows(x.additional, y.additional) {
+		if grows(x.given, y.given) || growsNear(x.additional, y.additional, oneMiddleName) {
 			return true
 		}
 	}
 	return false
+}
+
+// oneMiddleName reports two middle names (not patronymics) one name spells
+// two ways (E4n): equal under the spelling fold, one edit apart under it
+// at four letters or more («Кэтлинг», «Кетлин»), one the
+// other's first words («Роналд», «Роналд Руэл») or its initials («Дж»,
+// «Джон»). A patronymic is never near another: «Карпович» and «Карлович»,
+// «Трофимович» and «Трифонович» are two fathers. No skeleton: it drops the
+// vowels, and «Анна» and «Нина» are two names.
+func oneMiddleName(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if patronymic(a) || patronymic(b) {
+		return false
+	}
+	fa, fb := variantFold(a), variantFold(b)
+	if fa == fb || initialsOf(a, b) || initialsOf(b, a) {
+		return true
+	}
+	if utf8.RuneCountInString(fa) >= typoMinLetters && utf8.RuneCountInString(fb) >= typoMinLetters &&
+		levenshtein(fa, fb) == 1 {
+		return true
+	}
+	wa, wb := strings.Fields(a), strings.Fields(b)
+	if len(wa) > len(wb) {
+		wa, wb = wb, wa
+	}
+	return len(wa) < len(wb) && slices.Equal(wa, wb[:len(wa)])
 }
 
 // variantOf reports a union a variant decision asked about (E4f): in every
@@ -156,6 +200,22 @@ func allPairs(x, y []string, near func(a, b string) bool) bool {
 // passes.
 func grows(x, y []string) bool {
 	return !holds(x, y) && !holds(y, x)
+}
+
+// growsNear is grows with near names for one: each set has a name near
+// none of the other's.
+func growsNear(x, y []string, near func(a, b string) bool) bool {
+	return !holdsNear(x, y, near) && !holdsNear(y, x, near)
+}
+
+// holdsNear reports every name of y near some name of x.
+func holdsNear(x, y []string, near func(a, b string) bool) bool {
+	for _, b := range y {
+		if !slices.ContainsFunc(x, func(a string) bool { return near(a, b) }) {
+			return false
+		}
+	}
+	return true
 }
 
 // holds reports every name of y in x.

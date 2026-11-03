@@ -176,6 +176,8 @@ type builder struct {
 	forest      map[int][]forestEdge
 	modelRule   map[int]string
 	movedMethod map[int]string
+	// keyItemsFolded is foldedKeyItems' index.
+	keyItemsFolded map[string][]ItemName
 	// revive is the revived entity each credit's synthetic membership
 	// names, revived the revivable entities; oldOf and oldVia the stored
 	// membership the IDs were given out by (oldVia: through a credit row).

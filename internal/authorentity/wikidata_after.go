@@ -371,12 +371,19 @@ func onePerScript(keys []string) bool {
 // name of it, of no other item), or the initials of a full name of the
 // same family in the component that the item carries alone («Джон Р. Р.
 // Толкин» beside «Джон Рональд Руэл Толкин», the decisions having joined
-// them already).
+// them already). A name carries under the spelling fold too (E4n):
+// «Филипп К. Дик» and «Филипп Киндред Дик» are «Филип К. Дик» and «Филип
+// Киндред Дик», the item's.
 func (b *builder) initialsOfItem(c *component, qid string) bool {
 	ref := b.in.Reference
 	alone := func(cr *Credit) bool {
-		items := ref.KeyItems[ref.NameKey[cr.DisplayName]]
-		return len(items) > 0 && !slices.ContainsFunc(items, func(n ItemName) bool { return n.QID != qid })
+		key := ref.NameKey[cr.DisplayName]
+		for _, items := range [][]ItemName{ref.KeyItems[key], b.foldedKeyItems()[variantFold(key)]} {
+			if len(items) > 0 && !slices.ContainsFunc(items, func(n ItemName) bool { return n.QID != qid }) {
+				return true
+			}
+		}
+		return false
 	}
 	var full []*Credit
 	for _, ci := range c.credits {
@@ -394,6 +401,19 @@ func (b *builder) initialsOfItem(c *component, qid string) bool {
 		}
 	}
 	return true
+}
+
+// foldedKeyItems are the items carrying each key under the spelling fold
+// (variantFold), built once.
+func (b *builder) foldedKeyItems() map[string][]ItemName {
+	if b.keyItemsFolded == nil {
+		b.keyItemsFolded = map[string][]ItemName{}
+		for key, items := range b.in.Reference.KeyItems {
+			f := variantFold(key)
+			b.keyItemsFolded[f] = append(b.keyItemsFolded[f], items...)
+		}
+	}
+	return b.keyItemsFolded
 }
 
 // creditInitials reports a credit name with an initial.
