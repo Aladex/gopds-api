@@ -94,6 +94,35 @@ WHERE c.role = 'author' AND r.kind = 'person' AND c.id > ?
 ORDER BY c.id
 LIMIT ?`
 
+// The author credits no selected person or collective result and no person
+// proposal under review covers, with the result their selection holds: what
+// the fallback step reads (E4p) — a selected placeholder, a malformed
+// credit, a credit the model resolve left unresolved (its rules or
+// structured reading), a collective or a placeholder under review.
+//
+// #nosec G101 -- a query naming name columns, not a credential
+const entityFallbackQuery = `
+SELECT c.id, s.book_id, c.source_fingerprint AS fingerprint, s.extractor_version, r.id AS result_id, r.kind,
+	coalesce(r.script, '') AS script, coalesce(r.family_name, '') AS family, coalesce(r.given_name, '') AS given,
+	r.additional_names AS additional, coalesce(r.suffix, '') AS suffix, coalesce(r.nickname, '') AS nickname,
+	coalesce(nullif(r.display_name, ''), c.source_display_name) AS display_name,
+	coalesce(nullif(r.sort_name, ''), c.source_display_name) AS sort_name,
+	coalesce(substring(concat_ws(' ', c.source_first_name, c.source_middle_name, c.source_last_name,
+		c.source_nickname, c.source_display_name) FROM '\((\d{1,3})\)'), '') AS tag,
+	r.decision_class AS class, coalesce(r.quality_flags, '{}') AS flags,
+	coalesce(c.source_first_name, '') AS source_given, coalesce(c.source_middle_name, '') AS source_additional,
+	coalesce(c.source_last_name, '') AS source_family
+FROM public.book_contributor_credit c
+JOIN public.book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current
+JOIN public.book_contributor_credit_selection sel ON sel.credit_id = c.id
+JOIN public.contributor_normalization_result r ON r.id = sel.result_id
+WHERE c.role = 'author' AND c.id > ?
+	AND ((sel.state = 'selected' AND r.kind NOT IN ('person', 'collective'))
+		OR sel.state IN ('unresolved', 'invalid')
+		OR (sel.state = 'review' AND r.kind <> 'person'))
+ORDER BY c.id
+LIMIT ?`
+
 // entityBookRow is a book the evidence reads.
 type entityBookRow struct {
 	ID     int64   `pg:"id"`
@@ -127,6 +156,9 @@ func LoadAuthorEntityInput(ctx context.Context, db pg.DBI) (*authorentity.Input,
 		return nil, err
 	}
 	if err := loadEntityUnselected(ctx, db, in); err != nil {
+		return nil, err
+	}
+	if err := loadEntityFallback(ctx, db, in); err != nil {
 		return nil, err
 	}
 	if err := loadEntityBooks(ctx, db, in); err != nil {
@@ -201,18 +233,29 @@ func loadEntityCredits(ctx context.Context, db pg.DBI, in *authorentity.Input) e
 	}
 }
 
+// loadEntityFallback reads the fallback step's credits a page at a time.
+func loadEntityFallback(ctx context.Context, db pg.DBI, in *authorentity.Input) error {
+	return loadEntityProposals(ctx, db, entityFallbackQuery, &in.Fallback, "the fallback author credits")
+}
+
 // loadEntityUnselected reads the credits under review a page at a time.
 func loadEntityUnselected(ctx context.Context, db pg.DBI, in *authorentity.Input) error {
+	return loadEntityProposals(ctx, db, entityUnselectedQuery, &in.Unselected, "the author credits under review")
+}
+
+// loadEntityProposals reads the credits of query, with their class, flags
+// and source fields, into out a page at a time.
+func loadEntityProposals(ctx context.Context, db pg.DBI, query string, out *[]authorentity.Unselected, what string) error {
 	shared := entityStrings{results: map[int64]*authorentity.Result{}, fingerprints: map[string]string{},
 		versions: map[string]string{}}
 	for after := int64(0); ; {
 		var page []entityUnselectedRow
-		if _, err := db.QueryContext(ctx, &page, entityUnselectedQuery, after, entityLoadPage); err != nil {
-			return fmt.Errorf("reading the author credits under review: %w", err)
+		if _, err := db.QueryContext(ctx, &page, query, after, entityLoadPage); err != nil {
+			return fmt.Errorf("reading %s: %w", what, err)
 		}
 		for i := range page {
 			r := &page[i]
-			in.Unselected = append(in.Unselected, authorentity.Unselected{Credit: shared.credit(&r.entityCreditRow),
+			*out = append(*out, authorentity.Unselected{Credit: shared.credit(&r.entityCreditRow),
 				Class: r.Class, Flags: r.Flags, SourceGiven: r.SourceGiven, SourceAdditional: r.SourceAdditional,
 				SourceFamily: r.SourceFamily})
 		}

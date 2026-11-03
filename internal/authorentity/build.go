@@ -177,6 +177,12 @@ type builder struct {
 	forest      map[int][]forestEdge
 	modelRule   map[int]string
 	movedMethod map[int]string
+	// noKey are the credits the keys leave out (a placeholder, no letter),
+	// leftUnselected the credits under review no rule reads, fallback the
+	// credits of the fallback step once collected (E4p).
+	noKey          []int
+	leftUnselected []*Unselected
+	fallback       []fallbackCredit
 	// keyItemsFolded is foldedKeyItems' index.
 	keyItemsFolded map[string][]ItemName
 	// revive is the revived entity each credit's synthetic membership
@@ -234,6 +240,7 @@ func (b *builder) classify() {
 		key, reason := b.keyOfCredit(&cs[i], cache)
 		if reason != "" {
 			b.rep.NoEntity[reason]++
+			b.noKey = append(b.noKey, i)
 			continue
 		}
 		b.addToGroup(&key, i)

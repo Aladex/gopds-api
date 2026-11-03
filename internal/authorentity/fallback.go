@@ -1,0 +1,430 @@
+package authorentity
+
+import (
+	"regexp"
+	"slices"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"gopds-api/internal/authornorm"
+
+	"github.com/google/uuid"
+)
+
+// The fallback entities (E4p): every author credit names an entity. The
+// rules above leave some credits without one — a proposal under review no
+// rule reads, a credit the model resolve left unresolved, a malformed one, a
+// placeholder or a collective stub. Once the pass has its groups, each such
+// credit
+//   - joins the one entity of exactly its name, as the same-name join does
+//     (same_name);
+//   - else is grouped with the credits of its name into an entity of its
+//     own: a person's name as written (as_written) — a handle is the
+//     author's identity («lucifer712217», «Shin_Stark») — a collective, a
+//     publisher, a magazine or a placeholder by its name, as a collective
+//     (as_named);
+//   - and a credit with no letter or digit at all names the placeholder
+//     entity «Автор не указан» (placeholder).
+//
+// A name an organization writes — a quoted title, after a word such as
+// «Журнал» or «Издательство», or of abbreviations alone («МИД РФ») — is
+// read as a collective, never as a person. A pair «Анна и Сергей
+// Литвиновы» whose two people are entities of the pass names both, a
+// fingerprint row per segment (pair); otherwise it is a collective.
+//
+// The credits come into the plan only: they are no member of a key, so no
+// level-0 component, candidate, card or decision changes, and an entity of
+// selected credits gets nothing but the same-name joins.
+
+// The rules of the fallback rows.
+const (
+	RuleAsWritten   = "as_written"
+	RuleAsNamed     = "as_named"
+	RulePlaceholder = "placeholder"
+	RulePair        = "pair"
+)
+
+// organizationWords are the first words of a name an organization writes.
+var organizationWords = func() map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Fields(`журнал журналы газета издательство издание министерство редакция институт
+		альманах ассоциация комитет академия университет центр общество ооо оао зао žurnāls magazine press
+		publishing`) {
+		set[w] = true
+	}
+	return set
+}()
+
+// quotedName is a name that is a title in quotes from end to end
+// («Подвиг», "На суше и на море"); a quoted nickname inside a person's name
+// («Алексей "фон Раух" Смирнов») is no such name.
+var quotedName = regexp.MustCompile(`^\s*[«"„“][^«»"„“]+[»"“”]\s*$`)
+
+// organizationName reports a name an organization writes (see above).
+func organizationName(display string) bool {
+	if quotedName.MatchString(display) {
+		return true
+	}
+	words := strings.Fields(display)
+	if len(words) == 0 {
+		return false
+	}
+	if organizationWords[strings.ToLower(strings.Trim(words[0], ".,:;"))] {
+		return true
+	}
+	if len(words) <= 1 {
+		return false
+	}
+	for _, w := range words {
+		w = strings.Trim(w, ".,")
+		if utf8.RuneCountInString(w) < 2 || !abbreviation(w) || !strings.ContainsFunc(w, unicode.IsLetter) {
+			return false
+		}
+	}
+	return true
+}
+
+// pairWords is how many words a pair has: two given names, «и», a family.
+const pairWords = 4
+
+// pairNames are the two people of a pair «Анна и Сергей Литвиновы»: each
+// given name with the family in the forms a plural stands for (Литвиновы:
+// Литвинов, Литвинова; Бузиновские: Бузиновский, Бузиновская); ok is false
+// for any other shape.
+func pairNames(c *Credit) (first, second []sameName, ok bool) {
+	w := strings.Fields(c.DisplayName)
+	if len(w) != pairWords || !strings.EqualFold(w[1], "и") || !fullName(w[0]) || !fullName(w[2]) {
+		return nil, nil, false
+	}
+	family := w[3]
+	forms := []string{family}
+	switch {
+	case strings.HasSuffix(family, "ие"):
+		base := strings.TrimSuffix(family, "ие")
+		forms = append(forms, base+"ий", base+"ая")
+	case strings.HasSuffix(family, "ы"):
+		base := strings.TrimSuffix(family, "ы")
+		forms = append(forms, base, base+"а")
+	}
+	names := func(given string) []sameName {
+		var out []sameName
+		for _, f := range forms {
+			k := keyOf(&Credit{Result: &Result{Kind: KindPerson, Script: c.Script, Given: given, Family: f}})
+			if n, ok := namesOf(&k); ok {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	return names(w[0]), names(w[2]), true
+}
+
+// pairRoots are the roots of a pair's two people, each the one root one
+// form of its name names; ok is false when either has none or several.
+func pairRoots(byName map[string]map[int]bool, c *Credit) (roots [2]int, ok bool) {
+	first, second, ok := pairNames(c)
+	if !ok {
+		return roots, false
+	}
+	for i, names := range [][]sameName{first, second} {
+		found := map[int]bool{}
+		for _, n := range names {
+			if r, hit := uniqueRoot(byName, n); hit {
+				found[r] = true
+			}
+		}
+		if len(found) != 1 {
+			return roots, false
+		}
+		for r := range found {
+			roots[i] = r
+		}
+	}
+	return roots, roots[0] != roots[1]
+}
+
+// fallbackRoot is the highest root of a fallback group: every group of keys
+// has a root of zero or more, and an entity of manual credits alone -1.
+const fallbackRoot = -2
+
+// placeholderName is the entity of the credits that name no one.
+const placeholderName = "Автор не указан"
+
+// fallbackNonPerson are the classes of a proposal that is no one person.
+var fallbackNonPerson = map[string]bool{
+	string(authornorm.ClassCollectiveCandidate): true, string(authornorm.ClassPlaceholderFragment): true,
+	string(authornorm.ClassDuplicateComponent): true,
+}
+
+// FallbackReport counts the fallback entities (E4p).
+type FallbackReport struct {
+	// Credits are the credits the step read; Joined those that joined an
+	// entity of their name; Entities the fallback entities, by rule.
+	Credits  int            `json:"credits"`
+	Joined   int            `json:"joined"`
+	Pairs    int            `json:"pairs"`
+	Entities map[string]int `json:"entities"`
+	Rows     map[string]int `json:"rows"`
+}
+
+// fallbackCredit is a credit of the step: its index in b.in.Credits, the
+// group it goes by and its rule.
+type fallbackCredit struct {
+	ci          int
+	group, rule string
+	name        sameName
+	person      bool
+	// pending is a credit the same-name join reads: it joins there when
+	// one entity has its name, and comes here when none or several do.
+	pending bool
+}
+
+// collectFallback appends the credits the pass leaves without an entity to
+// b.in (a copy) once, after the keys: credits past b.selected never reach a
+// card.
+func (b *builder) collectFallback() {
+	if b.fallback != nil {
+		return
+	}
+	b.fallback = []fallbackCredit{}
+	in := *b.in
+	in.Credits = slices.Clone(in.Credits)
+	for _, ci := range b.noKey {
+		b.fallback = append(b.fallback, fallbackOf(ci, &in.Credits[ci], false))
+	}
+	pending := map[*Unselected]bool{}
+	var us []*Unselected
+	for _, w := range b.sameName {
+		pending[w.u] = true
+		us = append(us, w.u)
+	}
+	for _, u := range slices.Concat(us, b.leftUnselected, ptrs(b.in.Fallback)) {
+		ci := len(in.Credits)
+		c := u.Credit
+		res := *c.Result
+		c.Result = &res
+		nonPerson := fallbackNonPerson[u.Class] || res.Kind != KindPerson
+		in.Credits = append(in.Credits, c)
+		f := fallbackOf(ci, &in.Credits[ci], nonPerson)
+		if f.person {
+			f.name, _ = u.sameNameOf()
+			f.pending = pending[u]
+		}
+		b.fallback = append(b.fallback, f)
+	}
+	for len(b.creditKey) < len(in.Credits) {
+		b.creditKey = append(b.creditKey, -1)
+	}
+	b.in = &in
+}
+
+// ptrs are pointers to the elements of us.
+func ptrs(us []Unselected) []*Unselected {
+	out := make([]*Unselected, len(us))
+	for i := range us {
+		out[i] = &us[i]
+	}
+	return out
+}
+
+// fallbackOf is how the step reads credit c (index ci): a person's name as
+// written, keyed like any other; anything else by its name as a
+// collective; a name with no letter or digit as the placeholder. It
+// rewrites c's result to what the entity shows.
+func fallbackOf(ci int, c *Credit, nonPerson bool) fallbackCredit {
+	display := strings.TrimSpace(c.DisplayName)
+	if !nonPerson && c.Kind == KindPerson && !isPlaceholder(c) && !organizationName(display) {
+		if k := keyOf(c); k.hasLetterOrDigit() {
+			return fallbackCredit{ci: ci, group: "p|" + k.String(), rule: RuleAsWritten, person: true}
+		}
+	}
+	key := authornorm.SearchKey(display)
+	res := *c.Result
+	res.Kind = KindCollective
+	if !strings.ContainsFunc(key, isLetterOrDigit) {
+		res.DisplayName, res.SortName = placeholderName, placeholderName
+		c.Result = &res
+		return fallbackCredit{ci: ci, group: "x|", rule: RulePlaceholder}
+	}
+	res.DisplayName, res.SortName = display, display
+	c.Result = &res
+	return fallbackCredit{ci: ci, group: "c|" + key, rule: RuleAsNamed}
+}
+
+// isLetterOrDigit reports a rune that names something.
+func isLetterOrDigit(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+
+// fallbackGroups are the step's groups of the pass: the credits that join
+// the one entity root of their name (joined, by credit index) and a group
+// per name of the others, on roots below every key's.
+func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]int, pairs map[int][2]int) {
+	b.collectFallback()
+	if len(b.fallback) == 0 {
+		return nil, nil, nil
+	}
+	byName := b.rootsByName(groups)
+	joined, pairs = map[int]int{}, map[int][2]int{}
+	byGroup := map[string]*group{}
+	var order []string
+	for _, f := range b.fallback {
+		if f.person && f.name.key != "" {
+			if root, ok := uniqueRoot(byName, f.name); ok {
+				if !f.pending {
+					joined[f.ci] = root
+				}
+				continue
+			}
+		}
+		if f.rule == RuleAsNamed {
+			if roots, ok := pairRoots(byName, &b.in.Credits[f.ci]); ok {
+				pairs[f.ci] = roots
+				continue
+			}
+		}
+		g := byGroup[f.group]
+		if g == nil {
+			g = &group{root: fallbackRoot - len(order), books: map[int64]bool{}}
+			byGroup[f.group] = g
+			order = append(order, f.group)
+		}
+		g.credits = append(g.credits, f.ci)
+		g.books[b.in.Credits[f.ci].BookID] = true
+	}
+	for _, k := range order {
+		out = append(out, byGroup[k])
+	}
+	return out, joined, pairs
+}
+
+// uniqueRoot is the one root a name names: its key, else its word
+// sequence, else its words in any order, as the same-name join reads them.
+func uniqueRoot(byName map[string]map[int]bool, n sameName) (int, bool) {
+	for _, s := range []string{n.key, n.sequence, n.anyOrder} {
+		if s == "" || len(byName[s]) == 0 {
+			continue
+		}
+		if len(byName[s]) > 1 {
+			return 0, false
+		}
+		for r := range byName[s] {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// rootsByName are the group roots of the pass by each name of their keys:
+// what entitiesByName reads, by root; a key whose books all moved goes by
+// the one root they moved to.
+func (b *builder) rootsByName(groups []*group) map[string]map[int]bool {
+	has := map[int]bool{}
+	for _, g := range groups {
+		has[g.root] = true
+	}
+	byName, moved := map[string]map[int]bool{}, map[string]map[int]bool{}
+	for _, kg := range b.keys {
+		into, root := byName, b.find(kg.idx)
+		if !has[root] {
+			var ok bool
+			if root, ok = b.movedRoot(kg, has); !ok {
+				continue
+			}
+			into = moved
+		}
+		n, ok := namesOf(&kg.key)
+		if !ok {
+			continue
+		}
+		for _, s := range []string{n.key, n.sequence, n.anyOrder} {
+			if s == "" {
+				continue
+			}
+			if into[s] == nil {
+				into[s] = map[int]bool{}
+			}
+			into[s][root] = true
+		}
+	}
+	for s, roots := range moved {
+		if byName[s] == nil {
+			byName[s] = roots
+		}
+	}
+	return byName
+}
+
+// movedRoot is the one group root a key's moved credits went to; ok is
+// false when they went to none or to several.
+func (b *builder) movedRoot(kg *keyGroup, has map[int]bool) (root int, ok bool) {
+	for _, ci := range kg.credits {
+		to, moved := b.movedTo[ci]
+		if !moved {
+			continue
+		}
+		r := b.find(to)
+		if !has[r] || ok && r != root {
+			return 0, false
+		}
+		root, ok = r, true
+	}
+	return root, ok
+}
+
+// wantFallback gives the step's credits their fingerprint rows: a joined
+// one its name's entity (same_name), the others their group's, unless a
+// row of a selected credit or the administrator's holds the fingerprint.
+func (pl *planner) wantFallback(groups []*group, joined map[int]int, pairs map[int][2]int) {
+	b := pl.b
+	if len(b.fallback) == 0 {
+		return
+	}
+	rep := &FallbackReport{Entities: map[string]int{}, Rows: map[string]int{}}
+	b.rep.Fallback = rep
+	rule := map[int]string{}
+	for _, f := range b.fallback {
+		rule[f.ci] = f.rule
+		rep.Credits++
+	}
+	for _, ci := range sortedKeys(joined) {
+		if id, ok := pl.rootEntity[joined[ci]]; ok && pl.fallbackRow(ci, 0, id, RuleSameName) {
+			rep.Joined++
+		}
+	}
+	for _, ci := range sortedKeys(pairs) {
+		a, okA := pl.rootEntity[pairs[ci][0]]
+		c, okC := pl.rootEntity[pairs[ci][1]]
+		if okA && okC && pl.fallbackRow(ci, 0, a, RulePair) && pl.fallbackRow(ci, 1, c, RulePair) {
+			rep.Pairs++
+		}
+	}
+	for _, g := range groups {
+		r := rule[g.credits[0]]
+		rep.Entities[r]++
+		for _, ci := range g.credits {
+			if pl.fallbackRow(ci, 0, g.id, rule[ci]) {
+				rep.Rows[rule[ci]]++
+			}
+		}
+	}
+}
+
+// fallbackRow writes credit ci's fingerprint row of a segment to entity id
+// and reports whether it did.
+func (pl *planner) fallbackRow(ci, ordinal int, id uuid.UUID, rule string) bool {
+	b := pl.b
+	c := &b.in.Credits[ci]
+	fp := fpKeyOf(c)
+	fp.Ordinal = ordinal
+	if row, taken := pl.wantFP[fp]; taken && row.EntityID != id {
+		return false
+	}
+	if old, ok := b.old.Fingerprints[fp]; ok && old.Method == MethodManual {
+		return false
+	}
+	pl.wantFP[fp] = AssignmentRow{Key: fp, EntityID: id, Method: MethodDeterministic, Rule: rule}
+	if ordinal == 0 {
+		pl.p.entityOf[c.ID], pl.p.ruleOf[c.ID] = id, rule
+	}
+	return true
+}

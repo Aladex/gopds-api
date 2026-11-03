@@ -36,10 +36,12 @@ type Report struct {
 	// TypoMerges counts the patronymic typos merged on evidence.
 	TypoMerges int            `json:"typo_merges"`
 	NoEntity   map[string]int `json:"no_entity"`
-	Buckets    BucketReport   `json:"buckets"`
-	IDs        IDReport       `json:"ids"`
-	Legacy     LegacyReport   `json:"legacy"`
-	Wikidata   WikidataReport `json:"wikidata"`
+	// Fallback is the fallback step (E4p); nil without a credit for it.
+	Fallback *FallbackReport `json:"fallback,omitempty"`
+	Buckets  BucketReport    `json:"buckets"`
+	IDs      IDReport        `json:"ids"`
+	Legacy   LegacyReport    `json:"legacy"`
+	Wikidata WikidataReport  `json:"wikidata"`
 	// Changes counts the rows the pass writes.
 	Changes int `json:"changes"`
 }

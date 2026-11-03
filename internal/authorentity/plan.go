@@ -137,12 +137,16 @@ type overlap struct {
 func (b *builder) assignIDs(groups []*group) map[uuid.UUID][]MergeRow {
 	pairs := b.overlaps(groups)
 	taken := map[uuid.UUID]bool{}
-	for _, p := range pairs {
-		if p.g.id != uuid.Nil || taken[p.old] {
-			continue
+	// A fallback group (E4p) inherits only what no group of keys does: it
+	// never takes the ID of an entity of selected credits.
+	for _, fallback := range []bool{false, true} {
+		for _, p := range pairs {
+			if p.g.id != uuid.Nil || taken[p.old] || (p.g.root <= fallbackRoot) != fallback {
+				continue
+			}
+			p.g.id, taken[p.old] = p.old, true
+			b.rep.IDs.Inherited++
 		}
-		p.g.id, taken[p.old] = p.old, true
-		b.rep.IDs.Inherited++
 	}
 	newID := b.in.NewID
 	if newID == nil {
@@ -279,15 +283,18 @@ type planner struct {
 // difference from what is stored.
 func (b *builder) plan() *Plan {
 	groups := b.groups()
-	absorb := b.assignIDs(groups)
+	extra, joined, pairs := b.fallbackGroups(groups)
+	all := slices.Concat(groups, extra)
+	absorb := b.assignIDs(all)
 	pl := &planner{b: b, p: &Plan{entityOf: map[int64]uuid.UUID{}, ruleOf: map[int64]string{},
 		entities: map[uuid.UUID]EntityRow{}, matchNames: map[uuid.UUID]EntityRow{}, refs: map[uuid.UUID]string{}},
 		members: map[uuid.UUID][]int{}, rootEntity: map[int]uuid.UUID{}, units: map[uuid.UUID]*Unit{}}
-	pl.collectMembers(groups)
+	pl.collectMembers(all)
 	pl.wantRows()
 	pl.wantSameName()
+	pl.wantFallback(extra, joined, pairs)
 	pl.entityUnits(absorb)
-	pl.diffReferences(groups, absorb)
+	pl.diffReferences(all, absorb)
 	pl.diffFingerprints()
 	pl.diffCredits()
 	p := pl.p

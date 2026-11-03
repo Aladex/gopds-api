@@ -136,6 +136,19 @@ func none(t *testing.T, p *authorentity.Plan, a int64) {
 	}
 }
 
+// fallback asserts credit a names an entity of the fallback step (E4p): its
+// own, by its name as written, by its name as a collective, or the
+// placeholder — never one of selected credits.
+func fallback(t *testing.T, p *authorentity.Plan, a int64) {
+	t.Helper()
+	switch r := p.RuleOf(a); {
+	case p.EntityOf(a) == uuid.Nil:
+		t.Errorf("credit %d: want a fallback entity, got none", a)
+	case r != authorentity.RuleAsWritten && r != authorentity.RuleAsNamed && r != authorentity.RulePlaceholder:
+		t.Errorf("credit %d: want a fallback rule, got %q", a, r)
+	}
+}
+
 // unselected adds a credit under review: its result is the proposal n of
 // the decision class and flags; the source fields are n's parts unless
 // fromSource sets them.

@@ -76,14 +76,16 @@ func TestAJoinedCreditIsStoredAndNamesNoOne(t *testing.T) {
 	if e := p.Entity(id); e == nil || e.DisplayName != "Роман Смирнов" {
 		t.Errorf("entity %+v: the selected spelling names it", e)
 	}
-	// The selected credit gone, nothing is left to join: the row goes.
+	// The selected credit gone, nothing is left to join: the credit names
+	// its own entity, as written (E4p).
 	cat.in.Credits = nil
 	cat.in.Old = state
 	next := cat.build()
-	none(t, next, 20)
+	fallback(t, next, 20)
 	next.Apply(state)
-	if _, ok := state.Fingerprints[authorentity.FPKey{Fingerprint: "fp-review", ExtractorVersion: "v1"}]; ok {
-		t.Error("the joined row outlived its entity's name")
+	if row := state.Fingerprints[authorentity.FPKey{Fingerprint: "fp-review", ExtractorVersion: "v1"}]; row.Rule !=
+		authorentity.RuleAsWritten {
+		t.Errorf("the credit's row %+v, want %s", row, authorentity.RuleAsWritten)
 	}
 }
 
@@ -108,7 +110,7 @@ func TestAnUnselectedCreditStartsNoEntity(t *testing.T) {
 				credit(11, 1, "fp-initials", person("Смирнов", "В", "Р")).
 				credit(12, 1, "fp-family", person("Смирнов", "")).
 				unselected(20, 2, "fp-review", c.class, c.flags, c.n).done().build()
-			none(t, p, 20)
+			fallback(t, p, 20)
 		})
 	}
 }
@@ -119,7 +121,7 @@ func TestTwoEntitiesOfTheNameJoinNeither(t *testing.T) {
 		credit(11, 3, "fp-two", person("Смирнов", "Роман").withTag(2)).
 		unselected(20, 2, "fp-review", "case_defect", flags("all_caps"), person("СМИРНОВ", "РОМАН")).done().build()
 	apart(t, p, 10, 11)
-	none(t, p, 20)
+	fallback(t, p, 20)
 	if p.Report.Unselected.Ambiguous != 1 {
 		t.Errorf("report %+v, want one left out for several entities", p.Report.Unselected)
 	}
@@ -180,7 +182,7 @@ func TestAParticleNameWithAnotherDoubtStaysOut(t *testing.T) {
 		t.Run(title, func(t *testing.T) {
 			p := newCatalog(t).book(1, "Судья Ди").
 				unselected(20, 1, "fp-review", "particle", c.flags, c.n).done().build()
-			none(t, p, 20)
+			fallback(t, p, 20)
 		})
 	}
 	// A particle in the middle field is the parse as it stands.
@@ -238,13 +240,13 @@ func TestALabelledPlaceholderJoinsNoOne(t *testing.T) {
 	p := newCatalog(t).book(1, "Рассвет").book(2, "Закат").
 		credit(10, 1, "fp-selected", person("литература", "Европейская")).
 		unselected(20, 2, "fp-review", "case_defect", flags("lowercase"), label).done().build()
-	none(t, p, 20)
+	fallback(t, p, 20)
 }
 
 func TestOnlyTheParticleClassIsReadAsSelected(t *testing.T) {
 	p := newCatalog(t).book(1, "Судья Ди").
 		unselected(20, 1, "fp-review", "mixed_script", flags("hyphen"), person("ван Гулик", "Роберт")).done().build()
-	none(t, p, 20)
+	fallback(t, p, 20)
 }
 
 func TestEveryCreditOfAJoinedFingerprintJoins(t *testing.T) {

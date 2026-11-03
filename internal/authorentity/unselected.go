@@ -238,7 +238,9 @@ func (b *builder) admitUnselected() {
 		}
 		if c, read := b.read(u, sel); read {
 			in.Credits = append(in.Credits, c)
+			continue
 		}
+		b.leftUnselected = append(b.leftUnselected, u)
 	}
 	b.in = &in
 }

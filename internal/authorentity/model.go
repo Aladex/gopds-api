@@ -749,8 +749,8 @@ func (b *builder) modelPath(from, to uuid.UUID, g *group) []forestEdge {
 func (b *builder) componentOf(id uuid.UUID, g *group) int {
 	count := map[int]int{}
 	for _, ci := range g.credits {
-		if b.oldOf[ci] == id {
-			count[b.root0[b.creditKey[ci]]]++
+		if k := b.creditKey[ci]; k >= 0 && b.oldOf[ci] == id {
+			count[b.root0[k]]++
 		}
 	}
 	best, n := g.root, 0

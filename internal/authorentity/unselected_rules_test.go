@@ -95,7 +95,7 @@ func TestAReviewNameNoReadTrustsStaysOut(t *testing.T) {
 			if c.src != [3]string{} {
 				u.fromSource(c.src[0], c.src[1], c.src[2])
 			}
-			none(t, cat.build(), 20)
+			fallback(t, cat.build(), 20)
 		})
 	}
 }
@@ -113,7 +113,7 @@ func TestAMononymOfOneItemIsReadAsSelected(t *testing.T) {
 	r.ref.ReviewNameKey = map[string]string{"Вольтер": key("Вольтер"), "Анна": key("Анна"), "Дарья": key("Дарья")}
 	p := cat.build()
 	same(t, p, 20, 21)
-	none(t, p, 22)
-	none(t, p, 23)
+	fallback(t, p, 22)
+	fallback(t, p, 23)
 	assert.Equal(t, 2, p.Report.Unselected.Rules[authorentity.ReadMononym])
 }

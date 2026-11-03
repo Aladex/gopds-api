@@ -84,6 +84,10 @@ type Input struct {
 	VetoBooks map[int64][]string
 	// Pins are the live hand joins (E4o).
 	Pins []MergePin
+	// Fallback are the author credits no selected or reviewed person result
+	// covers: unresolved, malformed, placeholders, collectives under review
+	// (E4p). The fallback step gives each an entity.
+	Fallback []Unselected
 }
 
 // Methods of the stored rows (§3).

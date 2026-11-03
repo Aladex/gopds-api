@@ -241,9 +241,9 @@ func TestPlaceholdersAndEmptyNamesGetNoEntity(t *testing.T) {
 		credit(11, 2, "fp-dash", person("—", "…")).
 		// Symbols survive the search key: still no letter or digit.
 		book(3, "Стихи").credit(12, 3, "fp-symbols", person("+++", "~")).build()
-	none(t, p, 10)
-	none(t, p, 11)
-	none(t, p, 12)
+	fallback(t, p, 10)
+	fallback(t, p, 11)
+	fallback(t, p, 12)
 	if p.Report.NoEntity[authorentity.NoEntityPlaceholder] != 1 || p.Report.NoEntity[authorentity.NoEntityNoLetters] != 2 {
 		t.Errorf("no entity: got %v", p.Report.NoEntity)
 	}
@@ -280,7 +280,7 @@ func TestOneBadCreditNeverStopsThePass(t *testing.T) {
 		credit(10, 1, "fp-a", person("Петров", "Иван", "Сергеевич")).
 		credit(11, 2, "fp-b", person("Петров", "Иван", "Сергеевич")).
 		credit(12, 3, "fp-c", person("Петров", "Иван", "Сергеевич")).build()
-	none(t, p, 11)
+	fallback(t, p, 11)
 	same(t, p, 10, 12)
 	if p.Report.NoEntity[authorentity.NoEntityItemFailed] != 1 {
 		t.Errorf("item failed: got %v", p.Report.NoEntity)
@@ -392,8 +392,8 @@ func TestACollectiveStubGetsNoEntity(t *testing.T) {
 		collective(11, 2, "fp-stub-2", "КОЛЛЕКТИВ АВТОРОВ").
 		collective(12, 3, "fp-nauka", "Журнал Наука")
 	p := c.build()
-	none(t, p, 10)
-	none(t, p, 11)
+	fallback(t, p, 10)
+	fallback(t, p, 11)
 	if e := p.Entity(p.EntityOf(12)); e == nil || e.Kind != authorentity.KindCollective {
 		t.Errorf("named collective: got %+v", e)
 	}
@@ -427,7 +427,7 @@ func TestAPlaceholderWithAGenreLabelGetsNoEntity(t *testing.T) {
 		credit(14, 5, "fp-5", label("Неизвестен", "", "Автор", "Неизвестен Автор")).
 		credit(15, 6, "fp-6", label("Аноним", "", "Сказки", "Аноним: Сказки")).build()
 	for _, id := range []int64{10, 11, 12, 13, 14, 15} {
-		none(t, p, id)
+		fallback(t, p, id)
 	}
 	if got := p.Report.NoEntity[authorentity.NoEntityPlaceholder]; got != 6 {
 		t.Errorf("placeholders: want 6, got %d (%v)", got, p.Report.NoEntity)
@@ -462,8 +462,8 @@ func TestAPlaceholderWithPunctuationInsideIsStillAPlaceholder(t *testing.T) {
 	p := newCatalog(t).book(1, "А").book(2, "Б").
 		credit(10, 1, "fp-1", label("Автор-неизвестен", "Кулинария", "Автор-неизвестен — Кулинария")).
 		credit(11, 2, "fp-2", label("", "no-name: Cooking", "no-name: Cooking").latin()).build()
-	none(t, p, 10)
-	none(t, p, 11)
+	fallback(t, p, 10)
+	fallback(t, p, 11)
 }
 
 // The guards hold with a hyphenated family written first: a one-word
@@ -501,9 +501,9 @@ func TestATrailingPlaceholderIsAPlaceholderToo(t *testing.T) {
 		credit(12, 3, "fp-3", bare("Кулинария — неизвестный автор — 1999")).
 		credit(13, 4, "fp-4", label("Иван", "Петров-Неизвестный", "Иван Петров-Неизвестный")).
 		credit(14, 5, "fp-5", label("Иван", "Сказочник-Неизвестный", "Сказочник-Неизвестный Иван")).build()
-	none(t, p, 10)
-	none(t, p, 11)
-	none(t, p, 12)
+	fallback(t, p, 10)
+	fallback(t, p, 11)
+	fallback(t, p, 12)
 	for _, id := range []int64{13, 14} {
 		if p.EntityOf(id).String() == "00000000-0000-0000-0000-000000000000" {
 			t.Errorf("credit %d lost its entity", id)

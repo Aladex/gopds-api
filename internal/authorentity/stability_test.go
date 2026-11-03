@@ -180,21 +180,21 @@ func TestACoauthorAddedToABookDoesNotTakeTheEntityOnIt(t *testing.T) {
 	}
 }
 
-// E2 §0: an entity whose every credit now gets no entity — a placeholder
-// with a genre the earlier rules missed — is retired: no successor, its
-// fingerprint rows go (the read model then drops it and its names); its row
-// stays (IDs are never reused). A second pass writes nothing.
+// E2 §0: an entity whose every credit is gone — since E4p a credit that
+// stays always names an entity — is retired: no successor, its fingerprint
+// rows go (the read model then drops it and its names); its row stays (IDs
+// are never reused). A second pass writes nothing.
 func TestARetiredEntityLosesItsRows(t *testing.T) {
 	c := newCatalog(t).book(1, "Мост").book(2, "Река").
 		credit(10, 1, "fp-real", person("Петров", "Иван", "Сергеевич")).
 		credit(11, 2, "fp-label", person("Кулинария", "Повар"))
 	first, s := stored(t, c)
 	retired, kept := first.EntityOf(11), first.EntityOf(10)
-	// The same credit now reads as a placeholder with a label.
-	c.in.Credits[1].Given, c.in.Credits[1].DisplayName = "Автор неизвестен", "Автор неизвестен - Кулинария"
+	// The credit leaves the catalog.
+	c.in.Credits = c.in.Credits[:1]
 	second := rebuild(t, c, s)
 	if second.EntityOf(11) != uuid.Nil {
-		t.Fatalf("the placeholder kept an entity")
+		t.Fatalf("the gone credit kept an entity")
 	}
 	if second.EntityOf(10) != kept {
 		t.Errorf("an unrelated entity changed")
@@ -466,17 +466,14 @@ func TestASplitByANewResultIsOneComponent(t *testing.T) {
 }
 
 // The cleanup goes by old entity: two entities retired in one pass (their
-// credits now read as placeholders) are two components, so a refusal of
-// one never holds the other back.
+// credits gone) are two components, so a refusal of one never holds the
+// other back.
 func TestEachRetiredEntityIsAComponentOfItsOwn(t *testing.T) {
 	c := newCatalog(t).book(1, "А").book(2, "Б").
 		credit(10, 1, "fp-a", person("Кулинария", "Повар")).
 		credit(11, 2, "fp-b", person("Юмор", "Шутник"))
 	_, s := stored(t, c)
-	for _, fp := range []string{"fp-a", "fp-b"} {
-		r := c.results[fp]
-		r.Given, r.DisplayName = "Автор неизвестен", "Автор неизвестен - "+r.Family
-	}
+	c.in.Credits = nil
 	p := rebuild(t, c, s)
 	if p.Report.IDs.Orphaned != 2 {
 		t.Fatalf("want two retired entities, got %+v", p.Report.IDs)
