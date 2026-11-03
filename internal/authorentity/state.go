@@ -82,6 +82,8 @@ type Input struct {
 	// without current credits is absent).
 	Vetoes    []MergeVeto
 	VetoBooks map[int64][]string
+	// Pins are the live hand joins (E4o).
+	Pins []MergePin
 }
 
 // Methods of the stored rows (§3).

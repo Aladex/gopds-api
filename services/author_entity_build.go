@@ -457,6 +457,9 @@ func (l *AuthorEntityBuildLoop) readPlan(ctx context.Context) (*planInput, error
 			if in.Vetoes, in.VetoBooks, err = database.LoadMergeVetoes(ctx, tx); err != nil {
 				return err
 			}
+			if in.Pins, err = database.LoadMergePins(ctx, tx); err != nil {
+				return err
+			}
 			loaded(AuthorEntityLoadVetoes)
 		}
 		r.loaded = time.Now()
@@ -815,6 +818,8 @@ const (
 	authorEntityMergeRevoked        = "revoked"
 	authorEntityMergeVetoRetired    = "veto_retired"
 	authorEntityMergeVetoReanchored = "veto_reanchored"
+	authorEntityMergePinned         = "pinned"
+	authorEntityMergePinRevoked     = "pin_revoked"
 )
 
 // MergeDecisions reads the card's merge block.
@@ -858,6 +863,40 @@ func (a *AuthorEntityAdmin) ReanchorMergeVeto(
 		logMergeAction(authorEntityMergeVetoReanchored, vetoID)
 	}
 	return id, err
+}
+
+// MergePins lists the hand joins, live and revoked (E4o).
+func (a *AuthorEntityAdmin) MergePins(ctx context.Context) ([]database.MergePinRow, error) {
+	return database.ListMergePins(ctx, a.db)
+}
+
+// PinMerge registers a hand join of two sides and returns its id; the next
+// build joins them unless a veto keeps them apart.
+func (a *AuthorEntityAdmin) PinMerge(
+	ctx context.Context, sideA, sideB database.MergePinSide, note string, actor int64,
+) (int64, error) {
+	var id int64
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		var err error
+		id, err = database.RegisterMergePin(ctx, tx, sideA, sideB, note, actor)
+		return err
+	})
+	if err == nil {
+		logMergeAction(authorEntityMergePinned, id)
+	}
+	return id, err
+}
+
+// RevokeMergePin revokes a live hand join: the next build no longer joins
+// its sides.
+func (a *AuthorEntityAdmin) RevokeMergePin(ctx context.Context, id, actor int64) error {
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		return database.RevokeMergePin(ctx, tx, id, actor)
+	})
+	if err == nil {
+		logMergeAction(authorEntityMergePinRevoked, id)
+	}
+	return err
 }
 
 func logMergeAction(status string, id int64) {

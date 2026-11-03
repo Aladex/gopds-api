@@ -103,7 +103,9 @@ const (
 	VetoRefusedWikidata = "wikidata"
 	// VetoRefusedOtherLanguage is the other-language spelling (E4n).
 	VetoRefusedOtherLanguage = "other_language"
-	VetoRefusedModel         = "model"
+	// VetoRefusedPin is a hand join (E4o).
+	VetoRefusedPin   = "pin"
+	VetoRefusedModel = "model"
 )
 
 // vetoSide is one side of one live veto, by the veto's index.

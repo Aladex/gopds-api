@@ -124,6 +124,23 @@ func (f *fakeEntityAdmin) ReanchorMergeVeto(_ context.Context, id int64, a, b uu
 	return 12, f.err
 }
 
+func (f *fakeEntityAdmin) MergePins(context.Context) ([]database.MergePinRow, error) {
+	f.record("pins")
+	return nil, f.err
+}
+
+func (f *fakeEntityAdmin) PinMerge(_ context.Context, a, b database.MergePinSide, note string, actor int64) (int64, error) {
+	f.record(fmt.Sprintf("pin %v %d %v %d %s", a.Entity, len(a.Fingerprints), b.Entity, len(b.Fingerprints), note))
+	f.actor = actor
+	return 7, f.err
+}
+
+func (f *fakeEntityAdmin) RevokeMergePin(_ context.Context, id, actor int64) error {
+	f.record(fmt.Sprintf("revoke pin %d", id))
+	f.actor = actor
+	return f.err
+}
+
 func (f *fakeEntityAdmin) RegisterMergeKind(_ context.Context, run int64, kind string, actor int64) (int64, error) {
 	f.record(fmt.Sprintf("register %d %s", run, kind))
 	f.actor = actor
@@ -187,6 +204,10 @@ func TestAuthorEntityRoutesRequireAnAdministrator(t *testing.T) {
 		{http.MethodPost, entityBase + "/merges/vetoes/3/retire", ""},
 		{http.MethodPost, entityBase + "/merges/vetoes/3/reanchor",
 			`{"side_a":"01a17dc0-a8b4-7706-b3db-57951f632b68","side_b":"01a17dc0-a91f-737c-9c41-3ed188ad408f"}`},
+		{http.MethodGet, entityBase + "/merges/pins", ""},
+		{http.MethodPost, entityBase + "/merges/pins",
+			`{"a":{"entity":"01a17dc0-a8b4-7706-b3db-57951f632b68"},"b":{"fingerprints":["0a0b"]}}`},
+		{http.MethodPost, entityBase + "/merges/pins/7/revoke", ""},
 		{http.MethodPost, entityBase + "/merges/registrations", `{"run_id":33,"kind":"swap"}`},
 		{http.MethodPost, entityBase + "/merges/registrations/4/withdraw", ""},
 		{http.MethodPost, entityBase + "/merges/registrations/4/block", `{"script":"Latn"}`},
@@ -468,4 +489,56 @@ func TestTheReanchorBodyIsStrict(t *testing.T) {
 	rec := runsRequest(t, r, http.MethodPost, entityBase+"/merges/vetoes/3/reanchor",
 		fmt.Sprintf(`{"side_a":%q,"side_b":%q}`, a, b))
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// The hand join routes (E4o): a side is an entity or hex fingerprints,
+// never both or neither; the store's refusals are closed codes.
+func TestTheHandJoinRoutes(t *testing.T) {
+	svc := &fakeEntityAdmin{}
+	r := entityRouter(svc)
+	a := uuid.New()
+	rec := runsRequest(t, r, http.MethodGet, entityBase+"/merges/pins", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"pins":null}`, rec.Body.String())
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins",
+		fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["0a0b","0c"]},"note":"same person"}`, a))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"pin_id":7}`, rec.Body.String())
+	assert.Equal(t, adminActorID, svc.actor)
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins/7/revoke", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"pin_id":7}`, rec.Body.String())
+	assert.Equal(t, []string{"pins", fmt.Sprintf("pin %v 0 <nil> 2 same person", &a), "revoke pin 7"}, svc.calls)
+
+	svc.calls = nil
+	for _, body := range []string{
+		"", `{"a":{"entity":"not-a-uuid"},"b":{"fingerprints":["0a"]}}`,
+		fmt.Sprintf(`{"a":{"entity":%q}}`, a),
+		fmt.Sprintf(`{"a":{"entity":%q,"fingerprints":["0a"]},"b":{"fingerprints":["0b"]}}`, a),
+		fmt.Sprintf(`{"a":{"entity":%q},"b":{}}`, a),
+		fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["zz"]}}`, a),
+		fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["0b"]},"note":%q}`, a, strings.Repeat("я", 501)),
+		fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["0b"]},"extra":1}`, a),
+	} {
+		rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins", body)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+	}
+	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins/0/revoke", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Empty(t, svc.calls, "a malformed request reached the service")
+
+	body := fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["0b"]}}`, a)
+	for _, tc := range []struct {
+		err        error
+		path, want string
+		code       int
+	}{
+		{database.ErrMergePinSides, "/merges/pins", "pin_sides_invalid", http.StatusUnprocessableEntity},
+		{database.ErrMergePinNotLive, "/merges/pins/7/revoke", "pin_not_live", http.StatusConflict},
+	} {
+		svc.err = tc.err
+		rec = runsRequest(t, r, http.MethodPost, entityBase+tc.path, body)
+		assert.Equal(t, tc.code, rec.Code, tc.want)
+		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want), rec.Body.String())
+	}
 }

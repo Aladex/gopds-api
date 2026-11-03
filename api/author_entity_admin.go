@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
+	"unicode/utf8"
 
 	"gopds-api/database"
 	"gopds-api/services"
@@ -33,6 +35,9 @@ type AuthorEntityAdminService interface {
 	RevokeMergeDecision(ctx context.Context, decisionID, actor int64) (int64, error)
 	RetireMergeVeto(ctx context.Context, vetoID, actor int64) error
 	ReanchorMergeVeto(ctx context.Context, vetoID int64, sideA, sideB uuid.UUID, actor int64) (int64, error)
+	MergePins(ctx context.Context) ([]database.MergePinRow, error)
+	PinMerge(ctx context.Context, sideA, sideB database.MergePinSide, note string, actor int64) (int64, error)
+	RevokeMergePin(ctx context.Context, id, actor int64) error
 	RegisterMergeKind(ctx context.Context, runID int64, kind string, actor int64) (int64, error)
 	WithdrawMergeRegistration(ctx context.Context, id, actor int64) error
 	BlockMergeScript(ctx context.Context, id int64, script string, actor int64) error
@@ -87,6 +92,20 @@ func (unavailableAuthorEntityAdmin) RetireMergeVeto(context.Context, int64, int6
 	return errAuthorEntityServiceUnavailable
 }
 
+func (unavailableAuthorEntityAdmin) MergePins(context.Context) ([]database.MergePinRow, error) {
+	return nil, errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) PinMerge(
+	context.Context, database.MergePinSide, database.MergePinSide, string, int64,
+) (int64, error) {
+	return 0, errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) RevokeMergePin(context.Context, int64, int64) error {
+	return errAuthorEntityServiceUnavailable
+}
+
 func (unavailableAuthorEntityAdmin) ReanchorMergeVeto(context.Context, int64, uuid.UUID, uuid.UUID, int64) (int64, error) {
 	return 0, errAuthorEntityServiceUnavailable
 }
@@ -128,6 +147,9 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	r.POST("/merges/decisions/:id/revoke", h.revoke)
 	r.POST("/merges/vetoes/:id/retire", h.retire)
 	r.POST("/merges/vetoes/:id/reanchor", h.reanchor)
+	r.GET("/merges/pins", h.pins)
+	r.POST("/merges/pins", h.pin)
+	r.POST("/merges/pins/:id/revoke", h.revokePin)
 	r.POST("/merges/registrations", h.register)
 	r.POST("/merges/registrations/:id/withdraw", h.withdraw)
 	r.POST("/merges/registrations/:id/block", h.blockScript)
@@ -150,6 +172,10 @@ func abortEntityError(c *gin.Context, err error) {
 		abortRun(c, http.StatusConflict, codeVetoSideUnrecorded)
 	case errors.Is(err, database.ErrMergeVetoSides):
 		abortRun(c, http.StatusUnprocessableEntity, codeVetoSidesInvalid)
+	case errors.Is(err, database.ErrMergePinNotLive):
+		abortRun(c, http.StatusConflict, codePinNotLive)
+	case errors.Is(err, database.ErrMergePinSides):
+		abortRun(c, http.StatusUnprocessableEntity, codePinSidesInvalid)
 	case errors.Is(err, services.ErrAuthorEntityMergeReportInvalid):
 		abortRun(c, http.StatusUnprocessableEntity, codeMergeReportInvalid)
 	case errors.Is(err, services.ErrAuthorEntityMergeGate):
@@ -438,6 +464,131 @@ func (h *authorEntityHandler) reanchor(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{jsonKeyVeto: newID})
+}
+
+// The hand join (E4o): list the pins, pin two sides as one person — each an
+// entity, or raw fingerprints (hex) for a source key — and revoke a pin.
+// Closed codes: pin_not_live (409), pin_sides_invalid (422): one entity,
+// sides sharing a fingerprint, or a side holding none.
+const (
+	codePinNotLive      = "pin_not_live"
+	codePinSidesInvalid = "pin_sides_invalid"
+	jsonKeyPin          = "pin_id"
+	jsonKeyPins         = "pins"
+)
+
+// pinSide is one side of a pin request: an entity, or hex fingerprints.
+type pinSide struct {
+	Entity       *uuid.UUID `json:"entity"`
+	Fingerprints []string   `json:"fingerprints"`
+}
+
+// side is the request side as the store reads it; false when it names
+// neither or both, or a fingerprint is not hex.
+func (s *pinSide) side() (database.MergePinSide, bool) {
+	if s == nil || (s.Entity == nil) == (len(s.Fingerprints) == 0) {
+		return database.MergePinSide{}, false
+	}
+	out := database.MergePinSide{Entity: s.Entity}
+	for _, h := range s.Fingerprints {
+		fp, err := hex.DecodeString(h)
+		if err != nil || len(fp) == 0 {
+			return database.MergePinSide{}, false
+		}
+		out.Fingerprints = append(out.Fingerprints, fp)
+	}
+	return out, true
+}
+
+// pinRequest names a pin's two sides and a note.
+type pinRequest struct {
+	A    *pinSide `json:"a"`
+	B    *pinSide `json:"b"`
+	Note string   `json:"note"`
+}
+
+// maxPinNote is the longest note a pin keeps (migration 77).
+const maxPinNote = 500
+
+// pins godoc
+// @Summary The hand joins of author entities
+// @Description Every pin, newest first: its note, its sides' fingerprint counts and the entities they are in now
+// @Description (one entity across both sides once a build joined them), revoked ones with revoked_at.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Produce json
+// @Success 200 {object} map[string][]database.MergePinRow
+// @Router /api/admin/author-metadata/entities/merges/pins [get]
+func (h *authorEntityHandler) pins(c *gin.Context) {
+	rows, err := h.svc().MergePins(c.Request.Context())
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyPins: rows})
+}
+
+// pin godoc
+// @Summary Pin two author entities as one person
+// @Description Each side is {"entity": uuid} — its fingerprint rows — or {"fingerprints": [hex]}. Every build joins
+// @Description them after the decisions, unless a veto keeps them apart. 422 pin_sides_invalid.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param body body pinRequest true "The two sides and a note"
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]int64
+// @Router /api/admin/author-metadata/entities/merges/pins [post]
+func (h *authorEntityHandler) pin(c *gin.Context) {
+	var req pinRequest
+	if decodeStrict(c, &req) != nil || utf8.RuneCountInString(req.Note) > maxPinNote {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	a, okA := req.A.side()
+	b, okB := req.B.side()
+	if !okA || !okB {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	id, err := h.svc().PinMerge(c.Request.Context(), a, b, req.Note, actor)
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyPin: id})
+}
+
+// revokePin godoc
+// @Summary Revoke a hand join
+// @Description The next build no longer joins the pin's sides. 409 pin_not_live.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Pin ID"
+// @Produce json
+// @Success 200 {object} map[string]int64
+// @Router /api/admin/author-metadata/entities/merges/pins/{id}/revoke [post]
+func (h *authorEntityHandler) revokePin(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	if err := h.svc().RevokeMergePin(c.Request.Context(), id, actor); err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyPin: id})
 }
 
 // Registration of a merge stratum (E4d): register a kind from a completed

@@ -46,6 +46,7 @@ type Plan struct {
 	cardFailed map[[32]byte]bool
 	b          *builder
 	states     []DecisionState
+	pinStates  []PinState
 	revivals   []Revival
 	refs       map[uuid.UUID]string
 	entityOf   map[int64]uuid.UUID

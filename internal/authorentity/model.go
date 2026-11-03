@@ -139,8 +139,10 @@ type ModelReport struct {
 	TwoTargetsJoined int `json:"two_targets_joined"`
 	// OtherLanguage are the entities the other-language spelling joined
 	// (E4n).
-	OtherLanguage int           `json:"other_language,omitempty"`
-	Revivals      RevivalReport `json:"revivals"`
+	OtherLanguage int `json:"other_language,omitempty"`
+	// Pins counts the hand joins by state (E4o); nil without a pin.
+	Pins     map[string]int `json:"pins,omitempty"`
+	Revivals RevivalReport  `json:"revivals"`
 }
 
 // RevivalReport counts the revivals by outcome and reason.
@@ -156,7 +158,7 @@ var modelStepHook func()
 // NeedsMergeCensus reports a pass whose plan depends on its sealed
 // candidates: it has decisions, or entities a model union absorbed.
 func (p *Plan) NeedsMergeCensus() bool {
-	return p.b != nil && (len(p.b.in.Decisions) > 0 || len(p.b.old.ModelMerges) > 0)
+	return p.b != nil && (len(p.b.in.Decisions) > 0 || len(p.b.old.ModelMerges) > 0 || len(p.b.in.Pins) > 0)
 }
 
 // DecisionStates are what the pass did with each decision, by ID.
@@ -200,6 +202,7 @@ type modelStep struct {
 	entityDecs  []decided
 	bookDecs    []decided
 	applied     map[int64]bool
+	pinStates   []PinState
 	rep         ModelReport
 }
 
@@ -509,7 +512,8 @@ func (m *modelStep) replan() *Plan {
 	m.moveDecidedBooks()
 	b.moveBucketRests()
 	wikidata := m.mergeWikidataAfterDecisions()
-	if m.mergeOtherLanguages() || wikidata {
+	language := m.mergeOtherLanguages()
+	if m.applyPins() || language || wikidata {
 		m.retryTwoTargets()
 	}
 	b.prepareRevival(func(mm *ModelMerge) bool {
@@ -526,6 +530,7 @@ func (m *modelStep) replan() *Plan {
 	for _, id := range sortedKeys(m.states) {
 		np.states = append(np.states, *m.states[id])
 	}
+	np.pinStates = m.pinStates
 	for _, r := range np.revivals {
 		switch r.Outcome {
 		case RevivalExact:
