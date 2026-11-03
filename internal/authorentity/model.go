@@ -140,6 +140,8 @@ type ModelReport struct {
 	// OtherLanguage are the entities the other-language spelling joined
 	// (E4n).
 	OtherLanguage int `json:"other_language,omitempty"`
+	// Marks are the entities the marks step joined (E4p).
+	Marks int `json:"marks,omitempty"`
 	// Pins counts the hand joins by state (E4o); nil without a pin.
 	Pins     map[string]int `json:"pins,omitempty"`
 	Revivals RevivalReport  `json:"revivals"`
@@ -513,7 +515,8 @@ func (m *modelStep) replan() *Plan {
 	b.moveBucketRests()
 	wikidata := m.mergeWikidataAfterDecisions()
 	language := m.mergeOtherLanguages()
-	if m.applyPins() || language || wikidata {
+	marks := m.mergeMarks()
+	if m.applyPins() || marks || language || wikidata {
 		m.retryTwoTargets()
 	}
 	b.prepareRevival(func(mm *ModelMerge) bool {

@@ -112,3 +112,25 @@ func TestTheFallbackEntitiesAreStable(t *testing.T) {
 	assert.Equal(t, first.EntityOf(21), second.EntityOf(21))
 	assert.Zero(t, rebuild(t, c, s).Changes())
 }
+
+// A proposal that lost its given name, or a name with a pen name in
+// parentheses, joins the one entity its display name names; a part in
+// parentheses that names a place tells a namesake apart and keeps it out.
+func TestTheDisplayNameJoinsTheEntityOfItsName(t *testing.T) {
+	lost := &name{family: "Брянчанинов", script: "Cyrl", displayAs: "Игнатий Брянчанинов"}
+	pen := &name{family: "Дар", given: "Фредерик", script: "Cyrl", displayAs: "Фредерик Дар (Сан-Антонио)"}
+	place := &name{family: "Смирнов", given: "Сергей", additional: []string{"(Москва)"}, script: "Cyrl",
+		displayAs: "Сергей Смирнов (Москва)"}
+	p := newCatalog(t).book(1, "А").book(2, "Б").book(3, "В").book(4, "Г").book(5, "Д").book(6, "Е").
+		credit(10, 1, "fp-ignaty", person("Брянчанинов", "Игнатий")).
+		credit(11, 2, "fp-dard", person("Дар", "Фредерик")).
+		credit(12, 3, "fp-smirnov", person("Смирнов", "Сергей")).
+		unselected(20, 4, "fp-lost", "partial_structure", nil, lost).done().
+		unselected(21, 5, "fp-pen", "unusual_characters", nil, pen).done().
+		unselected(22, 6, "fp-place", "unusual_characters", nil, place).done().build()
+	same(t, p, 10, 20)
+	same(t, p, 11, 21)
+	assert.Equal(t, authorentity.RuleSameName, p.RuleOf(20))
+	fallback(t, p, 22)
+	apart(t, p, 12, 22)
+}

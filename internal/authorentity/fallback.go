@@ -18,7 +18,11 @@ import (
 // placeholder or a collective stub. Once the pass has its groups, each such
 // credit
 //   - joins the one entity of exactly its name, as the same-name join does
-//     (same_name);
+//     (same_name) — its parsed name, else its display name read given name
+//     first, family last, without a part in parentheses or a stray mark:
+//     «Игнатий Брянчанинов», a proposal that lost its given name, «Фредерик
+//     Дар (Сан-Антонио)», a collective class of a person's or an
+//     organization's exact name («НКО СССР»);
 //   - else is grouped with the credits of its name into an entity of its
 //     own: a person's name as written (as_written) — a handle is the
 //     author's identity («lucifer712217», «Shin_Stark») — a collective, a
@@ -173,7 +177,7 @@ type FallbackReport struct {
 type fallbackCredit struct {
 	ci          int
 	group, rule string
-	name        sameName
+	name, shown sameName
 	person      bool
 	// pending is a credit the same-name join reads: it joins there when
 	// one entity has its name, and comes here when none or several do.
@@ -210,6 +214,9 @@ func (b *builder) collectFallback() {
 		if f.person {
 			f.name, _ = u.sameNameOf()
 			f.pending = pending[u]
+		}
+		if u.Tag == 0 && !sameNameExcluded[u.Class] && f.rule != RulePlaceholder {
+			f.shown = shownName(&u.Credit)
 		}
 		b.fallback = append(b.fallback, f)
 	}
@@ -267,14 +274,19 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 	joined, pairs = map[int]int{}, map[int][2]int{}
 	byGroup := map[string]*group{}
 	var order []string
-	for _, f := range b.fallback {
-		if f.person && f.name.key != "" {
-			if root, ok := uniqueRoot(byName, f.name); ok {
+	for i := range b.fallback {
+		f := &b.fallback[i]
+		if f.person {
+			if root, ok := uniqueRoot(byName, f.name); ok && f.name.key != "" {
 				if !f.pending {
 					joined[f.ci] = root
 				}
 				continue
 			}
+		}
+		if root, ok := uniqueRoot(byName, f.shown); ok && f.shown.key != "" {
+			joined[f.ci] = root
+			continue
 		}
 		if f.rule == RuleAsNamed {
 			if roots, ok := pairRoots(byName, &b.in.Credits[f.ci]); ok {
@@ -295,6 +307,60 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 		out = append(out, byGroup[k])
 	}
 	return out, joined, pairs
+}
+
+// inParentheses is a part of a display name in parentheses: a pen name, a
+// maiden name, a gloss.
+var inParentheses = regexp.MustCompile(`\s*\([^()]*\)?`)
+
+// placeWords are the words of a part in parentheses that tells namesakes
+// apart by their place («Сергей Смирнов (Москва)», «(Подмосковье)»): such
+// a name is no other name without it.
+var placeWords = func() map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Fields(`москва подмосковье спб петербург санкт ленинград киев минск харьков одесса
+		екатеринбург новосибирск казань самара нижний новгород ростов воронеж пермь омск томск иркутск красноярск
+		владивосток рига таллин вильнюс израиль сша украина беларусь казахстан германия канада россия`) {
+		set[w] = true
+	}
+	return set
+}()
+
+// shownName is a credit's display name as a person's: given name first,
+// family last, the words between additional, a part in parentheses
+// dropped; empty for a display name of fewer than two words, a placeholder,
+// or one whose part in parentheses names a place.
+func shownName(c *Credit) sameName {
+	for _, part := range inParentheses.FindAllString(c.DisplayName, -1) {
+		for _, w := range strings.Fields(authornorm.SearchKey(part)) {
+			if placeWords[w] {
+				return sameName{}
+			}
+		}
+	}
+	var words []string
+	for _, w := range strings.Fields(inParentheses.ReplaceAllString(c.DisplayName, " ")) {
+		// A stray mark at a word's edge («>Юрий», «Сергеев+», a byte-order
+		// mark) is no part of the name; an initial keeps its dot.
+		if w = strings.TrimFunc(w, func(r rune) bool { return !isLetterOrDigit(r) && r != '.' }); w != "" {
+			words = append(words, w)
+		}
+	}
+	if len(words) <= 1 {
+		return sameName{}
+	}
+	res := &Result{Kind: KindPerson, Given: words[0], Family: words[len(words)-1], Suffix: c.Suffix}
+	if middle := words[1 : len(words)-1]; len(middle) > 0 {
+		res.Additional = []string{strings.Join(middle, " ")}
+	}
+	res.Script = string(authornorm.DetectScript(strings.Join(words, " ")))
+	probe := &Credit{Result: res}
+	if isPlaceholder(probe) {
+		return sameName{}
+	}
+	k := keyOf(probe)
+	n, _ := namesOf(&k)
+	return n
 }
 
 // uniqueRoot is the one root a name names: its key, else its word
@@ -382,8 +448,8 @@ func (pl *planner) wantFallback(groups []*group, joined map[int]int, pairs map[i
 	rep := &FallbackReport{Entities: map[string]int{}, Rows: map[string]int{}}
 	b.rep.Fallback = rep
 	rule := map[int]string{}
-	for _, f := range b.fallback {
-		rule[f.ci] = f.rule
+	for i := range b.fallback {
+		rule[b.fallback[i].ci] = b.fallback[i].rule
 		rep.Credits++
 	}
 	for _, ci := range sortedKeys(joined) {
