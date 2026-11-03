@@ -121,6 +121,10 @@ type BucketReport struct {
 	SamizdatBooks int `json:"samizdat_books"`
 	SamizdatKept  int `json:"samizdat_kept"`
 	Remaining     int `json:"remaining"`
+	// MajorityBuckets gave their one full name the rest of their books after
+	// the decisions (E4j); MajorityBooks are those books.
+	MajorityBuckets int `json:"majority_buckets,omitempty"`
+	MajorityBooks   int `json:"majority_books,omitempty"`
 	// Emptied buckets lost every book; Entities are the buckets that stay,
 	// Sizes their distribution by books.
 	Emptied  int          `json:"emptied"`

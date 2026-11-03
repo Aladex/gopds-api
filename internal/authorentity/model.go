@@ -504,6 +504,7 @@ func (m *modelStep) replan() *Plan {
 	b.resetPlanReport()
 	b.moveShortNameBooks()
 	m.moveDecidedBooks()
+	b.moveBucketRests()
 	if m.mergeWikidataAfterDecisions() {
 		m.retryTwoTargets()
 	}
