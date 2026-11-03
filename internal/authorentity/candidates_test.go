@@ -714,3 +714,24 @@ func TestACandidateFailureLeavesThePlanWhole(t *testing.T) {
 	require.NoError(t, p.SealMergeCandidates(nil))
 	assert.True(t, p.MergeCandidatesSealed())
 }
+
+// The sound skeleton pairs the spellings the letter one misses (E4m):
+// «Джек Лондон» / «Jack London», «Гарри Гаррисон» / «Harry Harrison»,
+// «Роулинг» / «Rowling»; a given name of another sound stays unpaired.
+func TestASoundSkeletonPairsTheOtherScriptsSpelling(t *testing.T) {
+	for title, c := range map[string]struct {
+		cyrl, latn *name
+		pairs      bool
+	}{
+		"дж and j":      {person("Лондон", "Джек"), person("London", "Jack").latin(), true},
+		"г and h":       {person("Гаррисон", "Гарри"), person("Harrison", "Harry").latin(), true},
+		"у and w":       {person("Роулинг", "Джоан"), person("Rowling", "Joanne").latin(), true},
+		"another given": {person("Мороз", "Игорь"), person("Myers", "Howard").latin(), false},
+	} {
+		t.Run(title, func(t *testing.T) {
+			p := sealed(t, newCatalog(t).book(1, "Книга").book(2, "Book").
+				credit(1, 1, "fp-cyrl", c.cyrl).credit(2, 2, "fp-latn", c.latn), nil)
+			assert.Equal(t, c.pairs, candidateOf(p, authorentity.CandidateTranslit, 1, 2) != nil)
+		})
+	}
+}

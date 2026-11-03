@@ -508,12 +508,13 @@ func initialsFit(initials, words []string) bool {
 // loose_script_only.
 func (g *candGen) translits() {
 	type skel struct {
-		ref           keyRef
-		family, given string
-		initial       rune
+		ref             keyRef
+		family, given   string
+		family2, given2 string
+		initial         rune
 	}
 	var cyrl []skel
-	latn := map[string][]skel{}
+	latn, latn2 := map[string][]skel{}, map[string][]skel{}
 	for _, s := range g.sortedSides() {
 		for _, k := range s.keys {
 			key := &g.b.keys[k].key
@@ -522,7 +523,8 @@ func (g *candGen) translits() {
 				continue
 			}
 			sk := skel{ref: keyRef{side: s, key: key}, family: familySkeleton(key.family),
-				given: givenSkeleton(key.given), initial: givenInitial(key.given)}
+				given: givenSkeleton(key.given), family2: soundSkeleton(key.family), given2: soundSkeleton(key.given),
+				initial: givenInitial(key.given)}
 			if utf8.RuneCountInString(sk.family) < minTranslitSkeleton {
 				continue
 			}
@@ -530,17 +532,81 @@ func (g *candGen) translits() {
 				cyrl = append(cyrl, sk)
 			} else {
 				latn[sk.family] = append(latn[sk.family], sk)
+				if utf8.RuneCountInString(sk.family2) >= minTranslitSkeleton {
+					latn2[sk.family2] = append(latn2[sk.family2], sk)
+				}
 			}
 		}
+	}
+	tightOn := func(x, y string) bool {
+		return x != "" && prefixRunes(x, translitGivenPrefix) == prefixRunes(y, translitGivenPrefix)
 	}
 	for _, c := range cyrl {
+		seen := map[*candSide]bool{}
 		for _, l := range latn[c.family] {
-			tight := c.given != "" && prefixRunes(c.given, translitGivenPrefix) == prefixRunes(l.given, translitGivenPrefix)
+			tight := tightOn(c.given, l.given)
 			if tight || c.initial == l.initial {
 				g.add(CandidateTranslit, ScriptCyrlLatn, c.ref.side, l.ref.side, !tight)
+				seen[l.ref.side] = true
+			}
+		}
+		// The sound skeleton pairs what the letter one misses (E4m: Джон /
+		// John, Гарри / Harry, Роулинг / Rowling): the whole given name's sound
+		// skeleton equal, of two sides of one script each, beside every pair the letter skeleton
+		// makes, so no pair of it is lost and no mixed side's card changes.
+		for _, l := range latn2[c.family2] {
+			if !seen[l.ref.side] && c.ref.side.script == string(authornorm.ScriptCyrillic) &&
+				l.ref.side.script == string(authornorm.ScriptLatin) && c.given2 != "" && c.given2 == l.given2 {
+				g.add(CandidateTranslit, ScriptCyrlLatn, c.ref.side, l.ref.side, false)
 			}
 		}
 	}
+}
+
+// soundJ stands for the sound of «дж» in a sound skeleton: a letter the
+// letter tables leave as it is.
+const soundJ = 'J'
+
+// soundSkeleton is the letter skeleton with the sounds the letters of the
+// two scripts spell differently made one (E4m): «дж», a Latin j and a g
+// before e, i or y; a Latin h out of its digraphs; a first Latin h, a first
+// «х» and a first «г»; a Latin w, a vowel like «у».
+func soundSkeleton(part string) string {
+	r := []rune(part)
+	var b strings.Builder
+	for i := 0; i < len(r); i++ {
+		out, skip := soundOf(r, i)
+		if out != 0 {
+			b.WriteRune(out)
+		}
+		i += skip
+	}
+	return skeleton(b.String(), familySteps, familyLetters)
+}
+
+// soundOf is the sound skeleton's rune for r[i] (0 for none) and how many
+// runes after it the sound takes.
+func soundOf(r []rune, i int) (out rune, skip int) {
+	c, next, prev := r[i], rune(0), rune(0)
+	if i+1 < len(r) {
+		next = r[i+1]
+	}
+	if i > 0 {
+		prev = r[i-1]
+	}
+	switch {
+	case c == 'д' && next == 'ж':
+		return soundJ, 1
+	case c == 'ж' || c == 'j' || (c == 'g' && strings.ContainsRune("eiy", next)):
+		return soundJ, 0
+	case i == 0 && strings.ContainsRune("hхг", c):
+		return 'g', 0
+	case c == 'h' && !strings.ContainsRune("csktzp", prev):
+		return 0, 0
+	case c == 'w':
+		return 'u', 0
+	}
+	return c, 0
 }
 
 // variants pairs two full names of one script that spell one name two
