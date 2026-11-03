@@ -55,11 +55,25 @@ func TestAPinWithoutItsSideJoinsNothing(t *testing.T) {
 	assert.Equal(t, authorentity.PinUnanchored, pinState(p, 5))
 }
 
+// A veto within one side holds too (E4o): side a's two fingerprints
+// a veto keeps apart are never joined through the pin.
+func TestAPinNeverOverridesAVetoWithinASide(t *testing.T) {
+	w := pinWorld(t, authorentity.MergePin{ID: 5, A: []string{"fp-short", "fp-other"}, B: []string{"fp-full"}})
+	w.ch.c.book(30, "Песни").credit(30, 30, "fp-other", person("Смирнов", "Андрей", "Петрович"))
+	w.ch.c.veto(1, []bookFP{{1, "fp-short"}}, []bookFP{{30, "fp-other"}})
+	w.ch.c.in.VetoBooks = map[int64][]string{1: {"fp-short"}, 30: {"fp-other"}}
+	p := w.pass()
+	assert.NotEqual(t, p.EntityOf(1), p.EntityOf(30))
+	assert.NotEqual(t, p.EntityOf(30), p.EntityOf(11))
+	assert.NotEqual(t, p.EntityOf(1), p.EntityOf(11))
+	assert.Equal(t, authorentity.PinVetoed, pinState(p, 5))
+}
+
 func TestAPinNeverOverridesAVeto(t *testing.T) {
-	w := pinWorld(t, authorentity.MergePin{ID: 5, A: []string{"fp-short"}, B: []string{"fp-full"}})
+	w := pinWorld(t, authorentity.MergePin{ID: 6, A: []string{"fp-short"}, B: []string{"fp-full"}})
 	w.ch.c.veto(1, []bookFP{{1, "fp-short"}}, []bookFP{{11, "fp-full"}})
 	w.ch.c.in.VetoBooks = map[int64][]string{1: {"fp-short"}, 11: {"fp-full"}}
 	p := w.pass()
 	assert.NotEqual(t, p.EntityOf(1), p.EntityOf(11))
-	assert.Equal(t, authorentity.PinVetoed, pinState(p, 5))
+	assert.Equal(t, authorentity.PinVetoed, pinState(p, 6))
 }

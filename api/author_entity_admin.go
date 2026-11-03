@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"gopds-api/database"
+	"gopds-api/middlewares"
 	"gopds-api/services"
 
 	"github.com/gin-gonic/gin"
@@ -148,8 +149,10 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	r.POST("/merges/vetoes/:id/retire", h.retire)
 	r.POST("/merges/vetoes/:id/reanchor", h.reanchor)
 	r.GET("/merges/pins", h.pins)
-	r.POST("/merges/pins", h.pin)
-	r.POST("/merges/pins/:id/revoke", h.revokePin)
+	// The pin's writes check the double-submit CSRF token: they change
+	// durable state every build reads (E4o).
+	r.POST("/merges/pins", middlewares.CSRFMiddleware(), h.pin)
+	r.POST("/merges/pins/:id/revoke", middlewares.CSRFMiddleware(), h.revokePin)
 	r.POST("/merges/registrations", h.register)
 	r.POST("/merges/registrations/:id/withdraw", h.withdraw)
 	r.POST("/merges/registrations/:id/block", h.blockScript)

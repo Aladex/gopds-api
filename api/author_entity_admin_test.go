@@ -224,6 +224,7 @@ func TestAuthorEntityRoutesRequireAnAdministrator(t *testing.T) {
 	for _, route := range routes {
 		req := httptest.NewRequestWithContext(context.Background(), route.method, route.path, strings.NewReader(route.body))
 		req.Header.Set("Authorization", adminToken)
+		withCSRF(req, "e4o")
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		assert.Less(t, rec.Code, 300, "%s %s: %s", route.method, route.path, rec.Body.String())
@@ -497,15 +498,15 @@ func TestTheHandJoinRoutes(t *testing.T) {
 	svc := &fakeEntityAdmin{}
 	r := entityRouter(svc)
 	a := uuid.New()
-	rec := runsRequest(t, r, http.MethodGet, entityBase+"/merges/pins", "")
+	rec := csrfRequest(t, r, http.MethodGet, entityBase+"/merges/pins", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"pins":null}`, rec.Body.String())
-	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins",
+	rec = csrfRequest(t, r, http.MethodPost, entityBase+"/merges/pins",
 		fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["0a0b","0c"]},"note":"same person"}`, a))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"pin_id":7}`, rec.Body.String())
 	assert.Equal(t, adminActorID, svc.actor)
-	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins/7/revoke", "")
+	rec = csrfRequest(t, r, http.MethodPost, entityBase+"/merges/pins/7/revoke", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"pin_id":7}`, rec.Body.String())
 	assert.Equal(t, []string{"pins", fmt.Sprintf("pin %v 0 <nil> 2 same person", &a), "revoke pin 7"}, svc.calls)
@@ -520,10 +521,10 @@ func TestTheHandJoinRoutes(t *testing.T) {
 		fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["0b"]},"note":%q}`, a, strings.Repeat("я", 501)),
 		fmt.Sprintf(`{"a":{"entity":%q},"b":{"fingerprints":["0b"]},"extra":1}`, a),
 	} {
-		rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins", body)
+		rec = csrfRequest(t, r, http.MethodPost, entityBase+"/merges/pins", body)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
 	}
-	rec = runsRequest(t, r, http.MethodPost, entityBase+"/merges/pins/0/revoke", "")
+	rec = csrfRequest(t, r, http.MethodPost, entityBase+"/merges/pins/0/revoke", "")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, svc.calls, "a malformed request reached the service")
 
@@ -537,8 +538,71 @@ func TestTheHandJoinRoutes(t *testing.T) {
 		{database.ErrMergePinNotLive, "/merges/pins/7/revoke", "pin_not_live", http.StatusConflict},
 	} {
 		svc.err = tc.err
-		rec = runsRequest(t, r, http.MethodPost, entityBase+tc.path, body)
+		rec = csrfRequest(t, r, http.MethodPost, entityBase+tc.path, body)
 		assert.Equal(t, tc.code, rec.Code, tc.want)
 		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want), rec.Body.String())
 	}
+}
+
+// withCSRF gives a request the double-submit pair: the cookie and the
+// header with token.
+func withCSRF(req *http.Request, token string) {
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
+	req.Header.Set("X-CSRF-Token", token)
+}
+
+// csrfRequest is runsRequest with a matching CSRF pair.
+func csrfRequest(t *testing.T, r http.Handler, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	withCSRF(req, "e4o")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// The pin's writes on the production routes check the CSRF pair (E4o):
+// an administrator's cookie without the header, or with another one,
+// is 403 and reaches nothing; the matching pair goes through. The list
+// needs none.
+func TestThePinWritesCheckCSRF(t *testing.T) {
+	installSessionStore(t)
+	svc := &fakeEntityAdmin{}
+	previous := authorEntityAdminService
+	authorEntityAdminService = func() AuthorEntityAdminService { return svc }
+	t.Cleanup(func() { authorEntityAdminService = previous })
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	SetupAdminRoutes(r.Group("/api").Group("/admin", middlewares.AdminMiddleware()))
+	token := adminSession(t, true)
+	pin := `{"a":{"entity":"01a17dc0-a8b4-7706-b3db-57951f632b68"},"b":{"fingerprints":["0a0b"]}}`
+	send := func(method, path, body, cookieCSRF, headerCSRF string) int {
+		req := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "token", Value: token})
+		if cookieCSRF != "" {
+			req.AddCookie(&http.Cookie{Name: "csrf_token", Value: cookieCSRF})
+		}
+		if headerCSRF != "" {
+			req.Header.Set("X-CSRF-Token", headerCSRF)
+		}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for _, route := range []struct{ path, body string }{
+		{entityBase + "/merges/pins", pin}, {entityBase + "/merges/pins/7/revoke", ""},
+	} {
+		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, route.path, route.body, "", ""), route.path)
+		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, route.path, route.body, "c1", ""), route.path)
+		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, route.path, route.body, "c1", "c2"), route.path)
+	}
+	assert.Empty(t, svc.calls, "a write without the CSRF pair reached the service")
+	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/merges/pins", pin, "c1", "c1"))
+	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/merges/pins/7/revoke", "", "c1", "c1"))
+	assert.Equal(t, http.StatusOK, send(http.MethodGet, entityBase+"/merges/pins", "", "", ""))
+	assert.Len(t, svc.calls, 3)
 }

@@ -100,11 +100,19 @@ func pinKeys(byFP map[string][]int, fps []string) []int {
 	return slices.Compact(out)
 }
 
-// pinVetoed reports a live veto between the components of a pin's sides.
+// pinVetoed reports a live veto between any two components the pin would
+// join: across its sides or within one, a side whose fingerprints a veto
+// split since the pin recorded them included.
 func (b *builder) pinVetoed(a, c []int) bool {
-	for _, x := range a {
-		for _, y := range c {
-			if rx, ry := b.find(x), b.find(y); rx != ry && b.vetoApart(rx, ry) {
+	var roots []int
+	for _, k := range slices.Concat(a, c) {
+		if r := b.find(k); !slices.Contains(roots, r) {
+			roots = append(roots, r)
+		}
+	}
+	for i, x := range roots {
+		for _, y := range roots[i+1:] {
+			if b.vetoApart(x, y) {
 				return true
 			}
 		}
