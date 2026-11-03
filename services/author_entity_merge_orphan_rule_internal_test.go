@@ -44,3 +44,21 @@ func TestAnOrphanAsksASameOfEveryProductionAnswer(t *testing.T) {
 	assert.True(t, mergeApplyAccepted(authorentity.CandidateBucket, verdicts[2], dissent[2]))
 	assert.True(t, mergeApplyAccepted(authorentity.CandidatePenName, verdicts[2], dissent[2]))
 }
+
+// Only an orphan item is withheld by a production answer other than same;
+// a judge's repeat withholds nothing.
+func TestOnlyAnOrphanIsWithheldByAProductionDissent(t *testing.T) {
+	jobs := map[evalAnswerKey]*database.AuthorLLMEvalAnswer{}
+	add := func(slot llmreq.Slot, purpose models.AuthorLLMJobPurpose, repeat int, word string) {
+		a := mergeAnswer(1, slot, purpose, repeat, word)
+		jobs[evalAnswerKey{purpose: string(purpose), slot: string(slot), repeat: repeat}] = &a
+	}
+	add(llmreq.SlotProductionA, models.AuthorLLMPurposeEvalCandidate, 0, llmreq.MergeSame)
+	add(llmreq.SlotJudgeA, models.AuthorLLMPurposeEvalRepeat, 1, llmreq.MergeDifferent)
+	assert.False(t, mergeItemWithheld(authorentity.CandidateOrphan, jobs))
+	add(llmreq.SlotProductionA, models.AuthorLLMPurposeEvalRepeat, 1, llmreq.MergeCannotTell)
+	assert.True(t, mergeItemWithheld(authorentity.CandidateOrphan, jobs))
+	for _, kind := range []string{authorentity.CandidatePenName, authorentity.CandidateBucket} {
+		assert.False(t, mergeItemWithheld(kind, jobs), kind)
+	}
+}

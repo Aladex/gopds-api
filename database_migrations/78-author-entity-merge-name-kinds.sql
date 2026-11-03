@@ -10,7 +10,10 @@
 --     both are entity kinds, never a book's.
 --   * author_llm_run: eval mode merge8.
 --   * author_llm_eval_item_audited (70, 72-75): a merge8 holdout item is a
---     census item like merge7's.
+--     census item like merge7's; an orphan is applied only when no answer
+--     of the production pair, a repeat included, is other than same (the
+--     apply's rule, mergeApplyAccepted), so one a production answer
+--     dissents on is never audited and takes no rank of the sample.
 --
 -- Every change only widens a check; no row is rewritten.
 --
@@ -83,7 +86,8 @@ SET LOCAL check_function_bodies = off;
 -- An item of the audit sample of some census or merge3 run: a census item
 -- (the run mode's holdout set: merge1, merge2, merge4 to merge8) or a
 -- merge3 holdout item or extra question, all four of whose first answers in
--- the run are same, within the first applied items of its set and stratum
+-- the run are same (for an orphan, every production answer, a repeat
+-- included), within the first applied items of its set and stratum
 -- (the kind) in the run's audit order — sample of them, at most 100 extra
 -- questions (72). A kind of at most sample applied items (merge6's,
 -- merge7's swap, initials and variant mixed kinds, a small name kind of
@@ -114,8 +118,16 @@ CREATE OR REPLACE FUNCTION public.author_llm_eval_item_audited(item bigint, samp
             AND j.purpose IN ('eval_candidate', 'eval_judge') AND j.repeat_no = 0 AND j.status = 'answered'
             AND NOT coalesce(a.refused, false)
             AND a.canonical_sha256 = sha256(convert_to('{"answer":"same"}', 'UTF8'))
-        GROUP BY j.run_id, j.eval_item_id
+        GROUP BY j.run_id, j.eval_item_id, t.kind
         HAVING count(DISTINCT j.slot) = 4
+            AND (t.kind <> 'orphan' OR NOT EXISTS (
+                SELECT 1
+                FROM public.author_llm_job p
+                LEFT JOIN public.author_llm_attempt pa ON pa.id = p.answer_attempt_id
+                WHERE p.run_id = j.run_id AND p.eval_item_id = j.eval_item_id
+                    AND p.slot IN ('production_a', 'production_b') AND p.purpose IN ('eval_candidate', 'eval_repeat')
+                    AND NOT (p.status = 'answered' AND NOT coalesce(pa.refused, false)
+                        AND coalesce(pa.canonical_sha256 = sha256(convert_to('{"answer":"same"}', 'UTF8')), false))))
     )
     SELECT EXISTS (
         SELECT 1 FROM (

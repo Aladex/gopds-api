@@ -96,6 +96,11 @@ type Item struct {
 	// error or a contested accept of one fails its stratum, but it never
 	// counts toward the bound (merge3's extra Latin questions, §3.5).
 	Supplement bool
+	// Withheld marks an item the production rule withholds whatever its
+	// first answers (an orphan a production answer other than same, a
+	// repeat included, dissents on; E4q): it is never applied, so neither
+	// the audit samples it nor the applied repeat counts it.
+	Withheld bool
 	// Adjudication is a suite item's human label: AdjudicatedSame and
 	// AdjudicatedUnclear clear its accept; "different" or none fails. A
 	// contested measured item's label clears it the same way
@@ -449,8 +454,12 @@ func pooledRepeat(
 }
 
 // isApplied reports an item the production rule accepts in a combo: the
-// pair agreed on an accepting answer and both judges gave it.
+// pair agreed on an accepting answer and both judges gave it, the item not
+// withheld.
 func isApplied(it *Item, c Combo, o *Options) bool {
+	if it.Withheld {
+		return false
+	}
 	ans, ok := candidates(it, c)
 	answer := agreed(&ans, ok)
 	return o.accepts(answer) && gold(it) == answer

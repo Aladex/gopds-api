@@ -207,3 +207,15 @@ func TestTheSuiteGatesOnlyFourSameUnderTheAudit(t *testing.T) {
 	assert.Equal(t, 1, m.Adversarial.PairAccepted)
 	assert.Zero(t, m.Adversarial.Accepted)
 }
+
+// A withheld item is outside the applied set: never sampled, so its
+// missing label fails nothing, and counted apart.
+func TestAWithheldItemIsNeitherAppliedNorSampled(t *testing.T) {
+	in := auditStratum(60)
+	in.Items[3].Withheld, in.Items[3].Adjudication = true, ""
+	d, m := evaluateAudit(t, &in)
+	assert.True(t, d.Passed, d.Reason)
+	assert.Equal(t, 59, m.Audit.Applied)
+	assert.Equal(t, 1, m.Audit.Withheld)
+	assert.NotContains(t, m.Audit.Sample, in.Items[3].ID)
+}

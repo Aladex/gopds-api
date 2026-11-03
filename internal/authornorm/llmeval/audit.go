@@ -58,6 +58,9 @@ type AuditMetrics struct {
 	Failed               int     `json:"failed"`
 	GoldErrors           int     `json:"gold_errors"`
 	GoldErrorIDs         []int64 `json:"gold_error_ids"`
+	// Withheld counts the accepts the production rule withholds (Item):
+	// outside the applied set.
+	Withheld int `json:"withheld,omitempty"`
 }
 
 // passed is the audit's part of the gate: something applied, no sampled
@@ -85,6 +88,8 @@ func measureAudit(c Combo, scope []*Item, o *Options, size int) *AuditMetrics {
 			continue
 		}
 		switch g := gold(it); {
+		case g == answer && it.Withheld:
+			m.Withheld++
 		case g == answer:
 			applied = append(applied, keyed{AuditKey(o.auditRun, it.ID), it})
 		case g != "":

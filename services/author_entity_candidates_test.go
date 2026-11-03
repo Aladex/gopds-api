@@ -48,7 +48,8 @@ func (c *entityCatalog) build() services.AuthorEntityBuildReport {
 }
 
 // seedCandidates is a swap pair, «Стивен Кинг» and «Кинг Стивен», and a
-// bucket book, «Алексей Иванов» beside «Алексей Викторович Иванов».
+// bucket book, «Алексей Иванов» beside «Алексей Викторович Иванов» — the
+// two sides of one written name, also an orphan (E4q).
 func (c *entityCatalog) seedCandidates() (smallSide byte) {
 	c.credit(c.book("Оно"), 0x61, "Кинг", "Стивен")
 	c.credit(c.book("Сияние"), 0x61, "Кинг", "Стивен")
@@ -65,24 +66,25 @@ func TestTheBuildWritesItsMergeCandidatesAsADiff(t *testing.T) {
 	c := newEntityCatalog(t)
 	small := c.seedCandidates()
 	first := c.build()
-	assert.Equal(t, 2, first.Candidates.Candidates)
+	assert.Equal(t, 3, first.Candidates.Candidates)
 	assert.Equal(t, 1, first.Candidates.ByKind["swap"]["Cyrl"].Candidates)
 	assert.Equal(t, 1, first.Candidates.ByKind["bucket"]["Cyrl"].Candidates)
-	assert.Equal(t, database.MergeCandidateDiff{Inserted: 2, MembersInserted: 4, SampleInserted: 2, RowsWritten: 8},
+	assert.Equal(t, 1, first.Candidates.ByKind["orphan"]["Cyrl"].Candidates)
+	assert.Equal(t, database.MergeCandidateDiff{Inserted: 3, MembersInserted: 6, SampleInserted: 3, RowsWritten: 12},
 		first.CandidateDiff)
-	assert.Equal(t, 2, c.count(`SELECT count(*) FROM author_entity_merge_candidate`))
+	assert.Equal(t, 3, c.count(`SELECT count(*) FROM author_entity_merge_candidate`))
 	assert.Equal(t, 1, c.count(`SELECT count(*) FROM author_entity_merge_candidate
 		WHERE item_kind = 'book' AND credit_id IS NOT NULL AND credit_ordinal = 0`))
-	assert.Equal(t, 4, c.count(`SELECT count(*) FROM author_entity_merge_candidate_member`), "one fingerprint a side")
-	assert.Equal(t, 2, c.count(`SELECT count(*) FROM author_entity_merge_candidate_sample WHERE digest IS NOT NULL`))
+	assert.Equal(t, 6, c.count(`SELECT count(*) FROM author_entity_merge_candidate_member`), "one fingerprint a side")
+	assert.Equal(t, 3, c.count(`SELECT count(*) FROM author_entity_merge_candidate_sample WHERE digest IS NOT NULL`))
 	assert.Zero(t, c.marks(), "the pass marked a pass to do")
 
 	// An unchanged pass writes no row at all (review r1, P2).
 	second := c.build()
-	assert.Equal(t, database.MergeCandidateDiff{Kept: 2}, second.CandidateDiff)
+	assert.Equal(t, database.MergeCandidateDiff{Kept: 3}, second.CandidateDiff)
 	assert.Zero(t, second.Changes)
-	assert.Equal(t, 2, c.count(`SELECT count(*) FROM author_entity_merge_candidate_sample`), "one sample, not one per pass")
-	assert.Equal(t, 2, c.count(`SELECT count(*) FROM author_entity_merge_candidate_sample
+	assert.Equal(t, 3, c.count(`SELECT count(*) FROM author_entity_merge_candidate_sample`), "one sample, not one per pass")
+	assert.Equal(t, 3, c.count(`SELECT count(*) FROM author_entity_merge_candidate_sample
 		WHERE build_run_id = (SELECT min(id) FROM author_entity_build_run)`), "an unchanged sample row is not rewritten")
 	assert.Zero(t, c.marks())
 
@@ -90,9 +92,9 @@ func TestTheBuildWritesItsMergeCandidatesAsADiff(t *testing.T) {
 	c.credit(c.book("Ещё рассказы"), small, "Стивен", "Кинг")
 	assert.Positive(t, c.marks())
 	third := c.build()
-	assert.Equal(t, database.MergeCandidateDiff{Inserted: 1, Deleted: 1, Kept: 1, MembersInserted: 2, SampleInserted: 1,
+	assert.Equal(t, database.MergeCandidateDiff{Inserted: 1, Deleted: 1, Kept: 2, MembersInserted: 2, SampleInserted: 1,
 		SampleDeleted: 1, RowsWritten: 6}, third.CandidateDiff)
-	assert.Equal(t, 2, c.count(`SELECT count(*) FROM author_entity_merge_candidate`))
+	assert.Equal(t, 3, c.count(`SELECT count(*) FROM author_entity_merge_candidate`))
 	assert.Zero(t, c.marks())
 }
 
@@ -192,7 +194,7 @@ func TestTheCensusNeverHoldsTheBuild(t *testing.T) {
 			c := newEntityCatalog(t)
 			small := c.seedCandidates()
 			first := c.build()
-			require.Equal(t, 2, first.Candidates.Candidates)
+			require.Equal(t, 3, first.Candidates.Candidates)
 			stored := c.digests()
 
 			// A new author (an entity to write) and a book that moves a card.
@@ -233,7 +235,7 @@ func TestEveryDeclaredCardSourceIsReadAndMarked(t *testing.T) {
 		// setup runs before the first pass; change is the semantic change.
 		setup, change string
 		// seed adds credits before the setup, extra candidates beside the
-		// fixture's two.
+		// fixture's three.
 		seed  func(c *entityCatalog)
 		extra int
 	}
@@ -353,7 +355,7 @@ func TestEveryDeclaredCardSourceIsReadAndMarked(t *testing.T) {
 			}
 			c.build()
 			before := c.digests()
-			require.Len(t, before, 2+tc.extra)
+			require.Len(t, before, 3+tc.extra)
 			assert.Positive(t, c.marksOf(tc.change), "the change marked no pass")
 			c.build()
 			assert.NotEqual(t, before, c.digests(), "the change did not move the census")

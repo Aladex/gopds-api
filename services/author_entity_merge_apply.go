@@ -207,15 +207,24 @@ func mergeApplyAccepted(kind string, answers map[string]string, dissent bool) bo
 func mergeProductionDissent(answers []database.AuthorLLMEvalAnswer) map[int64]bool {
 	out := map[int64]bool{}
 	for i := range answers {
-		a := &answers[i]
-		production := a.Slot == string(llmreq.SlotProductionA) || a.Slot == string(llmreq.SlotProductionB)
-		asked := a.Purpose == string(models.AuthorLLMPurposeEvalCandidate) ||
-			a.Purpose == string(models.AuthorLLMPurposeEvalRepeat)
-		if production && asked && mergeAnswerWord(a) != llmreq.MergeSame {
-			out[a.EvalItemID] = true
+		if mergeProductionDissents(&answers[i]) {
+			out[answers[i].EvalItemID] = true
 		}
 	}
 	return out
+}
+
+// mergeProductionDissents reports a production participant's answer, its
+// first or a repeat, that is not an answered same: refused, invalid,
+// unanswered or another answer. It withholds an orphan from the apply, the
+// audit (author_llm_eval_item_audited, migration 78) and the gate.
+func mergeProductionDissents(a *database.AuthorLLMEvalAnswer) bool {
+	production := a.Slot == string(llmreq.SlotProductionA) || a.Slot == string(llmreq.SlotProductionB)
+	asked := a.Purpose == string(models.AuthorLLMPurposeEvalCandidate) ||
+		a.Purpose == string(models.AuthorLLMPurposeEvalRepeat)
+	got := answerOf(a)
+	same := got.Valid && !got.Refused && got.Canonical == mergeSameCanonical
+	return production && asked && !same
 }
 
 // ApplyMergeEval inserts the decisions of a live registration's eval: every

@@ -609,7 +609,7 @@ func TestThePlanReadsOneSnapshot(t *testing.T) {
 	defer restore()
 	rep := c.build()
 	require.True(t, edited)
-	assert.Equal(t, database.MergeCandidateDiff{Kept: 2}, rep.CandidateDiff, "the census saw an edit after the snapshot")
+	assert.Equal(t, database.MergeCandidateDiff{Kept: 3}, rep.CandidateDiff, "the census saw an edit after the snapshot")
 	restore()
 	assert.Equal(t, 1, c.build().CandidateDiff.Inserted)
 }

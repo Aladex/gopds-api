@@ -49,21 +49,39 @@ func cloneMergeItems(t *testing.T, db *pg.DB, run int64, n int) int64 {
 // fingerprints, each with copies of its jobs answered as the original's.
 func cloneItem(t *testing.T, db *pg.DB, run, template int64, n int) {
 	t.Helper()
+	cloneItemAnswering(t, db, run, template, n, "clone", nil)
+}
+
+// cloneItemAnswering is cloneItem under fingerprints named after name, a
+// job's answer the canonical answer returns for its slot and purpose when
+// it returns one, the original's otherwise. It returns the copies' ids.
+func cloneItemAnswering(
+	t *testing.T, db *pg.DB, run, template int64, n int, name string, answer func(slot, purpose string) []byte,
+) []int64 {
+	t.Helper()
 	var jobs []struct {
-		ID        int64 `pg:"id"`
-		AttemptID int64 `pg:"answer_attempt_id"`
+		ID        int64  `pg:"id"`
+		AttemptID int64  `pg:"answer_attempt_id"`
+		Slot      string `pg:"slot"`
+		Purpose   string `pg:"purpose"`
 	}
-	_, err := db.Query(&jobs, `SELECT id, answer_attempt_id FROM author_llm_job WHERE run_id = ? AND eval_item_id = ?`,
-		run, template)
+	_, err := db.Query(&jobs, `SELECT id, answer_attempt_id, slot, purpose FROM author_llm_job
+		WHERE run_id = ? AND eval_item_id = ?`, run, template)
 	require.NoError(t, err)
+	var items []int64
 	for k := range n {
 		var item int64
 		_, err = db.QueryOne(pg.Scan(&item), `
 			INSERT INTO author_llm_eval_item (set_version, item_set, stratum, source_fingerprint, extractor_version, input, weight)
 			SELECT set_version, item_set, stratum, sha256(convert_to(?, 'UTF8')), extractor_version, input, weight
-			FROM author_llm_eval_item WHERE id = ? RETURNING id`, fmt.Sprintf("clone %d of %d", k, template), template)
+			FROM author_llm_eval_item WHERE id = ? RETURNING id`, fmt.Sprintf("%s %d of %d", name, k, template), template)
 		require.NoError(t, err)
+		items = append(items, item)
 		for _, j := range jobs {
+			var canonical []byte
+			if answer != nil {
+				canonical = answer(j.Slot, j.Purpose)
+			}
 			var job int64
 			_, err = db.QueryOne(pg.Scan(&job), `
 				INSERT INTO author_llm_job (config_version, slot, run_id, purpose, eval_item_id, arm, repeat_no, batch_size,
@@ -87,15 +105,16 @@ func cloneItem(t *testing.T, db *pg.DB, run, template int64, n int) {
 					INSERT INTO author_llm_attempt (job_id, attempt_no, call_id, item_key, created_at, finished_at, outcome,
 						validator_class, reply, canonical_sha256, tier, refused, provider_code)
 					SELECT ?0, 1, c.id, a.item_key, a.created_at, a.finished_at, a.outcome, a.validator_class, a.reply,
-						a.canonical_sha256, a.tier, a.refused, a.provider_code
+						coalesce(?2, a.canonical_sha256), a.tier, a.refused, a.provider_code
 					FROM author_llm_attempt a, c WHERE a.id = ?1
 					RETURNING id)
 				UPDATE author_llm_job SET status = 'answered', answer_attempt_id = a.id, attempt_count = 1,
 					finished_at = now()
-				FROM a WHERE author_llm_job.id = ?0`, job, j.AttemptID)
+				FROM a WHERE author_llm_job.id = ?0`, job, j.AttemptID, canonical)
 			require.NoError(t, err)
 		}
 	}
+	return items
 }
 
 // registrableReport is the part of a merge report the test reads.

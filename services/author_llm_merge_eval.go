@@ -382,10 +382,15 @@ func (d *AuthorLLMEvalDriver) readMergeSources(ctx context.Context, run *evalRun
 	if src.holdout, src.supplement, err = d.mergeHoldout(ctx, run, plan, stored, natural); err != nil {
 		return nil, err
 	}
+	// The suite never shares a card with a candidate. A name kind's
+	// candidate counts only in its own census: orphan asks nearly every
+	// namesake side, which would empty every other mode's suite (E4q).
 	exclude := map[uuid.UUID]bool{}
 	cands := plan.MergeCandidates()
 	for i := range cands {
-		exclude[cands[i].SideA], exclude[cands[i].SideB] = true, true
+		if !authorentity.NameKind(cands[i].Kind) || slices.Contains(mode.kinds, cands[i].Kind) {
+			exclude[cands[i].SideA], exclude[cands[i].SideB] = true, true
+		}
 	}
 	naturalItems, err := d.naturalSuiteItems(ctx, run, plan, stored, natural)
 	if err != nil {
@@ -1146,11 +1151,27 @@ func mergeEvalInput(
 			if !item.Adversarial && !item.Supplement {
 				item.Repeated = countRepeats(repeat, jobs)
 			}
+			item.Withheld = mergeItemWithheld(item.Stratum, jobs)
 			in.Items = append(in.Items, item)
 		}
 	}
 	in.Repeat = sortedCounts(repeat)
 	return in
+}
+
+// mergeItemWithheld reports an orphan item a production answer, a repeat
+// included, dissents on: the apply never inserts it (mergeApplyAccepted),
+// so it is outside the applied set the audit samples (E4q).
+func mergeItemWithheld(kind string, jobs map[evalAnswerKey]*database.AuthorLLMEvalAnswer) bool {
+	if kind != authorentity.CandidateOrphan {
+		return false
+	}
+	for _, a := range jobs {
+		if mergeProductionDissents(a) {
+			return true
+		}
+	}
+	return false
 }
 
 // reportSettings are the run's settings with the mode each participant
