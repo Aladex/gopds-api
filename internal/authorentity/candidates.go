@@ -1288,14 +1288,16 @@ func (p *Plan) wikidataItemOf(s *candSide) (label, qid string) {
 	return "", ""
 }
 
-// creditsOnBooks are the credits on each of the books.
+// creditsOnBooks are the selected credits on each of the books: a particle
+// name read as selected (E4k) is no co-author a card shows, so the cards of
+// the decisions already taken stay as they were.
 func (b *builder) creditsOnBooks(books []int64) map[int64][]int {
 	want := map[int64]bool{}
 	for _, id := range books {
 		want[id] = true
 	}
 	out := map[int64][]int{}
-	for i := range b.in.Credits {
+	for i := range b.in.Credits[:b.selected] {
 		if id := b.in.Credits[i].BookID; want[id] {
 			out[id] = append(out[id], i)
 		}

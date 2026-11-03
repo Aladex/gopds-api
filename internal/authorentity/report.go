@@ -30,6 +30,9 @@ type Report struct {
 	Model *ModelReport `json:"model,omitempty"`
 	// Veto is what the live vetoes did (E4b-3); absent without a veto.
 	Veto *VetoReport `json:"veto,omitempty"`
+	// Unselected is what the pass did with the credits under review (E4k);
+	// absent from a pass that read none.
+	Unselected *UnselectedReport `json:"unselected,omitempty"`
 	// TypoMerges counts the patronymic typos merged on evidence.
 	TypoMerges int            `json:"typo_merges"`
 	NoEntity   map[string]int `json:"no_entity"`
@@ -391,4 +394,14 @@ func topEntities(all []TopEntity) []TopEntity {
 		out = []TopEntity{}
 	}
 	return out
+}
+
+// UnselectedReport counts the unselected credits read (E4k): joined to the
+// one entity of their name, left out for several such entities, and read as
+// selected for a particle.
+type UnselectedReport struct {
+	Read      int `json:"read"`
+	SameName  int `json:"same_name"`
+	Ambiguous int `json:"ambiguous"`
+	Particles int `json:"particles"`
 }

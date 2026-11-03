@@ -60,6 +60,40 @@ WHERE c.role = 'author' AND r.kind IN ('person', 'collective') AND c.id > ?
 ORDER BY c.id
 LIMIT ?`
 
+// entityUnselectedRow is one author credit under review with its proposal
+// (E4k).
+type entityUnselectedRow struct {
+	entityCreditRow
+	Class            string   `pg:"class"`
+	Flags            []string `pg:"flags,array"`
+	SourceGiven      string   `pg:"source_given"`
+	SourceAdditional string   `pg:"source_additional"`
+	SourceFamily     string   `pg:"source_family"`
+}
+
+// The person credits under review of the current snapshots, with the
+// proposal the review item holds: what the same-name join and the particle
+// rule read (E4k). A credit the model resolve left unresolved is not one.
+//
+// #nosec G101 -- a query naming name columns, not a credential
+const entityUnselectedQuery = `
+SELECT c.id, s.book_id, c.source_fingerprint AS fingerprint, s.extractor_version, r.id AS result_id, r.kind,
+	coalesce(r.script, '') AS script, coalesce(r.family_name, '') AS family, coalesce(r.given_name, '') AS given,
+	r.additional_names AS additional, coalesce(r.suffix, '') AS suffix, coalesce(r.nickname, '') AS nickname,
+	coalesce(r.display_name, '') AS display_name, coalesce(r.sort_name, '') AS sort_name,
+	coalesce(substring(concat_ws(' ', c.source_first_name, c.source_middle_name, c.source_last_name,
+		c.source_nickname, c.source_display_name) FROM '\((\d{1,3})\)'), '') AS tag,
+	r.decision_class AS class, coalesce(r.quality_flags, '{}') AS flags,
+	coalesce(c.source_first_name, '') AS source_given, coalesce(c.source_middle_name, '') AS source_additional,
+	coalesce(c.source_last_name, '') AS source_family
+FROM public.book_contributor_credit c
+JOIN public.book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current
+JOIN public.book_contributor_credit_selection sel ON sel.credit_id = c.id AND sel.state = 'review'
+JOIN public.contributor_normalization_result r ON r.id = sel.result_id
+WHERE c.role = 'author' AND r.kind = 'person' AND c.id > ?
+ORDER BY c.id
+LIMIT ?`
+
 // entityBookRow is a book the evidence reads.
 type entityBookRow struct {
 	ID     int64   `pg:"id"`
@@ -88,6 +122,9 @@ func LoadAuthorEntityInput(ctx context.Context, db pg.DBI) (*authorentity.Input,
 	in := &authorentity.Input{Credits: make([]authorentity.Credit, 0, total),
 		Books: map[int64]authorentity.Book{}, Legacy: map[int64]int64{}}
 	if err := loadEntityCredits(ctx, db, in); err != nil {
+		return nil, err
+	}
+	if err := loadEntityUnselected(ctx, db, in); err != nil {
 		return nil, err
 	}
 	if err := loadEntityBooks(ctx, db, in); err != nil {
@@ -154,6 +191,28 @@ func loadEntityCredits(ctx context.Context, db pg.DBI, in *authorentity.Input) e
 		}
 		for i := range page {
 			in.Credits = append(in.Credits, shared.credit(&page[i]))
+		}
+		if len(page) < entityLoadPage {
+			return nil
+		}
+		after = page[len(page)-1].ID
+	}
+}
+
+// loadEntityUnselected reads the credits under review a page at a time.
+func loadEntityUnselected(ctx context.Context, db pg.DBI, in *authorentity.Input) error {
+	shared := entityStrings{results: map[int64]*authorentity.Result{}, fingerprints: map[string]string{},
+		versions: map[string]string{}}
+	for after := int64(0); ; {
+		var page []entityUnselectedRow
+		if _, err := db.QueryContext(ctx, &page, entityUnselectedQuery, after, entityLoadPage); err != nil {
+			return fmt.Errorf("reading the author credits under review: %w", err)
+		}
+		for i := range page {
+			r := &page[i]
+			in.Unselected = append(in.Unselected, authorentity.Unselected{Credit: shared.credit(&r.entityCreditRow),
+				Class: r.Class, Flags: r.Flags, SourceGiven: r.SourceGiven, SourceAdditional: r.SourceAdditional,
+				SourceFamily: r.SourceFamily})
 		}
 		if len(page) < entityLoadPage {
 			return nil

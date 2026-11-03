@@ -135,3 +135,41 @@ func none(t *testing.T, p *authorentity.Plan, a int64) {
 		t.Errorf("credit %d: want no entity, got %v", a, e)
 	}
 }
+
+// unselected adds a credit under review: its result is the proposal n of
+// the decision class and flags; the source fields are n's parts unless
+// fromSource sets them.
+func (c *catalog) unselected(id, book int64, fp, class string, flags []string, n *name) *unselectedCredit {
+	c.t.Helper()
+	if _, ok := c.in.Books[book]; !ok {
+		c.t.Fatalf("credit %d on unknown book %d", id, book)
+	}
+	c.next++
+	r := &authorentity.Result{ResultID: c.next, Kind: "person", Script: n.script, Family: n.family,
+		Given: n.given, Additional: n.additional, Suffix: n.suffix, Nickname: n.nickname,
+		DisplayName: n.display(), SortName: n.display()}
+	c.in.Unselected = append(c.in.Unselected, authorentity.Unselected{
+		Credit: authorentity.Credit{ID: id, BookID: book, Fingerprint: fp, ExtractorVersion: "v1", Tag: n.tag,
+			Result: r},
+		Class: class, Flags: flags, SourceGiven: n.given, SourceAdditional: strings.Join(n.additional, " "),
+		SourceFamily: n.family,
+	})
+	return &unselectedCredit{c: c, i: len(c.in.Unselected) - 1}
+}
+
+// unselectedCredit sets what a credit under review carries besides its
+// proposal.
+type unselectedCredit struct {
+	c *catalog
+	i int
+}
+
+// fromSource sets the file's first, middle and last fields of a proposal
+// without parts.
+func (u *unselectedCredit) fromSource(given, additional, family string) {
+	x := &u.c.in.Unselected[u.i]
+	x.SourceGiven, x.SourceAdditional, x.SourceFamily = given, additional, family
+}
+
+// done returns the catalog.
+func (u *unselectedCredit) done() *catalog { return u.c }

@@ -33,6 +33,19 @@ type Credit struct {
 	*Result
 }
 
+// Unselected is an author credit whose result is a proposal under review:
+// its parse is unconfirmed (E4k). Result is the proposal.
+type Unselected struct {
+	Credit
+	// Class and Flags are the proposal's decision class and quality flags.
+	Class string
+	Flags []string
+	// SourceGiven, SourceAdditional and SourceFamily are the file's first,
+	// middle and last name fields: the name words of a proposal without
+	// parts.
+	SourceGiven, SourceAdditional, SourceFamily string
+}
+
 // Book is what the evidence reads of a book.
 type Book struct {
 	Title  string
@@ -42,7 +55,10 @@ type Book struct {
 // Input is everything one pass reads.
 type Input struct {
 	Credits []Credit
-	Books   map[int64]Book
+	// Unselected are the person credits whose result is a proposal under
+	// review (E4k): read for the same-name join and the particle rule only.
+	Unselected []Unselected
+	Books      map[int64]Book
 	// Legacy is the legacy author each credit's read-model row is matched
 	// to (book_author_display.legacy_author_id), for the comparison report.
 	Legacy map[int64]int64
@@ -82,6 +98,9 @@ const (
 	// in the same order (E4·D2b).
 	RuleD2b  = "D2b"
 	RuleTypo = "typo"
+	// RuleSameName is an unselected credit joined to the one entity of
+	// exactly its name (E4k).
+	RuleSameName = "same_name"
 	// ruleD3 prefixes the evidence kinds of a book moved out of a bucket:
 	// "D3:title", "D3:series+coauthor".
 	ruleD3 = "D3:"

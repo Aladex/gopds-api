@@ -285,6 +285,7 @@ func (b *builder) plan() *Plan {
 		members: map[uuid.UUID][]int{}, rootEntity: map[int]uuid.UUID{}, units: map[uuid.UUID]*Unit{}}
 	pl.collectMembers(groups)
 	pl.wantRows()
+	pl.wantSameName()
 	pl.entityUnits(absorb)
 	pl.diffReferences(groups, absorb)
 	pl.diffFingerprints()

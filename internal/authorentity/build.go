@@ -126,10 +126,15 @@ type builder struct {
 	old *State
 	rep Report
 
-	fixed  map[int]*uuid.UUID // manual: credit index → entity (nil = none)
-	keys   []*keyGroup
-	byKey  map[string]*keyGroup
-	parent []int
+	fixed map[int]*uuid.UUID // manual: credit index → entity (nil = none)
+	// sameName are the unselected credits waiting for the same-name join;
+	// selected is how many of in.Credits are selected credits: the particle
+	// names read as selected follow them.
+	sameName []pendingJoin
+	selected int
+	keys     []*keyGroup
+	byKey    map[string]*keyGroup
+	parent   []int
 	// members are the keys of every component of more than one key, by
 	// root, kept by union; a root without an entry is its own only key.
 	members map[int][]int
@@ -195,6 +200,8 @@ func Build(in *Input) *Plan {
 		b.old = NewState()
 	}
 	b.rep = newReport()
+	b.selected = len(in.Credits)
+	b.admitUnselected()
 	b.prepareVetoes()
 	b.classify()
 	b.indexEvidence()
