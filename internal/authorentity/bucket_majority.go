@@ -11,8 +11,10 @@ import (
 // Кинг», 57 stories in anthologies beside the 768 books of the full name.
 // After the decisions, a bucket whose moved books all went to the one full
 // name of its short name — at least bucketMajorityMin of them and no fewer
-// than stay — gives that full name the rest. A short name of several full
-// names is a namesake's and keeps its bucket, unless the others are only
+// than stay, or at least bucketMajorityLarge and a third of the bucket
+// (E4n) — gives that full name the rest, with the other short keys a
+// decision joined to the bucket. A short name of several full names is a
+// namesake's and keeps its bucket, unless the others are only
 // spellings of the dominant one or negligible beside it; so does a book D3 keeps for
 // itself: samizdat, a book the full name stands on, a vetoed one. It runs
 // in the decision step only: the cards the candidates were sealed with, at
@@ -20,6 +22,12 @@ import (
 
 // bucketMajorityMin is the fewest moved books a majority needs.
 const bucketMajorityMin = 3
+
+// bucketMajorityLarge is the fewest moved books that are a majority at a
+// third of the bucket (E4n): «Ольга Романовская», 32 of 77 books moved to
+// «Ольга Викторовна Романовская». Below it a third is no evidence: «Мария
+// Быкова», 6 fantasy novels moved beside 6 books of charms, is two women.
+const bucketMajorityLarge = 10
 
 // evidenceMajority names a book the majority moved: "D3:majority".
 const evidenceMajority = "majority"
@@ -77,11 +85,17 @@ func (b *builder) onePerson(full []int) (root int, alike map[int]bool, ok bool) 
 }
 
 // spellingOf reports full names of keys a spelling of the dominant's: the
-// same additional part, one a typo away, or its initials.
+// same additional part, one a typo away, or its initials; or a misparse
+// whose additional part repeats its given or family name («Леонид Леонид
+// Кудрявцев», «Леонид Ашкинази Ашкинази», E4n).
 func (b *builder) spellingOf(keys, dominant []int) bool {
 	for _, k := range keys {
+		key := &b.keys[k].key
+		if key.additional == key.given || key.additional == key.family {
+			return true
+		}
 		for _, d := range dominant {
-			a, c := b.keys[k].key.additional, b.keys[d].key.additional
+			a, c := key.additional, b.keys[d].key.additional
 			if _, typo := typoCandidates(a, c); a == c || typo || initialsOf(a, c) {
 				return true
 			}
@@ -121,22 +135,29 @@ func (b *builder) rootBooks(root int) int {
 
 // moveBucketRest moves the rest of bucket g to the full name root when its
 // books moved to root or its spellings (alike) are the majority; a book
-// moved to a negligible full name counts neither way.
+// moved to a negligible full name counts neither way. The bucket is g's
+// short keys in its component: a short key a decision joined to it is the
+// same person's and follows it, its books counted with it.
 func (b *builder) moveBucketRest(g *keyGroup, root int, alike map[int]bool) {
 	moved, stay := map[int64]bool{}, map[int64]bool{}
 	var rest []int
-	for _, ci := range g.credits {
-		book := b.in.Credits[ci].BookID
-		if to, ok := b.movedTo[ci]; ok {
-			if alike[b.find(to)] {
-				moved[book] = true
-			}
+	for _, k := range b.membersOf(b.find(g.idx)) {
+		if b.keys[k].key.additional != "" {
 			continue
 		}
-		stay[book] = true
-		rest = append(rest, ci)
+		for _, ci := range b.keys[k].credits {
+			book := b.in.Credits[ci].BookID
+			if to, ok := b.movedTo[ci]; ok {
+				if alike[b.find(to)] {
+					moved[book] = true
+				}
+				continue
+			}
+			stay[book] = true
+			rest = append(rest, ci)
+		}
 	}
-	if len(moved) < bucketMajorityMin || len(moved) < len(stay) {
+	if !majority(len(moved), len(stay)) {
 		return
 	}
 	n := 0
@@ -152,4 +173,11 @@ func (b *builder) moveBucketRest(g *keyGroup, root int, alike map[int]bool) {
 		b.rep.Buckets.MajorityBuckets++
 		b.rep.Buckets.MajorityBooks += n
 	}
+}
+
+// majority reports moved books a majority of a bucket of stay more: at
+// least bucketMajorityMin and no fewer than stay, or at least
+// bucketMajorityLarge and half of stay.
+func majority(moved, stay int) bool {
+	return moved >= bucketMajorityMin && moved >= stay || moved >= bucketMajorityLarge && 2*moved >= stay
 }

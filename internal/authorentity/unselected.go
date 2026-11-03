@@ -329,11 +329,20 @@ func (pl *planner) wantSameName() {
 }
 
 // entitiesByName are the entities of the pass by each name of their keys.
+// A name no entity's key goes by goes by the one entity the books of its
+// emptied keys moved to (E4n): a bucket the majority emptied is still its
+// short name's.
 func (pl *planner) entitiesByName() map[string]map[uuid.UUID]bool {
 	b := pl.b
 	byName := map[string]map[uuid.UUID]bool{}
+	movedByName := map[string]map[uuid.UUID]bool{}
 	for _, kg := range b.keys {
+		into := byName
 		id, ok := pl.rootEntity[b.find(kg.idx)]
+		if !ok {
+			into = movedByName
+			id, ok = pl.movedEntity(kg)
+		}
 		if !ok {
 			continue
 		}
@@ -345,13 +354,36 @@ func (pl *planner) entitiesByName() map[string]map[uuid.UUID]bool {
 			if s == "" {
 				continue
 			}
-			if byName[s] == nil {
-				byName[s] = map[uuid.UUID]bool{}
+			if into[s] == nil {
+				into[s] = map[uuid.UUID]bool{}
 			}
-			byName[s][id] = true
+			into[s][id] = true
+		}
+	}
+	for s, ids := range movedByName {
+		if byName[s] == nil {
+			byName[s] = ids
 		}
 	}
 	return byName
+}
+
+// movedEntity is the one entity a key's moved credits went to; ok is false
+// when they went to none or to several.
+func (pl *planner) movedEntity(kg *keyGroup) (id uuid.UUID, ok bool) {
+	b := pl.b
+	for _, ci := range kg.credits {
+		to, moved := b.movedTo[ci]
+		if !moved {
+			continue
+		}
+		e, has := pl.rootEntity[b.find(to)]
+		if !has || ok && e != id {
+			return uuid.UUID{}, false
+		}
+		id, ok = e, true
+	}
+	return id, ok
 }
 
 // join gives an unselected credit's fingerprint the entity's row, unless a

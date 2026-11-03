@@ -114,10 +114,11 @@ func TestASpellingOfTheFullNameIsNoNamesake(t *testing.T) {
 		books      int64
 		joins      bool
 	}{
-		"a typo of the middle name":      {additional: "Эдвен", books: 3, joins: true},
-		"the initial of the middle name": {additional: "Э.", books: 3, joins: true},
-		"another middle name, one book":  {additional: "Петрович", books: 1},
-		"another middle name, two books": {additional: "Ильич", books: 2},
+		"a typo of the middle name":        {additional: "Эдвен", books: 3, joins: true},
+		"the initial of the middle name":   {additional: "Э.", books: 3, joins: true},
+		"the given name again, a misparse": {additional: "Стивен", books: 1, joins: true},
+		"another middle name, one book":    {additional: "Петрович", books: 1},
+		"another middle name, two books":   {additional: "Ильич", books: 2},
 	} {
 		t.Run(title, func(t *testing.T) {
 			w, ch := kingBucket(t, 3, 3)
@@ -131,4 +132,53 @@ func TestASpellingOfTheFullNameIsNoNamesake(t *testing.T) {
 			assert.NotEqual(t, p.EntityOf(1), p.EntityOf(50), "the other full name stays its own")
 		})
 	}
+}
+
+// largeBucket is kingBucket with a full name of as many books as moved.
+func largeBucket(t *testing.T, moved, rest int) *world {
+	ch := &churn{t: t, c: newCatalog(t), fields: map[int64]authorentity.CardBookFields{}}
+	for i := int64(1); i <= int64(moved); i++ {
+		ch.c.book(i, fmt.Sprintf("Роман %d", i)).credit(i, i, "fp-full", person("Кинг", "Стивен", "Эдвин"))
+		ch.c.book(100+i, fmt.Sprintf("Роман %d", i)).credit(100+i, 100+i, "fp-short", person("Кинг", "Стивен"))
+	}
+	for i := int64(0); i < int64(rest); i++ {
+		ch.c.book(200+i, fmt.Sprintf("Рассказ %d", i)).credit(200+i, 200+i, "fp-short", person("Кинг", "Стивен"))
+	}
+	ch.c.book(900, "Мост").credit(900, 900, "fp-swap-a", person("Петров", "Иван")).
+		book(901, "Река").credit(901, 901, "fp-swap-b", person("Иван", "Петров"))
+	w := newWorld(t, ch)
+	w.pass()
+	w.decide(authorentity.CandidateSwap, 900, 901)
+	return w
+}
+
+// Ten moved books are a majority at a third of the bucket (E4n): fewer, or
+// less than half of what stays, are not.
+func TestTenMovedBooksAreAMajorityAtAThird(t *testing.T) {
+	for title, c := range map[string]struct {
+		moved, rest int
+		joins       bool
+	}{
+		"ten moved, twenty stay":     {moved: 10, rest: 20, joins: true},
+		"nine moved, eighteen stay":  {moved: 9, rest: 18},
+		"ten moved, twenty-one stay": {moved: 10, rest: 21},
+	} {
+		t.Run(title, func(t *testing.T) {
+			p := largeBucket(t, c.moved, c.rest).pass()
+			assert.Equal(t, p.EntityOf(1), p.EntityOf(101), "D3 moves the books it has evidence for")
+			assert.Equal(t, c.joins, p.EntityOf(1) == p.EntityOf(200))
+		})
+	}
+}
+
+// An unselected credit of the short name joins the full name its emptied
+// bucket went to (E4n): the name goes by the entity its books moved to.
+func TestAnEmptiedBucketsNameJoinsWhereItsBooksWent(t *testing.T) {
+	w, ch := kingBucket(t, 3, 3)
+	ch.c.book(400, "Сборник").unselected(400, 400, "fp-review", "case_defect", flags("all_caps"),
+		person("КИНГ", "СТИВЕН")).done()
+	w.pass()
+	p := w.pass()
+	assert.Equal(t, p.EntityOf(1), p.EntityOf(200), "the majority empties the bucket")
+	assert.Equal(t, p.EntityOf(1), p.EntityOf(400))
 }
