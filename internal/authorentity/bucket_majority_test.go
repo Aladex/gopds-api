@@ -70,8 +70,10 @@ func TestABucketKeepsItsRestUnderTheMajority(t *testing.T) {
 
 func TestANamesakeShortNameKeepsItsBucket(t *testing.T) {
 	w, ch := kingBucket(t, 3, 3)
-	// A second full name of the short name, another person.
-	ch.c.book(50, "Записки").credit(50, 50, "fp-other", person("Кинг", "Стивен", "Петрович"))
+	// A second full name of the short name, another person of three books.
+	for i := int64(50); i < 53; i++ {
+		ch.c.book(i, fmt.Sprintf("Записки %d", i)).credit(i, i, "fp-other", person("Кинг", "Стивен", "Петрович"))
+	}
 	w.pass()
 	p := w.pass()
 	assert.NotEqual(t, p.EntityOf(1), p.EntityOf(50))
@@ -101,4 +103,32 @@ func TestAVetoedBucketBookStaysOutOfTheMajority(t *testing.T) {
 	p := w.pass()
 	assert.Equal(t, p.EntityOf(1), p.EntityOf(200))
 	assert.NotEqual(t, p.EntityOf(1), p.EntityOf(201), "the vetoed book")
+}
+
+// A spelling of the full name is the same person for the majority (E4j
+// round 2: «Роберт Ирвин / Эрвин Говард», «Василий В. Головачев»); any other
+// full name, one book or more, is a namesake.
+func TestASpellingOfTheFullNameIsNoNamesake(t *testing.T) {
+	for title, c := range map[string]struct {
+		additional string
+		books      int64
+		joins      bool
+	}{
+		"a typo of the middle name":      {additional: "Эдвен", books: 3, joins: true},
+		"the initial of the middle name": {additional: "Э.", books: 3, joins: true},
+		"another middle name, one book":  {additional: "Петрович", books: 1},
+		"another middle name, two books": {additional: "Ильич", books: 2},
+	} {
+		t.Run(title, func(t *testing.T) {
+			w, ch := kingBucket(t, 3, 3)
+			for i := int64(0); i < c.books; i++ {
+				ch.c.book(50+i, fmt.Sprintf("Записки %d", i)).credit(50+i, 50+i, "fp-other",
+					person("Кинг", "Стивен", c.additional))
+			}
+			w.pass()
+			p := w.pass()
+			assert.Equal(t, c.joins, p.EntityOf(1) == p.EntityOf(200), "the rest joins the dominant full name")
+			assert.NotEqual(t, p.EntityOf(1), p.EntityOf(50), "the other full name stays its own")
+		})
+	}
 }
