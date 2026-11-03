@@ -99,10 +99,12 @@ type entityBookRow struct {
 	ID     int64   `pg:"id"`
 	Title  string  `pg:"title"`
 	Series []int64 `pg:"series,array"`
+	Lang   string  `pg:"lang"`
 }
 
 const entityBooksQuery = `
-SELECT b.id, b.title, coalesce(array_agg(bs.ser_id ORDER BY bs.ser_id) FILTER (WHERE bs.ser_id IS NOT NULL), '{}') AS series
+SELECT b.id, b.title, coalesce(array_agg(bs.ser_id ORDER BY bs.ser_id) FILTER (WHERE bs.ser_id IS NOT NULL), '{}') AS series,
+	coalesce(b.lang, '') AS lang
 FROM public.opds_catalog_book b
 LEFT JOIN public.opds_catalog_bseries bs ON bs.book_id = b.id
 WHERE b.id IN (SELECT book_id FROM public.book_metadata_snapshot WHERE is_current) AND b.id > ?
@@ -229,7 +231,7 @@ func loadEntityBooks(ctx context.Context, db pg.DBI, in *authorentity.Input) err
 			return fmt.Errorf("reading the books of the credits: %w", err)
 		}
 		for i := range page {
-			in.Books[page[i].ID] = authorentity.Book{Title: page[i].Title, Series: page[i].Series}
+			in.Books[page[i].ID] = authorentity.Book{Title: page[i].Title, Series: page[i].Series, Lang: page[i].Lang}
 		}
 		if len(page) < entityLoadPage {
 			return nil

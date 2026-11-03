@@ -152,6 +152,10 @@ func (b *builder) componentsAfterDecisions() []*component {
 func (b *builder) nameComponent(c *component) {
 	ref := b.in.Reference
 	c.display = b.matchName(c.credits).DisplayName
+	if ref == nil {
+		// The other-language spelling reads components without a reference.
+		return
+	}
 	c.key = ref.NameKey[c.display]
 	c.script = scriptOf(c.display)
 	c.names = nil

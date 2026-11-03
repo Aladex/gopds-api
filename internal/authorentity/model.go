@@ -136,8 +136,11 @@ type ModelReport struct {
 	Wikidata *WikidataReport `json:"wikidata,omitempty"`
 	// TwoTargetsJoined are the bucket books two_targets held that moved
 	// once the Wikidata step joined their targets.
-	TwoTargetsJoined int           `json:"two_targets_joined"`
-	Revivals         RevivalReport `json:"revivals"`
+	TwoTargetsJoined int `json:"two_targets_joined"`
+	// OtherLanguage are the entities the other-language spelling joined
+	// (E4n).
+	OtherLanguage int           `json:"other_language,omitempty"`
+	Revivals      RevivalReport `json:"revivals"`
 }
 
 // RevivalReport counts the revivals by outcome and reason.
@@ -505,7 +508,8 @@ func (m *modelStep) replan() *Plan {
 	b.moveShortNameBooks()
 	m.moveDecidedBooks()
 	b.moveBucketRests()
-	if m.mergeWikidataAfterDecisions() {
+	wikidata := m.mergeWikidataAfterDecisions()
+	if m.mergeOtherLanguages() || wikidata {
 		m.retryTwoTargets()
 	}
 	b.prepareRevival(func(mm *ModelMerge) bool {

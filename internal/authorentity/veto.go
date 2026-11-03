@@ -101,7 +101,9 @@ type VetoWidenedSplit struct {
 const (
 	VetoRefusedTypo     = "typo"
 	VetoRefusedWikidata = "wikidata"
-	VetoRefusedModel    = "model"
+	// VetoRefusedOtherLanguage is the other-language spelling (E4n).
+	VetoRefusedOtherLanguage = "other_language"
+	VetoRefusedModel         = "model"
 )
 
 // vetoSide is one side of one live veto, by the veto's index.

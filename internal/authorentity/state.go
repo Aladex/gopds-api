@@ -46,10 +46,12 @@ type Unselected struct {
 	SourceGiven, SourceAdditional, SourceFamily string
 }
 
-// Book is what the evidence reads of a book.
+// Book is what the evidence reads of a book; Lang is its language code
+// (the other-language spelling, E4n).
 type Book struct {
 	Title  string
 	Series []int64
+	Lang   string
 }
 
 // Input is everything one pass reads.
