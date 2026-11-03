@@ -195,3 +195,14 @@ func TestAListOfGluedInitialsSplits(t *testing.T) {
 		assert.Equal(t, want, p.Entity(row.EntityID).DisplayName)
 	}
 }
+
+// A name of one word joins the one entity a selected credit of its written
+// name stands in: «О`Санчес.» beside «О'Санчес».
+func TestAWrittenNameJoinsItsEntity(t *testing.T) {
+	tick := &name{displayAs: "О`Санчес.", nickname: "О`Санчес.", script: "Cyrl"}
+	p := newCatalog(t).book(1, "Кромешник").book(2, "Хвак").
+		credit(10, 1, "fp-sanchez", shown("О'Санчес", nickOnly("О'Санчес"))).
+		unselected(20, 2, "fp-tick", "mononym", nil, tick).done().build()
+	same(t, p, 10, 20)
+	assert.Equal(t, authorentity.RuleSameName, p.RuleOf(20))
+}

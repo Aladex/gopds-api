@@ -97,10 +97,10 @@ func TestAnUnselectedCreditStartsNoEntity(t *testing.T) {
 	}{
 		"no entity of its name": {class: "case_defect", flags: flags("all_caps"), n: person("ПЕТРОВ", "РОМАН")},
 		"several people in one credit": {class: "duplicate_component", flags: flags("duplicate_component"),
-			n: person("Смирнов", "Роман")},
+			n: &name{family: "Смирнов", given: "Роман", script: "Cyrl", displayAs: "Роман Смирнов Иван Петров"}},
 		"a placeholder":    {class: "case_defect", flags: flags("lowercase"), n: person("Автор", "неизвестен")},
 		"swapped initials": {class: "initials", flags: flags("initials"), n: person("Смирнов", "Р", "В")},
-		"one word":         {class: "mononym", flags: flags("single_token"), n: person("Смирнов", "")},
+		"one word":         {class: "mononym", flags: flags("single_token"), n: person("Кузнецов", "")},
 		"a namesake tag": {class: "case_defect", flags: flags("all_caps"),
 			n: person("СМИРНОВ", "РОМАН").withTag(2)},
 	} {

@@ -22,7 +22,9 @@ import (
 //     first, family last, without a part in parentheses or a stray mark:
 //     «Игнатий Брянчанинов», a proposal that lost its given name, «Фредерик
 //     Дар (Сан-Антонио)», a collective class of a person's or an
-//     organization's exact name («НКО СССР»);
+//     organization's exact name («НКО СССР») — or, a name of one word too,
+//     the one entity a keyed credit of its display name (under the search
+//     key and markFold) stands in: «О`Санчес.» beside «О'Санчес»;
 //   - else is grouped with the credits of its name into an entity of its
 //     own: a person's name as written (as_written) — a handle is the
 //     author's identity («lucifer712217», «Shin_Stark») — a collective, a
@@ -184,6 +186,9 @@ type fallbackCredit struct {
 	pending bool
 	// ordinal is the segment of a list's credit (lists.go); 0 otherwise.
 	ordinal int
+	// written is the credit's display name under the search key and
+	// markFold, empty for a credit the joins never read.
+	written string
 }
 
 // collectFallback appends the credits the pass leaves without an entity to
@@ -206,31 +211,43 @@ func (b *builder) collectFallback() {
 		us = append(us, w.u)
 	}
 	for _, u := range slices.Concat(us, b.leftUnselected, ptrs(b.in.Fallback)) {
-		c := u.Credit
-		res := *c.Result
-		c.Result = &res
-		one, segments := b.readListed(&c)
-		if len(segments) > 1 {
-			b.collectSegments(&in, c, segments, u.Tag == 0)
-			continue
-		}
-		ci := len(in.Credits)
-		nonPerson := (fallbackNonPerson[u.Class] || c.Kind != KindPerson) && !one
-		in.Credits = append(in.Credits, c)
-		f := fallbackOf(ci, &in.Credits[ci], nonPerson)
-		if f.person && !one {
-			f.name, _ = u.sameNameOf()
-			f.pending = pending[u]
-		}
-		if u.Tag == 0 && (one || !sameNameExcluded[u.Class]) && f.rule != RulePlaceholder {
-			f.shown = shownName(&in.Credits[ci])
-		}
-		b.fallback = append(b.fallback, f)
+		b.collectOne(&in, u, pending[u])
 	}
 	for len(b.creditKey) < len(in.Credits) {
 		b.creditKey = append(b.creditKey, -1)
 	}
 	b.in = &in
+}
+
+// collectOne appends credit u to in as the step reads it: a list's
+// segments, else the one credit with the names its joins read; pending is
+// a credit the same-name join reads.
+func (b *builder) collectOne(in *Input, u *Unselected, pending bool) {
+	c := u.Credit
+	res := *c.Result
+	c.Result = &res
+	one, segments := b.readListed(&c)
+	if len(segments) > 1 {
+		b.collectSegments(in, c, segments, u.Tag == 0)
+		return
+	}
+	ci := len(in.Credits)
+	nonPerson := (fallbackNonPerson[u.Class] || c.Kind != KindPerson) && !one
+	in.Credits = append(in.Credits, c)
+	f := fallbackOf(ci, &in.Credits[ci], nonPerson)
+	if f.person && !one {
+		f.name, _ = u.sameNameOf()
+		f.pending = pending
+	}
+	if u.Tag == 0 && (one || !sameNameExcluded[u.Class]) && f.rule != RulePlaceholder {
+		f.shown = shownName(&in.Credits[ci])
+	}
+	// The written name is the whole name, so a class of several people or
+	// a collective joins only an entity of exactly it.
+	if u.Tag == 0 && f.rule != RulePlaceholder {
+		f.written = markFold(in.Credits[ci].DisplayName)
+	}
+	b.fallback = append(b.fallback, f)
 }
 
 // collectSegments appends a list's segments (lists.go) to in, each a
@@ -295,22 +312,17 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 	if len(b.fallback) == 0 {
 		return nil, nil, nil
 	}
-	byName := b.rootsByName(groups)
+	byName, byWritten := b.rootsByName(groups), b.rootsByWritten(groups)
 	joined, pairs = map[int]int{}, map[int][2]int{}
 	byGroup := map[string]*group{}
 	var order []string
 	for i := range b.fallback {
 		f := &b.fallback[i]
-		if f.person {
-			if root, ok := uniqueRoot(byName, f.name); ok && f.name.key != "" {
-				if !f.pending {
-					joined[f.ci] = root
-				}
-				continue
+		if root, found := f.joinRoot(byName, byWritten); found {
+			// A pending credit the same-name join joins itself.
+			if root >= 0 {
+				joined[f.ci] = root
 			}
-		}
-		if root, ok := uniqueRoot(byName, f.shown); ok && f.shown.key != "" {
-			joined[f.ci] = root
 			continue
 		}
 		if f.rule == RuleAsNamed {
@@ -332,6 +344,29 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 		out = append(out, byGroup[k])
 	}
 	return out, joined, pairs
+}
+
+// joinRoot is the one root a credit joins by its names in order — parsed,
+// shown, written; found with root -1 for a pending credit the same-name
+// join joins.
+func (f *fallbackCredit) joinRoot(byName, byWritten map[string]map[int]bool) (root int, found bool) {
+	if f.person && f.name.key != "" {
+		if r, ok := uniqueRoot(byName, f.name); ok {
+			if f.pending {
+				return -1, true
+			}
+			return r, true
+		}
+	}
+	if r, ok := uniqueRoot(byName, f.shown); ok && f.shown.key != "" {
+		return r, true
+	}
+	if roots := byWritten[f.written]; f.written != "" && len(roots) == 1 {
+		for r := range roots {
+			return r, true
+		}
+	}
+	return 0, false
 }
 
 // inParentheses is a part of a display name in parentheses: a pen name, a
@@ -443,6 +478,29 @@ func (b *builder) rootsByName(groups []*group) map[string]map[int]bool {
 		}
 	}
 	return byName
+}
+
+// rootsByWritten are the group roots by the display names of their keyed
+// credits — selected, or read as selected (E4l) — under the search key and
+// markFold.
+func (b *builder) rootsByWritten(groups []*group) map[string]map[int]bool {
+	out := map[string]map[int]bool{}
+	for _, g := range groups {
+		for _, ci := range g.credits {
+			if ci >= len(b.creditKey) || b.creditKey[ci] < 0 {
+				continue
+			}
+			k := markFold(b.in.Credits[ci].DisplayName)
+			if k == "" {
+				continue
+			}
+			if out[k] == nil {
+				out[k] = map[int]bool{}
+			}
+			out[k][g.root] = true
+		}
+	}
+	return out
 }
 
 // movedRoot is the one group root a key's moved credits went to; ok is
