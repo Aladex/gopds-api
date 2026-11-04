@@ -3,6 +3,7 @@ package authorentity
 import (
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -250,8 +251,10 @@ var fallbackNonPerson = map[string]bool{
 type FallbackReport struct {
 	// Credits are the credits the step read; Joined those that joined an
 	// entity of their name; Entities the fallback entities, by rule.
-	Credits  int            `json:"credits"`
-	Joined   int            `json:"joined"`
+	Credits int `json:"credits"`
+	Joined  int `json:"joined"`
+	// Pinned are those a pin put into the entity of its keys (E4z).
+	Pinned   int            `json:"pinned,omitempty"`
 	Pairs    int            `json:"pairs"`
 	Entities map[string]int `json:"entities"`
 	Rows     map[string]int `json:"rows"`
@@ -401,11 +404,25 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 	byName := b.rootsByName(groups)
 	byWritten, words := b.rootsByWritten(groups)
 	joined, pairs = map[int]int{}, map[int][2]int{}
+	b.pinRule, b.pinTook, b.pinJoined = map[int]string{}, map[int64]bool{}, map[int][]int{}
+	has := map[int]bool{}
+	for _, g := range groups {
+		has[g.root] = true
+	}
+	classRoot := b.pinClassRoots(byName, byWritten, words)
 	byGroup := map[string]*group{}
 	var order []string
 	for i := range b.fallback {
 		f := &b.fallback[i]
-		if root, found := f.joinRoot(byName, byWritten, words); found {
+		root, found := f.joinRoot(byName, byWritten, words)
+		key, pinned := b.pinFallbackCredit(f, root, found, byName, has, classRoot, joined)
+		if pinned {
+			continue
+		}
+		if key != f.group {
+			found = false
+		}
+		if found {
 			// A pending credit the same-name join joins itself.
 			if root >= 0 {
 				joined[f.ci] = root
@@ -418,11 +435,11 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 				continue
 			}
 		}
-		g := byGroup[f.group]
+		g := byGroup[key]
 		if g == nil {
 			g = &group{root: fallbackRoot - len(order), books: map[int64]bool{}}
-			byGroup[f.group] = g
-			order = append(order, f.group)
+			byGroup[key] = g
+			order = append(order, key)
 		}
 		g.credits = append(g.credits, f.ci)
 		g.books[b.in.Credits[f.ci].BookID] = true
@@ -431,6 +448,84 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 		out = append(out, byGroup[k])
 	}
 	return out, joined, pairs
+}
+
+// pinFallbackCredit places a fallback credit of a pinned fingerprint
+// (pin.go) whose own names (root, found) do not already put it there: into
+// the group of its pin's keys — joined, and pinned true — or, for pins of
+// fallback credits alone none of which joins by name, into one group of
+// them, whose key it returns. Any other credit keeps its own group key.
+func (b *builder) pinFallbackCredit(f *fallbackCredit, root int, found bool, byName map[string]map[int]bool,
+	has map[int]bool, classRoot, joined map[int]int,
+) (key string, pinned bool) {
+	place, ok := b.pinPlaces[b.in.Credits[f.ci].Fingerprint]
+	if !ok || !b.pinnable(f) {
+		return f.group, false
+	}
+	r, ok := classRoot[place.class]
+	if place.key >= 0 {
+		r, ok = b.pinRoot(place.key, has)
+	}
+	switch {
+	case ok && r >= 0 && !f.joins(r, root, found, byName):
+		joined[f.ci], b.pinRule[f.ci] = r, place.rule
+		b.pinJoined[r] = append(b.pinJoined[r], f.ci)
+		if f.pending {
+			b.pinTook[b.in.Credits[f.ci].ID] = true
+		}
+		return f.group, true
+	case !ok && place.key < 0:
+		b.pinRule[f.ci] = place.rule
+		return "pin|" + strconv.Itoa(place.class), false
+	}
+	return f.group, false
+}
+
+// joins reports a credit that joins root r by its own names (joinRoot's
+// root and found; a pending credit by the name the same-name join reads):
+// a pin that puts it there changes nothing, and its rule stays.
+func (f *fallbackCredit) joins(r, root int, found bool, byName map[string]map[int]bool) bool {
+	if found && root < 0 {
+		root, found = uniqueRoot(byName, f.name)
+	}
+	return found && root == r
+}
+
+// pinClassRoots are the roots the classes of fallback fingerprints the
+// pins join alone (no key) go to: the one root their credits join by name,
+// by class; -1 for a class whose credits join several, which keep their
+// joins and leave the others as they are. A class none of whose credits
+// joins is absent.
+func (b *builder) pinClassRoots(byName, byWritten map[string]map[int]bool, words map[int]map[string]bool) map[int]int {
+	out := map[int]int{}
+	for i := range b.fallback {
+		f := &b.fallback[i]
+		place, ok := b.pinPlaces[b.in.Credits[f.ci].Fingerprint]
+		if !ok || place.key >= 0 || !b.pinnable(f) {
+			continue
+		}
+		root, found := f.joinRoot(byName, byWritten, words)
+		if found && root < 0 {
+			root, found = uniqueRoot(byName, f.name)
+		}
+		if !found {
+			continue
+		}
+		if r, seen := out[place.class]; seen && r != root {
+			root = -1
+		}
+		out[place.class] = root
+	}
+	return out
+}
+
+// pinRoot is the group root of key k's component, else the one root its
+// moved credits went to.
+func (b *builder) pinRoot(k int, has map[int]bool) (int, bool) {
+	if r := b.find(k); has[r] {
+		return r, true
+	}
+	return b.movedRoot(b.keys[k], has)
 }
 
 // joinRoot is the one root a credit joins by its names in order — parsed,
@@ -666,8 +761,16 @@ func (pl *planner) wantFallback(groups []*group, joined map[int]int, pairs map[i
 		rep.Credits++
 	}
 	for _, ci := range sortedKeys(joined) {
-		if id, ok := pl.rootEntity[joined[ci]]; ok && pl.fallbackRow(ci, ordinal[ci], id, RuleSameName) {
-			rep.Joined++
+		r := RuleSameName
+		if pin := b.pinRule[ci]; pin != "" {
+			r = pin
+		}
+		if id, ok := pl.rootEntity[joined[ci]]; ok && pl.fallbackRow(ci, ordinal[ci], id, r) {
+			if r == RuleSameName {
+				rep.Joined++
+			} else {
+				rep.Pinned++
+			}
 		}
 	}
 	for _, ci := range sortedKeys(pairs) {
@@ -688,7 +791,11 @@ func (pl *planner) fallbackGroupRows(g *group, rule map[int]string, ordinal map[
 	rep := pl.b.rep.Fallback
 	rows := 0
 	for _, ci := range g.credits {
-		if pl.fallbackRow(ci, ordinal[ci], g.id, rule[ci]) {
+		r := rule[ci]
+		if pin := pl.b.pinRule[ci]; pin != "" {
+			r = pin
+		}
+		if pl.fallbackRow(ci, ordinal[ci], g.id, r) {
 			rep.Rows[rule[ci]]++
 			rows++
 		}

@@ -202,6 +202,15 @@ type builder struct {
 	vetoes        []*liveVeto
 	vetoOf        map[string][]vetoSide
 	widenedPieces []widenedPiece
+	// The pins over fallback credits (pin.go): where the fallback step puts
+	// a credit of a pinned fingerprint, by raw fingerprint; and, in one
+	// plan, the rule of each fallback credit a pin placed, the ones it put
+	// into a group of keys by its root, and the unselected credits it took
+	// from the same-name join, by credit ID.
+	pinPlaces map[string]pinPlace
+	pinRule   map[int]string
+	pinJoined map[int][]int
+	pinTook   map[int64]bool
 }
 
 // Build computes one pass over the input.

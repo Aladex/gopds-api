@@ -168,7 +168,46 @@ func (b *builder) assignIDs(groups []*group) map[uuid.UUID][]MergeRow {
 			b.rep.IDs.New++
 		}
 	}
-	return b.absorbUnmatched(pairs, taken)
+	// The entity a pin's fallback credits left (E4z) goes into the one they
+	// joined, unless a group inherited it: they never give an ID away.
+	return b.absorbUnmatched(slices.Concat(pairs, b.pinOverlaps(groups)), taken)
+}
+
+// pinOverlaps are the books the fallback credits a pin put into a group
+// share with the stored entities they belonged to (overlaps' order), each
+// by the pin's rule.
+func (b *builder) pinOverlaps(groups []*group) []overlap {
+	var pairs []overlap
+	for order, g := range groups {
+		shared, rule := map[uuid.UUID]int{}, map[uuid.UUID]string{}
+		seen := map[sharedBook]bool{}
+		for _, ci := range b.pinJoined[g.root] {
+			id, ok := b.oldOf[ci]
+			if !ok {
+				continue
+			}
+			if rule[id] == "" {
+				rule[id] = b.pinRule[ci]
+			}
+			if sb := (sharedBook{id, b.in.Credits[ci].BookID}); !seen[sb] {
+				seen[sb] = true
+				shared[id]++
+			}
+		}
+		for id, n := range shared {
+			pairs = append(pairs, overlap{g: g, order: order, old: id, shared: n, rule: rule[id]})
+		}
+	}
+	slices.SortFunc(pairs, func(x, y overlap) int {
+		if x.shared != y.shared {
+			return y.shared - x.shared
+		}
+		if x.old != y.old {
+			return strings.Compare(x.old.String(), y.old.String())
+		}
+		return x.order - y.order
+	})
+	return pairs
 }
 
 // overlaps are the books every group shares with every stored entity

@@ -335,6 +335,10 @@ func (pl *planner) wantSameName() {
 	b.rep.Unselected.SameName, b.rep.Unselected.Ambiguous = 0, 0
 	byName := pl.entitiesByName()
 	for _, w := range b.sameName {
+		if b.pinTook[w.u.ID] {
+			// A pin puts it elsewhere (fallbackGroups).
+			continue
+		}
 		var hit map[uuid.UUID]bool
 		for _, s := range []string{w.n.key, w.n.sequence, w.n.anyOrder} {
 			if s != "" && len(byName[s]) > 0 {
