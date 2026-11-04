@@ -152,6 +152,12 @@ func (u *Unselected) sameNameOf() (n sameName, ok bool) {
 	if words, ok = foldLookalikes(words); !ok {
 		return n, false
 	}
+	// A part in parentheses the parse left out of the name («Фредерик Дар
+	// (Сан-Антонио)» read as «Фредерик | Дар») may be what tells a
+	// namesake apart: the name it leaves is no evidence of the person.
+	if !parsedQualifier(u.DisplayName, words) {
+		return n, false
+	}
 	res := &Result{Kind: KindPerson, Given: strings.Join(words[0], " "), Family: strings.Join(words[2], " "),
 		Suffix: u.Suffix, Nickname: u.Nickname, DisplayName: u.DisplayName}
 	if len(words[1]) > 0 {
@@ -166,6 +172,22 @@ func (u *Unselected) sameNameOf() (n sameName, ok bool) {
 	key := keyOf(probe)
 	n, ok = namesOf(&key)
 	return n, ok
+}
+
+// parsedQualifier reports a display name whose every word in parentheses,
+// a role aside, is a word of the parsed name fields.
+func parsedQualifier(display string, fields [3][]string) bool {
+	qualifier := qualifierWords(display)
+	if len(qualifier) == 0 {
+		return true
+	}
+	have := map[string]bool{}
+	for _, f := range fields {
+		for _, w := range strings.Fields(authornorm.SearchKey(strings.Join(f, " "))) {
+			have[w] = true
+		}
+	}
+	return !slices.ContainsFunc(qualifier, func(w string) bool { return !have[w] })
 }
 
 // namesOf is a person key's names, untagged and without a veto part; ok is

@@ -199,7 +199,10 @@ func (b *builder) readListed(c *Credit) (one bool, segments []*Result) {
 	// A pair of shaped names is two people even when the catalog knows
 	// neither given name («Дженика Шоу, Сем Крезент»); three or more parts
 	// still need a known name in half of them.
-	if 2*named < len(parts) && !(len(parts) == minGroup && strings.Contains(c.DisplayName, ",")) {
+	if 2*named < len(parts) && (len(parts) != minGroup || !strings.Contains(c.DisplayName, ",")) {
+		return false, nil
+	}
+	if len(parts) == minGroup && onePersonPair(parts[0], parts[1]) {
 		return false, nil
 	}
 	for _, p := range parts {
@@ -212,4 +215,37 @@ func (b *builder) readListed(c *Credit) (one bool, segments []*Result) {
 		segments = append(segments, res)
 	}
 	return false, segments
+}
+
+// listTitles are the ranks of nobility a person is called by in place of a
+// name («Герцог Сассекский»). An honorific or a clerical title is not one:
+// «Dr. Seuss» and «Святитель Феофан» are names of their own in a list.
+var listTitles = func() map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Fields(`принц принцесса герцог герцогиня граф графиня князь княгиня княжна барон
+		баронесса маркиз маркиза виконт виконтесса король королева царь царица царевич царевна император
+		императрица prince princess duke duchess count countess earl baron baroness marquess marquis viscount king
+		queen emperor empress`) {
+		set[w] = true
+	}
+	return set
+}()
+
+// onePersonPair reports two parts of a list that are one person's two
+// names, not two people: one is a title and one word («Принц Гарри,
+// Герцог Сассекский»), or the one part ends with the word the other
+// starts with — a name the other reads as its given name, a name written
+// twice in another order («Принц Гарри, Гарри Виндзор»). Two people who
+// share a family («Аркадий Стругацкий, Борис Стругацкий») share it at the
+// same place, and a word inside a part («Вера Ковальчук Ярослав Коваль,
+// Игорь Ковальчук») is no evidence.
+func onePersonPair(a, b string) bool {
+	wa, wb := strings.Fields(strings.ToLower(a)), strings.Fields(strings.ToLower(b))
+	for _, words := range [][]string{wa, wb} {
+		if len(words) == 2 && listTitles[words[0]] {
+			return true
+		}
+	}
+	shared := func(x, y string) bool { return x == y && !nameParticles[x] && !initialWord(x) }
+	return shared(wa[len(wa)-1], wb[0]) || shared(wa[0], wb[len(wb)-1])
 }

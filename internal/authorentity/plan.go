@@ -67,16 +67,26 @@ func (b *builder) keysPerD2bRoot() map[int]int {
 func (b *builder) oldMembership() (oldOf map[int]uuid.UUID, via map[int]bool, books map[uuid.UUID]map[int64]bool) {
 	oldOf, via = map[int]uuid.UUID{}, map[int]bool{}
 	books = map[uuid.UUID]map[int64]bool{}
+	// A list's segment is stored under its own ordinal (lists.go): read
+	// there, or every segment past the first loses its entity each pass.
+	ordinal := map[int]int{}
+	for i := range b.fallback {
+		if f := &b.fallback[i]; f.ordinal > 0 {
+			ordinal[f.ci] = f.ordinal
+		}
+	}
 	for i := range b.in.Credits {
 		c := &b.in.Credits[i]
 		var id uuid.UUID
 		byCredit := false
+		fp := fpKeyOf(c)
+		fp.Ordinal = ordinal[i]
 		if row, ok := b.old.Credits[CreditKey{CreditID: c.ID}]; ok {
 			if row.EntityID == nil {
 				continue
 			}
 			id, byCredit = *row.EntityID, true
-		} else if row, ok := b.old.Fingerprints[fpKeyOf(c)]; ok {
+		} else if row, ok := b.old.Fingerprints[fp]; ok {
 			id = row.EntityID
 		} else if _, revived := b.revive[i]; !revived {
 			continue
@@ -551,9 +561,9 @@ func (pl *planner) abandonedUnits() []Unit {
 			named[key.EntityID] = true
 		}
 	}
-	for _, m := range b.old.Merges {
-		named[m.From] = true
-		named[m.To] = true
+	for i := range b.old.Merges {
+		named[b.old.Merges[i].From] = true
+		named[b.old.Merges[i].To] = true
 	}
 	ids := make([]uuid.UUID, 0, len(b.old.Entities))
 	for id := range b.old.Entities {

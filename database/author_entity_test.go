@@ -362,3 +362,75 @@ func TestASelectedCollectiveIsBuiltFromTheDatabase(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "collective", kind)
 }
+
+// An empty entity the plan retires is deleted only when nothing else holds
+// it at write time (E4r): a manual fingerprint row, a manual credit row, a
+// pinned reference, a pin of its name and either side of a merge log each
+// keep it. An unpinned reference is rebuild-derived: it goes with the
+// entity.
+func TestRetiringAnEmptyEntityKeepsEveryHold(t *testing.T) {
+	retire := func(f *authorSchemaFixture, id uuid.UUID) {
+		f.t.Helper()
+		_, skipped, err := ApplyAuthorEntityUnits(context.Background(), f.tx, 1,
+			[][]authorentity.Unit{{{EntityID: id, DeleteEntity: true}}})
+		require.NoError(f.t, err)
+		require.Empty(f.t, skipped)
+	}
+	entity := func(f *authorSchemaFixture, name string) uuid.UUID {
+		f.t.Helper()
+		id := uuid.Must(uuid.NewV7())
+		f.exec(`INSERT INTO author_entity (id, kind, display_name, sort_name, search_key)
+			VALUES (?, 'person', ?, ?, ?)`, id, name, name, authornorm.SearchKey(name))
+		return id
+	}
+	exists := func(f *authorSchemaFixture, table, column string, id uuid.UUID) bool {
+		f.t.Helper()
+		var n int
+		_, err := f.tx.QueryOne(pg.Scan(&n), `SELECT count(*) FROM `+table+` WHERE `+column+` = ?`, id)
+		require.NoError(f.t, err)
+		return n > 0
+	}
+	holds := map[string]func(f *authorSchemaFixture, id uuid.UUID){
+		"manual fingerprint row": func(f *authorSchemaFixture, id uuid.UUID) {
+			f.exec(`INSERT INTO author_entity_assignment (source_fingerprint, extractor_version, ordinal, entity_id, method, rule)
+				VALUES (?, 'extractor-v1', 0, ?, 'manual', 'manual')`, fingerprint(32, 0xc1), id)
+		},
+		"manual credit row": func(f *authorSchemaFixture, id uuid.UUID) {
+			_, s := f.entityBook("Мост")
+			credit := f.entityCredit(s, 0xc2, "Петров", "Иван")
+			f.exec(`INSERT INTO author_entity_credit_assignment (credit_id, ordinal, entity_id, method, rule)
+				VALUES (?, 0, ?, 'manual', 'manual')`, credit, id)
+		},
+		"pinned reference": func(f *authorSchemaFixture, id uuid.UUID) {
+			f.exec(`INSERT INTO author_entity_reference (entity_id, source, ref, pinned) VALUES (?, 'wikidata', 'Q42', true)`, id)
+		},
+		"pinned name": func(f *authorSchemaFixture, id uuid.UUID) {
+			f.exec(`UPDATE author_entity SET name_pinned = true WHERE id = ?`, id)
+		},
+		"merge log from it": func(f *authorSchemaFixture, id uuid.UUID) {
+			f.exec(`INSERT INTO author_entity_merge_log (from_id, to_id, method) VALUES (?, ?, 'manual')`,
+				id, entity(f, "Другой"))
+		},
+		"merge log into it": func(f *authorSchemaFixture, id uuid.UUID) {
+			f.exec(`INSERT INTO author_entity_merge_log (from_id, to_id, method) VALUES (?, ?, 'manual')`,
+				entity(f, "Другой"), id)
+		},
+	}
+	for name, hold := range holds {
+		t.Run(name, func(t *testing.T) {
+			f := entitySchema(t)
+			id := entity(f, "Иван Петров")
+			hold(f, id)
+			retire(f, id)
+			assert.True(t, exists(f, "author_entity", "id", id), "the hold keeps the entity")
+		})
+	}
+	t.Run("nothing holds it", func(t *testing.T) {
+		f := entitySchema(t)
+		id := entity(f, "Иван Петров")
+		f.exec(`INSERT INTO author_entity_reference (entity_id, source, ref) VALUES (?, 'wikidata', 'Q42')`, id)
+		retire(f, id)
+		assert.False(t, exists(f, "author_entity", "id", id), "the empty entity goes")
+		assert.False(t, exists(f, "author_entity_reference", "entity_id", id), "its unpinned reference goes with it")
+	})
+}

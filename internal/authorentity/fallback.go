@@ -141,37 +141,37 @@ var commaOccupations = func() map[string]bool {
 // occupation (commaOccupations) and a lone handle of a digit or an
 // underscore («… Тай Алтай-87, altai87») belong to a name.
 func commaRole(display string) bool {
-	for _, part := range commaSeparator.Split(display, -1)[1:] {
-		words := strings.Fields(part)
-		if len(words) == 0 {
-			continue
-		}
-		w := strings.Trim(words[0], ".,")
-		if w == "" {
-			continue
-		}
-		if len(words) == 1 && strings.ContainsAny(w, "0123456789_") {
-			continue
-		}
-		first, _ := utf8.DecodeRuneInString(w)
-		if unicode.IsUpper(first) || unicode.IsDigit(first) {
-			continue
-		}
-		lower := strings.ToLower(strings.TrimSuffix(w, "."))
-		if nameParticles[lower] || nameTitles[lower] || commaTitles[lower] || commaOccupations[lower] ||
-			listSuffix.MatchString(w) {
-			continue
-		}
-		// An occupation may follow its modifier («детский писатель»); an
-		// abbreviated role mark («гл. редактор») names a publication.
-		if !strings.HasSuffix(words[0], ".") && len(words) > 1 {
-			if second := strings.ToLower(strings.TrimSuffix(strings.Trim(words[1], ".,"), ".")); commaOccupations[second] {
-				continue
-			}
-		}
-		return true
+	return slices.ContainsFunc(commaSeparator.Split(display, -1)[1:], commaPartRole)
+}
+
+// commaPartRole reports one part after a comma that commaRole reads as a
+// role.
+func commaPartRole(part string) bool {
+	words := strings.Fields(part)
+	if len(words) == 0 {
+		return false
 	}
-	return false
+	w := strings.Trim(words[0], ".,")
+	if w == "" || len(words) == 1 && strings.ContainsAny(w, "0123456789_") {
+		return false
+	}
+	first, _ := utf8.DecodeRuneInString(w)
+	if unicode.IsUpper(first) || unicode.IsDigit(first) {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSuffix(w, "."))
+	if nameParticles[lower] || nameTitles[lower] || commaTitles[lower] || commaOccupations[lower] ||
+		listSuffix.MatchString(w) {
+		return false
+	}
+	// An occupation may follow its modifier («детский писатель»); an
+	// abbreviated role mark («гл. редактор») names a publication.
+	if !strings.HasSuffix(words[0], ".") && len(words) > 1 {
+		if second := strings.ToLower(strings.TrimSuffix(strings.Trim(words[1], ".,"), ".")); commaOccupations[second] {
+			return false
+		}
+	}
+	return true
 }
 
 // pairWords is how many words a pair has: two given names, «и», a family.
@@ -263,7 +263,10 @@ type fallbackCredit struct {
 	ci          int
 	group, rule string
 	name, shown sameName
-	person      bool
+	// qualifier are the words of the shown name's parts in parentheses
+	// that the join needs evidence for (see shownName).
+	qualifier []string
+	person    bool
 	// pending is a credit the same-name join reads: it joins there when
 	// one entity has its name, and comes here when none or several do.
 	pending bool
@@ -323,7 +326,7 @@ func (b *builder) collectOne(in *Input, u *Unselected, pending bool) {
 		f.pending = pending
 	}
 	if u.Tag == 0 && (one || !sameNameExcluded[u.Class]) && f.rule != RulePlaceholder {
-		f.shown = shownName(&in.Credits[ci])
+		f.shown, f.qualifier = shownName(&in.Credits[ci])
 	}
 	// The written name is the whole name, so a class of several people or
 	// a collective joins only an entity of exactly it.
@@ -345,7 +348,7 @@ func (b *builder) collectSegments(in *Input, c Credit, segments []*Result, shown
 		k := keyOf(&seg)
 		f := fallbackCredit{ci: ci, group: "p|" + k.String(), rule: RuleListed, person: true, ordinal: i}
 		if shown {
-			f.shown = shownName(&seg)
+			f.shown, f.qualifier = shownName(&seg)
 		}
 		b.fallback = append(b.fallback, f)
 	}
@@ -395,13 +398,14 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 	if len(b.fallback) == 0 {
 		return nil, nil, nil
 	}
-	byName, byWritten := b.rootsByName(groups), b.rootsByWritten(groups)
+	byName := b.rootsByName(groups)
+	byWritten, words := b.rootsByWritten(groups)
 	joined, pairs = map[int]int{}, map[int][2]int{}
 	byGroup := map[string]*group{}
 	var order []string
 	for i := range b.fallback {
 		f := &b.fallback[i]
-		if root, found := f.joinRoot(byName, byWritten); found {
+		if root, found := f.joinRoot(byName, byWritten, words); found {
 			// A pending credit the same-name join joins itself.
 			if root >= 0 {
 				joined[f.ci] = root
@@ -431,8 +435,11 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 
 // joinRoot is the one root a credit joins by its names in order — parsed,
 // shown, written; found with root -1 for a pending credit the same-name
-// join joins.
-func (f *fallbackCredit) joinRoot(byName, byWritten map[string]map[int]bool) (root int, found bool) {
+// join joins. The shown name joins only a root whose names carry every
+// word of its qualifier.
+func (f *fallbackCredit) joinRoot(byName, byWritten map[string]map[int]bool, words map[int]map[string]bool) (
+	root int, found bool,
+) {
 	if f.person && f.name.key != "" {
 		if r, ok := uniqueRoot(byName, f.name); ok {
 			if f.pending {
@@ -441,7 +448,8 @@ func (f *fallbackCredit) joinRoot(byName, byWritten map[string]map[int]bool) (ro
 			return r, true
 		}
 	}
-	if r, ok := uniqueRoot(byName, f.shown); ok && f.shown.key != "" {
+	if r, ok := uniqueRoot(byName, f.shown); ok && f.shown.key != "" &&
+		!slices.ContainsFunc(f.qualifier, func(w string) bool { return !words[r][w] }) {
 		return r, true
 	}
 	if roots := byWritten[f.written]; f.written != "" && len(roots) == 1 {
@@ -453,17 +461,17 @@ func (f *fallbackCredit) joinRoot(byName, byWritten map[string]map[int]bool) (ro
 }
 
 // inParentheses is a part of a display name in parentheses: a pen name, a
-// maiden name, a gloss.
+// maiden name, a gloss — or what tells a namesake apart: a place, years,
+// «не Воха».
 var inParentheses = regexp.MustCompile(`\s*\([^()]*\)?`)
 
-// placeWords are the words of a part in parentheses that tells namesakes
-// apart by their place («Сергей Смирнов (Москва)», «(Подмосковье)»): such
-// a name is no other name without it.
-var placeWords = func() map[string]bool {
+// qualifierRoles are the words of a part in parentheses that say what the
+// person did for the book, or how it was published, not who the person is.
+var qualifierRoles = func() map[string]bool {
 	set := map[string]bool{}
-	for _, w := range strings.Fields(`москва подмосковье спб петербург санкт ленинград киев минск харьков одесса
-		екатеринбург новосибирск казань самара нижний новгород ростов воронеж пермь омск томск иркутск красноярск
-		владивосток рига таллин вильнюс израиль сша украина беларусь казахстан германия канада россия`) {
+	for _, w := range strings.Fields(`составитель составительница составители сост редактор редакторы ред отв
+		ответственный переводчик переводчица перевод пер художник иллюстратор илл editor editors ed eds compiler
+		comp translator trans illustrator си самиздат`) {
 		set[w] = true
 	}
 	return set
@@ -471,16 +479,13 @@ var placeWords = func() map[string]bool {
 
 // shownName is a credit's display name as a person's: given name first,
 // family last, the words between additional, a part in parentheses
-// dropped; empty for a display name of fewer than two words, a placeholder,
-// or one whose part in parentheses names a place.
-func shownName(c *Credit) sameName {
-	for _, part := range inParentheses.FindAllString(c.DisplayName, -1) {
-		for _, w := range strings.Fields(authornorm.SearchKey(part)) {
-			if placeWords[w] {
-				return sameName{}
-			}
-		}
-	}
+// dropped; empty for a display name of fewer than two words or a
+// placeholder. qualifier are the words of the dropped parts other than a
+// role: a part in parentheses may be the one thing that tells a namesake
+// apart («Владимир Васильев (Ташкент)», «(не Воха)»), so it is never
+// erased before a join without evidence that it names the same person.
+func shownName(c *Credit) (n sameName, qualifier []string) {
+	qualifier = qualifierWords(c.DisplayName)
 	var words []string
 	for _, w := range strings.Fields(inParentheses.ReplaceAllString(c.DisplayName, " ")) {
 		// A stray mark at a word's edge («>Юрий», «Сергеев+», a byte-order
@@ -490,7 +495,7 @@ func shownName(c *Credit) sameName {
 		}
 	}
 	if len(words) <= 1 {
-		return sameName{}
+		return sameName{}, nil
 	}
 	res := &Result{Kind: KindPerson, Given: words[0], Family: words[len(words)-1], Suffix: c.Suffix}
 	if middle := words[1 : len(words)-1]; len(middle) > 0 {
@@ -499,11 +504,43 @@ func shownName(c *Credit) sameName {
 	res.Script = string(authornorm.DetectScript(strings.Join(words, " ")))
 	probe := &Credit{Result: res}
 	if isPlaceholder(probe) {
-		return sameName{}
+		return sameName{}, nil
 	}
 	k := keyOf(probe)
-	n, _ := namesOf(&k)
-	return n
+	n, _ = namesOf(&k)
+	// A spelling of a word of the name itself («Джеймс Дашнер (Дэшнер)»)
+	// names no one else.
+	own := strings.Fields(authornorm.SearchKey(strings.Join(words, " ")))
+	qualifier = slices.DeleteFunc(qualifier, func(w string) bool {
+		return slices.ContainsFunc(own, func(v string) bool { return spellingOf(w, v) })
+	})
+	return n, qualifier
+}
+
+// spellingOf reports two words of one script, four letters or more, that
+// differ in at most two letters and in fewer than half of them: two
+// spellings of one name, not two names.
+func spellingOf(a, b string) bool {
+	la, lb := utf8.RuneCountInString(a), utf8.RuneCountInString(b)
+	if a == b || min(la, lb) < 4 || authornorm.DetectScript(a) != authornorm.DetectScript(b) {
+		return false
+	}
+	d := levenshtein(a, b)
+	return d <= 2 && 2*d < min(la, lb)
+}
+
+// qualifierWords are the words of a display name's parts in parentheses
+// under the search key, the roles left out.
+func qualifierWords(display string) []string {
+	var out []string
+	for _, part := range inParentheses.FindAllString(display, -1) {
+		for _, w := range strings.Fields(authornorm.SearchKey(part)) {
+			if !qualifierRoles[w] {
+				out = append(out, w)
+			}
+		}
+	}
+	return out
 }
 
 // uniqueRoot is the one root a name names: its key, else its word
@@ -565,25 +602,34 @@ func (b *builder) rootsByName(groups []*group) map[string]map[int]bool {
 
 // rootsByWritten are the group roots by the display names of their keyed
 // credits — selected, or read as selected (E4l) — under the search key and
-// markFold.
-func (b *builder) rootsByWritten(groups []*group) map[string]map[int]bool {
-	out := map[string]map[int]bool{}
+// markFold, and the words of those names outside parentheses by root: the
+// names an entity is credited by, which are evidence that a qualifier in
+// parentheses names its person.
+func (b *builder) rootsByWritten(groups []*group) (byWritten map[string]map[int]bool, words map[int]map[string]bool) {
+	byWritten, words = map[string]map[int]bool{}, map[int]map[string]bool{}
 	for _, g := range groups {
 		for _, ci := range g.credits {
 			if ci >= len(b.creditKey) || b.creditKey[ci] < 0 {
 				continue
 			}
-			k := markFold(b.in.Credits[ci].DisplayName)
+			display := b.in.Credits[ci].DisplayName
+			k := markFold(display)
 			if k == "" {
 				continue
 			}
-			if out[k] == nil {
-				out[k] = map[int]bool{}
+			if byWritten[k] == nil {
+				byWritten[k] = map[int]bool{}
 			}
-			out[k][g.root] = true
+			byWritten[k][g.root] = true
+			for _, w := range strings.Fields(markFold(inParentheses.ReplaceAllString(display, " "))) {
+				if words[g.root] == nil {
+					words[g.root] = map[string]bool{}
+				}
+				words[g.root][w] = true
+			}
 		}
 	}
-	return out
+	return byWritten, words
 }
 
 // movedRoot is the one group root a key's moved credits went to; ok is
@@ -632,14 +678,40 @@ func (pl *planner) wantFallback(groups []*group, joined map[int]int, pairs map[i
 		}
 	}
 	for _, g := range groups {
-		r := rule[g.credits[0]]
-		rep.Entities[r]++
-		for _, ci := range g.credits {
-			if pl.fallbackRow(ci, ordinal[ci], g.id, rule[ci]) {
-				rep.Rows[rule[ci]]++
-			}
+		pl.fallbackGroupRows(g, rule, ordinal)
+	}
+}
+
+// fallbackGroupRows writes the rows of one fallback group's credits and
+// counts its entity, unless no row names it (dropEmpty).
+func (pl *planner) fallbackGroupRows(g *group, rule map[int]string, ordinal map[int]int) {
+	rep := pl.b.rep.Fallback
+	rows := 0
+	for _, ci := range g.credits {
+		if pl.fallbackRow(ci, ordinal[ci], g.id, rule[ci]) {
+			rep.Rows[rule[ci]]++
+			rows++
 		}
 	}
+	if rows == 0 && pl.dropEmpty(g) {
+		return
+	}
+	rep.Entities[rule[g.credits[0]]]++
+}
+
+// dropEmpty takes back a new entity no row of its group's credits names —
+// another row held each fingerprint, as the same-name join holds the first
+// segment of a list it took whole — and reports whether it did: such an
+// entity would be made and retired again on every pass.
+func (pl *planner) dropEmpty(g *group) bool {
+	if _, stored := pl.b.old.Entities[g.id]; stored {
+		return false
+	}
+	delete(pl.members, g.id)
+	delete(pl.rootEntity, g.root)
+	pl.order = slices.DeleteFunc(pl.order, func(id uuid.UUID) bool { return id == g.id })
+	pl.b.rep.IDs.New--
+	return true
 }
 
 // fallbackRow writes credit ci's fingerprint row of a segment to entity id

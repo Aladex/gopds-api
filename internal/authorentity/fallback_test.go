@@ -5,6 +5,7 @@ import (
 
 	"gopds-api/internal/authorentity"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -113,26 +114,79 @@ func TestTheFallbackEntitiesAreStable(t *testing.T) {
 	assert.Zero(t, rebuild(t, c, s).Changes())
 }
 
-// A proposal that lost its given name, or a name with a pen name in
-// parentheses, joins the one entity its display name names; a part in
-// parentheses that names a place tells a namesake apart and keeps it out.
+// A proposal that lost its given name joins the one entity its display
+// name names. A part in parentheses is dropped for that only when it is
+// known to be no other person: a role, a spelling of the name's own word,
+// or a name the entity is already credited by; anything else — a pen name the catalog does not show, a
+// place, «не Воха» — may tell a namesake apart and keeps the credit out.
 func TestTheDisplayNameJoinsTheEntityOfItsName(t *testing.T) {
 	lost := &name{family: "Брянчанинов", script: "Cyrl", displayAs: "Игнатий Брянчанинов"}
+	role := &name{family: "Стариков", given: "Николай", script: "Cyrl", displayAs: "Николай Стариков (составитель)"}
+	spelling := &name{family: "Дашнер", given: "Джеймс", script: "Cyrl", displayAs: "Джеймс Дашнер (Дэшнер)"}
+	alias := &name{family: "Суворов", given: "Виктор", script: "Cyrl", displayAs: "Виктор Суворов (Резун)"}
 	pen := &name{family: "Дар", given: "Фредерик", script: "Cyrl", displayAs: "Фредерик Дар (Сан-Антонио)"}
 	place := &name{family: "Смирнов", given: "Сергей", additional: []string{"(Москва)"}, script: "Cyrl",
 		displayAs: "Сергей Смирнов (Москва)"}
+	city := &name{family: "Васильев", given: "Владимир", additional: []string{"(Ташкент)"}, script: "Cyrl",
+		displayAs: "Владимир Васильев (Ташкент)"}
+	not := &name{family: "Васильев (не Воха)", given: "Владимир", script: "Cyrl",
+		displayAs: "Владимир Васильев (не Воха)"}
 	p := newCatalog(t).book(1, "А").book(2, "Б").book(3, "В").book(4, "Г").book(5, "Д").book(6, "Е").
+		book(7, "Ж").book(8, "З").book(9, "И").book(10, "К").book(11, "Л").book(12, "М").book(13, "Н").
 		credit(10, 1, "fp-ignaty", person("Брянчанинов", "Игнатий")).
 		credit(11, 2, "fp-dard", person("Дар", "Фредерик")).
 		credit(12, 3, "fp-smirnov", person("Смирнов", "Сергей")).
-		unselected(20, 4, "fp-lost", "partial_structure", nil, lost).done().
-		unselected(21, 5, "fp-pen", "unusual_characters", nil, pen).done().
-		unselected(22, 6, "fp-place", "unusual_characters", nil, place).done().build()
+		credit(13, 4, "fp-vasiliev", person("Васильев", "Владимир")).
+		credit(14, 5, "fp-starikov", person("Стариков", "Николай")).
+		credit(15, 6, "fp-suvorov", person("Суворов", "Виктор")).
+		credit(16, 7, "fp-rezun", person("Резун", "Владимир")).
+		unselected(20, 8, "fp-lost", "partial_structure", nil, lost).done().
+		unselected(21, 9, "fp-pen", "unusual_characters", nil, pen).done().
+		unselected(22, 10, "fp-place", "unusual_characters", nil, place).done().
+		unselected(23, 11, "fp-city", "unusual_characters", nil, city).done().
+		unselected(24, 12, "fp-not", "unusual_characters", nil, not).done().
+		unselected(25, 13, "fp-role", "unusual_characters", nil, role).done().
+		book(14, "О").unselected(26, 14, "fp-alias", "unusual_characters", nil, alias).done().
+		book(15, "Бегущий в лабиринте").book(16, "Лихорадка").credit(17, 15, "fp-dashner", person("Дашнер", "Джеймс")).
+		unselected(27, 16, "fp-spelling", "unusual_characters", nil, spelling).done().
+		build()
 	same(t, p, 10, 20)
-	same(t, p, 11, 21)
 	assert.Equal(t, authorentity.RuleSameName, p.RuleOf(20))
-	fallback(t, p, 22)
+	same(t, p, 14, 25)
+	same(t, p, 17, 27)
+	for _, ci := range []int64{21, 22, 23, 24} {
+		fallback(t, p, ci)
+	}
+	apart(t, p, 11, 21)
 	apart(t, p, 12, 22)
+	apart(t, p, 13, 23)
+	apart(t, p, 13, 24)
+	apart(t, p, 23, 24)
+	// «Резун» is a name the joined entity carries only when a credit of
+	// the entity is written so: here it is its own person, so no join.
+	apart(t, p, 15, 26)
+}
+
+// A part in parentheses that the entity is credited by elsewhere is an
+// alias of its person: «Леонид (LLeo) Каганов» joins the «Леонид Каганов»
+// a selected credit «Леонид Каганов LLeo» is part of, and the parsed name
+// that leaves the nickname out never joins by itself.
+func TestAQualifierTheEntityCarriesJoins(t *testing.T) {
+	alias := &name{family: "Каганов", given: "Леонид", nickname: "LLeo", script: "Cyrl",
+		displayAs: "Леонид (LLeo) Каганов"}
+	other := &name{family: "Каганов", given: "Леонид", nickname: "Лео", script: "Cyrl",
+		displayAs: "Леонид (Лео) Каганов"}
+	withNick := person("Каганов", "Леонид").withNickname("LLeo")
+	withNick.displayAs = "Леонид Каганов LLeo"
+	p := newCatalog(t).book(1, "Хомяк в совятнике").book(2, "Коммутация").book(3, "Майские").book(4, "Другое").
+		credit(10, 1, "fp-kaganov", person("Каганов", "Леонид")).
+		credit(11, 2, "fp-kaganov-lleo", withNick).
+		unselected(20, 3, "fp-alias", "unusual_characters", nil, alias).done().
+		unselected(21, 4, "fp-other", "unusual_characters", nil, other).done().build()
+	require.Equal(t, p.EntityOf(10), p.EntityOf(11), "the fixture's entity carries both spellings")
+	same(t, p, 10, 20)
+	assert.Equal(t, authorentity.RuleSameName, p.RuleOf(20))
+	apart(t, p, 10, 21)
 }
 
 // knownGiven adds selected people of given across knownGiven families, so the
@@ -205,4 +259,53 @@ func TestAWrittenNameJoinsItsEntity(t *testing.T) {
 		unselected(20, 2, "fp-tick", "mononym", nil, tick).done().build()
 	same(t, p, 10, 20)
 	assert.Equal(t, authorentity.RuleSameName, p.RuleOf(20))
+}
+
+// A list's segments keep their entities: a second identical pass over what
+// the first stored changes nothing, and every segment, the ones that made
+// an entity of their own included, keeps its ID.
+func TestAListKeepsItsSegmentEntities(t *testing.T) {
+	list := &name{displayAs: "Александр Силецкий, Эзиз Овезов, Римма Кошурникова", script: "Cyrl",
+		given: "Александр", family: "Силецкий"}
+	c := newCatalog(t).book(1, "Сборник").
+		unselected(20, 1, "fp-list", "unusual_characters", nil, list).done()
+	c.knownGiven("Александр", 100, 100).knownGiven("Эзиз", 200, 200).knownGiven("Римма", 300, 300)
+	_, s := stored(t, c)
+	row := func(s *authorentity.State, ordinal int) authorentity.AssignmentRow {
+		return s.Fingerprints[authorentity.FPKey{Fingerprint: "fp-list", ExtractorVersion: "v1", Ordinal: ordinal}]
+	}
+	var first []uuid.UUID
+	for i := range 3 {
+		require.Equal(t, authorentity.RuleListed, row(s, i).Rule, "segment %d", i)
+		first = append(first, row(s, i).EntityID)
+	}
+	require.Len(t, map[uuid.UUID]bool{first[0]: true, first[1]: true, first[2]: true}, 3)
+	second := rebuild(t, c, s)
+	assert.Zero(t, second.Changes())
+	for i := range 3 {
+		assert.Equal(t, first[i], row(s, i).EntityID, "segment %d keeps its entity", i)
+	}
+	assert.Zero(t, rebuild(t, c, s).Changes())
+}
+
+// A list whose credit the same-name join takes whole («Михаил Ежов» with
+// his pen names in the nickname) makes no entity for the segment the join
+// took: a second pass changes nothing.
+func TestAListTheJoinTakesMakesNoEmptyEntity(t *testing.T) {
+	list := &name{family: "Ежов", given: "Михаил", nickname: "Виктор Глебов; Майк Германов", script: "Cyrl",
+		displayAs: "Михаил Ежов Виктор Глебов; Майк Германов"}
+	c := newCatalog(t).book(1, "Мир").book(2, "Война").
+		credit(10, 1, "fp-ezhov", person("Ежов", "Михаил")).
+		unselected(20, 2, "fp-list", "unusual_characters", nil, list).done()
+	c.knownGiven("Михаил", 100, 100).knownGiven("Майк", 200, 200)
+	first, s := stored(t, c)
+	require.Equal(t, first.EntityOf(10), first.EntityOf(20))
+	for id, e := range s.Entities {
+		used := false
+		for _, row := range s.Fingerprints {
+			used = used || row.EntityID == id
+		}
+		assert.True(t, used, "entity %s (%s) has no row", id, e.DisplayName)
+	}
+	assert.Zero(t, rebuild(t, c, s).Changes())
 }

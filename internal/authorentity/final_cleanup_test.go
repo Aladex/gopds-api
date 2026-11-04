@@ -87,6 +87,45 @@ func TestACommaPairOfNamesIsTwoPeople(t *testing.T) {
 	assert.Equal(t, authorentity.RuleListed, second.Rule)
 }
 
+// A name and a title of the same person is one person, not a pair: a
+// part that is a title and one word («Герцог Сассекский»), or a word the
+// other part has at another place in the name («Гарри Виндзор»). Two
+// brothers who share the family stay two people.
+func TestANameAndATitleAreOnePerson(t *testing.T) {
+	segments := func(p *authorentity.Plan, fp string) int {
+		state := authorentity.NewState()
+		p.Apply(state)
+		n := 0
+		for k := range state.Fingerprints {
+			if k.Fingerprint == fp {
+				n++
+			}
+		}
+		return n
+	}
+	p := newCatalog(t).book(1, "Запасной").book(2, "Интервью").book(3, "Пикник на обочине").book(4, "Другое").
+		credit(10, 4, "fp-harry", person("Гарри", "Принц")).
+		leftOut(20, 1, "fp-title", "person", "unusual_characters", "Принц Гарри, Герцог Сассекский",
+			&name{family: "Сассекский", given: "Принц"}).
+		leftOut(21, 2, "fp-alias", "person", "unusual_characters", "Принц Гарри, Гарри Виндзор",
+			&name{family: "Виндзор", given: "Принц"}).
+		leftOut(22, 3, "fp-brothers", "person", "unusual_characters", "Аркадий Стругацкий, Борис Стругацкий",
+			&name{family: "Стругацкий", given: "Аркадий"}).
+		book(5, "Сказки").leftOut(23, 5, "fp-three", "person", "unusual_characters",
+		"Вера Ковальчук Ярослав Коваль, Игорь Ковальчук", &name{family: "Ковальчук", given: "Вера"}).
+		book(6, "Вегетарианка").leftOut(24, 6, "fp-han", "person", "unusual_characters",
+		"Хан Ган, Дебора Смит", &name{family: "Смит", given: "Хан"}).
+		book(7, "Письма").leftOut(25, 7, "fp-saints", "person", "unusual_characters",
+		"Святитель Игнатий, Святитель Феофан", &name{family: "Феофан", given: "Святитель"}).build()
+	assert.Equal(t, 1, segments(p, "fp-title"), "«Принц Гарри, Герцог Сассекский» is one person")
+	assert.Equal(t, 1, segments(p, "fp-alias"), "«Принц Гарри, Гарри Виндзор» is one person")
+	assert.Equal(t, 2, segments(p, "fp-brothers"), "two brothers are two people")
+	assert.Equal(t, 2, segments(p, "fp-three"), "a family inside a part is no alias")
+	assert.Equal(t, 2, segments(p, "fp-han"), "«Хан» is a name, not a rank")
+	assert.Equal(t, 2, segments(p, "fp-saints"), "a clerical title is no alias")
+	assert.NotEqual(t, uuid.Nil, p.EntityOf(20))
+}
+
 // A live entity no row names any more — its credits all joined another
 // entity in an earlier pass — is removed, and the pass after that writes
 // nothing (E4r).
