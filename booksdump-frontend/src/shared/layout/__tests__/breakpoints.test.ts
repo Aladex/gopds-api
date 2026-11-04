@@ -39,121 +39,142 @@ const projectPath = (relative: string) => fileURLToPath(new URL(relative, import
  * with no contents at all. Zero is the right answer there, and any class that
  * reintroduces a second threshold has to pass the same test the card does.
  */
+const card = { variant: CARD_WIDE_VARIANT, rem: CARD_WIDE_MIN_WIDTH_REM };
+
+/*
+ * The reader dialog is held where it was held before the card moved off
+ * `sm:`. Its one width question is READER_TOC_QUERY now, and the `sm:` it
+ * still writes is the dialog's own width cap (and a comment naming the old
+ * `sm:block`); while the card was at `sm` too, the card's numbers happened to
+ * check exactly that. Its classes are checked against that same `sm`, 40rem,
+ * so nothing the dialog writes is checked less than before.
+ */
+const dialog = { variant: 'sm', rem: 40 };
+
 const layoutFiles = [
-    { file: 'BookCard.tsx', mustStyleByWidth: true },
-    { file: 'BookPreviewDialog.tsx', mustStyleByWidth: false },
+    { file: 'BookCard.tsx', mustStyleByWidth: true, boundary: card },
+    // The card's parts. The cover is sized by the boundary; the others are
+    // rendered per layout from isWide and must not add a threshold of their own.
+    { file: 'BookCover.tsx', mustStyleByWidth: true, boundary: card },
+    { file: 'AuthorByline.tsx', mustStyleByWidth: false, boundary: card },
+    { file: 'BookActions.tsx', mustStyleByWidth: false, boundary: card },
+    { file: 'GenreChips.tsx', mustStyleByWidth: false, boundary: card },
+    { file: 'BookPreviewDialog.tsx', mustStyleByWidth: false, boundary: dialog },
 ];
 
-describe.each(layoutFiles)('the layout boundary in $file', ({ file, mustStyleByWidth }) => {
-    const source = readFileSync(projectPath(`../../../features/catalogue/${file}`), 'utf8');
+describe.each(layoutFiles)(
+    'the layout boundary in $file',
+    ({ file, mustStyleByWidth, boundary }) => {
+        const source = readFileSync(projectPath(`../../../features/catalogue/${file}`), 'utf8');
 
-    let cached: Awaited<ReturnType<typeof __unstable__loadDesignSystem>> | undefined;
+        let cached: Awaited<ReturnType<typeof __unstable__loadDesignSystem>> | undefined;
 
-    /**
-     * The project's own Tailwind, compiled in process from src/index.css.
-     * Reading a previous build instead would answer for whatever was built
-     * last, and there is nothing to build on a clean checkout.
-     */
-    const designSystem = async () => {
-        cached ??= await __unstable__loadDesignSystem(
-            readFileSync(projectPath('../../../index.css'), 'utf8'),
-            {
-                base: projectPath('../../../..'),
-                loadStylesheet: async (id: string, base: string) => {
-                    const path =
-                        id === 'tailwindcss'
-                            ? projectPath('../../../../node_modules/tailwindcss/index.css')
-                            : '';
-                    return { path, base, content: path ? readFileSync(path, 'utf8') : '' };
+        /**
+         * The project's own Tailwind, compiled in process from src/index.css.
+         * Reading a previous build instead would answer for whatever was built
+         * last, and there is nothing to build on a clean checkout.
+         */
+        const designSystem = async () => {
+            cached ??= await __unstable__loadDesignSystem(
+                readFileSync(projectPath('../../../index.css'), 'utf8'),
+                {
+                    base: projectPath('../../../..'),
+                    loadStylesheet: async (id: string, base: string) => {
+                        const path =
+                            id === 'tailwindcss'
+                                ? projectPath('../../../../node_modules/tailwindcss/index.css')
+                                : '';
+                        return { path, base, content: path ? readFileSync(path, 'utf8') : '' };
+                    },
                 },
-            },
-        );
-        return cached;
-    };
-
-    /**
-     * Every class the file writes, found the way Tailwind finds them.
-     *
-     * Earlier versions of this test picked candidates out of the source with
-     * regexes of my own, and each missed a way of writing a class that still
-     * reached the stylesheet: strings in double quotes, template literals,
-     * a variant spelled `min-[48rem]:` rather than `sm:`. The scanner below is
-     * the one Tailwind uses to decide what a file asks for, so anything the
-     * build compiles is something this test sees.
-     */
-    const candidates = () => new Scanner({}).scanFiles([{ content: source, extension: 'tsx' }]);
-
-    it('styles nothing at a boundary other than the one React asks about', async () => {
-        const design = await designSystem();
-        const guarded: string[] = [];
-
-        for (const candidate of candidates()) {
-            const [css] = design.candidatesToCss([candidate]);
-            if (!css || !/width\s*[<>]=?/.test(css)) {
-                continue; // not a width-dependent class at all
-            }
-
-            // A class with no variant applies at every width, so it decides
-            // no boundary — whatever widths appear inside its own rule. That
-            // distinction is not academic: the scanner reads prose as
-            // candidates, the word "container" appears in two comments in the
-            // dialog, and Tailwind's `container` utility compiles to a rule
-            // full of breakpoint max-widths. Judged by its CSS alone, an
-            // English sentence failed this test. What the boundary is made of
-            // is a variant, so that is what gets counted.
-            const [parsed] = [...design.parseCandidate(candidate)];
-            if (!parsed || parsed.variants.length === 0) {
-                continue;
-            }
-            guarded.push(candidate);
-
-            // Exactly one variant, asked of Tailwind's own parser rather than
-            // recognised from a list of spellings. dark:sm:, active:sm:,
-            // supports-[…]:sm: and sm:max-lg: are all the same defect — the
-            // layout answering to something besides the width — and listing
-            // them one by one only ever catches the ones already thought of.
-            expect(
-                parsed.variants,
-                `${candidate} is conditional on more than a width`,
-            ).toHaveLength(1);
-
-            // And that one variant must be the named breakpoint itself. An
-            // arbitrary variant can carry the right number and still add a
-            // second condition inside the same query — a theme, a container,
-            // a print rule — and none of the checks below would see it,
-            // because the parser counts one variant and the CSS holds one
-            // @media with one correct width. Requiring the name closes that
-            // by not admitting anything whose meaning has to be re-derived.
-            const [printed] = parsed.variants.map((variant) => design.printVariant(variant));
-            expect(printed, `${candidate} is not the named breakpoint`).toBe(CARD_WIDE_VARIANT);
-
-            const conditions = [...css.matchAll(/width\s*(>=|<=|>|<)\s*([\d.]+)rem/g)];
-            expect(
-                conditions,
-                `${candidate} is guarded by ${conditions.length} width conditions`,
-            ).toHaveLength(1);
-
-            // Above the boundary, not below: max-sm: is the other side of the
-            // same number, and pairing it with a min-width query puts CSS and
-            // React on opposite sides.
-            expect(conditions[0][1], `${candidate} applies below the boundary`).toBe('>=');
-            expect(Number(conditions[0][2]), `${candidate} switches at another width`).toBe(
-                CARD_WIDE_MIN_WIDTH_REM,
             );
-        }
+            return cached;
+        };
 
-        if (mustStyleByWidth) {
-            expect(
-                guarded,
-                `${file} styles nothing by width, so nothing holds the boundary`,
-            ).not.toHaveLength(0);
-        }
-    });
+        /**
+         * Every class the file writes, found the way Tailwind finds them.
+         *
+         * Earlier versions of this test picked candidates out of the source with
+         * regexes of my own, and each missed a way of writing a class that still
+         * reached the stylesheet: strings in double quotes, template literals,
+         * a variant spelled `min-[48rem]:` rather than `sm:`. The scanner below is
+         * the one Tailwind uses to decide what a file asks for, so anything the
+         * build compiles is something this test sees.
+         */
+        const candidates = () => new Scanner({}).scanFiles([{ content: source, extension: 'tsx' }]);
 
-    it('is asked in the unit the stylesheet uses, not in pixels', () => {
-        // A pixel query agrees with a rem one only while the reader's font
-        // size is 16px. Anyone who enlarged it would get the two apart again.
-        expect(CARD_WIDE_QUERY).toBe(`(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`);
-        expect(CARD_WIDE_QUERY).not.toMatch(/px/);
-    });
-});
+        it('styles nothing at a boundary other than the one React asks about', async () => {
+            const design = await designSystem();
+            const guarded: string[] = [];
+
+            for (const candidate of candidates()) {
+                const [css] = design.candidatesToCss([candidate]);
+                if (!css || !/width\s*[<>]=?/.test(css)) {
+                    continue; // not a width-dependent class at all
+                }
+
+                // A class with no variant applies at every width, so it decides
+                // no boundary — whatever widths appear inside its own rule. That
+                // distinction is not academic: the scanner reads prose as
+                // candidates, the word "container" appears in two comments in the
+                // dialog, and Tailwind's `container` utility compiles to a rule
+                // full of breakpoint max-widths. Judged by its CSS alone, an
+                // English sentence failed this test. What the boundary is made of
+                // is a variant, so that is what gets counted.
+                const [parsed] = [...design.parseCandidate(candidate)];
+                if (!parsed || parsed.variants.length === 0) {
+                    continue;
+                }
+                guarded.push(candidate);
+
+                // Exactly one variant, asked of Tailwind's own parser rather than
+                // recognised from a list of spellings. dark:sm:, active:sm:,
+                // supports-[…]:sm: and sm:max-lg: are all the same defect — the
+                // layout answering to something besides the width — and listing
+                // them one by one only ever catches the ones already thought of.
+                expect(
+                    parsed.variants,
+                    `${candidate} is conditional on more than a width`,
+                ).toHaveLength(1);
+
+                // And that one variant must be the named breakpoint itself. An
+                // arbitrary variant can carry the right number and still add a
+                // second condition inside the same query — a theme, a container,
+                // a print rule — and none of the checks below would see it,
+                // because the parser counts one variant and the CSS holds one
+                // @media with one correct width. Requiring the name closes that
+                // by not admitting anything whose meaning has to be re-derived.
+                const [printed] = parsed.variants.map((variant) => design.printVariant(variant));
+                expect(printed, `${candidate} is not the named breakpoint`).toBe(boundary.variant);
+
+                const conditions = [...css.matchAll(/width\s*(>=|<=|>|<)\s*([\d.]+)rem/g)];
+                expect(
+                    conditions,
+                    `${candidate} is guarded by ${conditions.length} width conditions`,
+                ).toHaveLength(1);
+
+                // Above the boundary, not below: max-sm: is the other side of the
+                // same number, and pairing it with a min-width query puts CSS and
+                // React on opposite sides.
+                expect(conditions[0][1], `${candidate} applies below the boundary`).toBe('>=');
+                expect(Number(conditions[0][2]), `${candidate} switches at another width`).toBe(
+                    boundary.rem,
+                );
+            }
+
+            if (mustStyleByWidth) {
+                expect(
+                    guarded,
+                    `${file} styles nothing by width, so nothing holds the boundary`,
+                ).not.toHaveLength(0);
+            }
+        });
+
+        it('is asked in the unit the stylesheet uses, not in pixels', () => {
+            // A pixel query agrees with a rem one only while the reader's font
+            // size is 16px. Anyone who enlarged it would get the two apart again.
+            expect(CARD_WIDE_QUERY).toBe(`(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`);
+            expect(CARD_WIDE_QUERY).not.toMatch(/px/);
+        });
+    },
+);

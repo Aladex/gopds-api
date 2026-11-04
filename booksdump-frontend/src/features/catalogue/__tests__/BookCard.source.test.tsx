@@ -60,59 +60,58 @@ const renderCard = (overrides: Partial<Book>) =>
         </MemoryRouter>,
     );
 
-/** The row a label heads, or null when the card has no such row. */
-const rowLabelled = (label: string) => screen.queryByText(label)?.closest('div') ?? null;
+/** The colophon line, or null when the card has none. */
+const colophon = () => screen.queryByTestId('book-colophon');
 
+/*
+ * One muted line, «АСТ · ISBN 978-5-17-177750-0», always visible on a wide
+ * card. A phone hides it behind «Подробнее»; BookCard.redesign holds that.
+ */
 describe('the publisher and ISBN of a book', () => {
-    it('are shown, each under its own label, when the book has them', () => {
+    it('are shown on one line, publisher first, when the book has them', () => {
         renderCard({ publisher: 'Издательство «Мир»', isbn: ['978-5-03-000000-1'] });
 
-        expect(rowLabelled('bookPublisher')).toHaveTextContent('Издательство «Мир»');
-        expect(rowLabelled('bookIsbn')).toHaveTextContent('978-5-03-000000-1');
+        expect(colophon()).toHaveTextContent(/^Издательство «Мир» · bookIsbn 978-5-03-000000-1$/);
     });
 
     it('list several ISBNs separated by commas', () => {
         renderCard({ isbn: ['978-5-03-000000-1', '5-03-000000-2', '978-0-00-000000-3'] });
 
-        expect(
-            screen.getByText('978-5-03-000000-1, 5-03-000000-2, 978-0-00-000000-3'),
-        ).toBeInTheDocument();
+        expect(colophon()).toHaveTextContent(
+            'bookIsbn 978-5-03-000000-1, 5-03-000000-2, 978-0-00-000000-3',
+        );
     });
 
     it('leave no trace when the book has neither', () => {
         renderCard({ publisher: null, isbn: [] });
 
-        expect(rowLabelled('bookPublisher')).toBeNull();
-        expect(rowLabelled('bookIsbn')).toBeNull();
+        expect(colophon()).toBeNull();
     });
 
     it('leave no trace when the payload does not carry them at all', () => {
         renderCard({});
 
-        expect(rowLabelled('bookPublisher')).toBeNull();
-        expect(rowLabelled('bookIsbn')).toBeNull();
+        expect(colophon()).toBeNull();
     });
 
     it('show one without the other', () => {
         renderCard({ publisher: null, isbn: ['978-5-03-000000-1'] });
 
-        expect(rowLabelled('bookPublisher')).toBeNull();
-        expect(rowLabelled('bookIsbn')).toHaveTextContent('978-5-03-000000-1');
+        expect(colophon()).toHaveTextContent(/^bookIsbn 978-5-03-000000-1$/);
     });
 
     // An ISBN is read and copied by people, not aligned in a column.
     it('are set in the text face, not a monospace one', () => {
         renderCard({ publisher: 'Азбука', isbn: ['978-5-389-00000-1'] });
 
-        for (const label of ['bookPublisher', 'bookIsbn']) {
-            const row = rowLabelled(label);
-            expect(row).not.toBeNull();
-            expect(row?.outerHTML).not.toMatch(/font-mono/);
-        }
+        expect(colophon()).not.toBeNull();
+        expect(colophon()?.outerHTML).not.toMatch(/font-mono/);
     });
 
-    it('have labels in both languages', () => {
-        expect(enTranslation).toMatchObject({ bookPublisher: 'Publisher', bookIsbn: 'ISBN' });
-        expect(ruTranslation).toMatchObject({ bookPublisher: 'Издательство', bookIsbn: 'ISBN' });
+    // The publisher stands unlabelled at the head of the line; the ISBN keeps
+    // its label, in both languages.
+    it('label the ISBN in both languages', () => {
+        expect(enTranslation).toMatchObject({ bookIsbn: 'ISBN' });
+        expect(ruTranslation).toMatchObject({ bookIsbn: 'ISBN' });
     });
 });

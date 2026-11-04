@@ -7,10 +7,11 @@ import BookCard, { type BookCardProps } from '@/features/catalogue/BookCard';
 import type { Book } from '@/api/books';
 
 // An administrator's three actions on a book — rescan, edit, approve — sit in
-// one menu in the card's top-right corner. As three buttons of their own, with
-// the two send buttons beside them, the row ran to seven controls and out of a
-// phone-width card; and in the action row, among the buttons a reader presses
-// every day, the menu was one stray tap away.
+// one menu at the end of the title row, at both sizes. As three buttons of
+// their own, with the send buttons beside them, the row ran out of a phone-width
+// card; and among the buttons a reader presses every day, the menu was one
+// stray tap away. It is never in the rail and never on the cover, where the
+// favourite star sits.
 
 const translate = (key: string, fallback?: string) => fallback ?? key;
 vi.mock('react-i18next', () => ({
@@ -73,16 +74,20 @@ const menuButton = () => screen.getByRole('button', { name: /^bookAdminActions/ 
 beforeEach(() => vi.clearAllMocks());
 
 describe('where the menu is', () => {
-    it('sits in the card’s corner, out of the action row', () => {
-        renderCard();
-        const corner = menuButton().parentElement!;
+    it.each([true, false])('ends the title row, out of the actions (wide %s)', (isWide) => {
+        renderCard({ isWide });
+        const title = screen.getByRole('heading', { name: book.title });
 
         expect(within(actions()).queryByRole('button', { name: /bookAdminActions/ })).toBeNull();
-        expect(corner.className).toMatch(/\babsolute\b/);
-        expect(corner.className).toMatch(/\btop-2\b/);
-        expect(corner.className).toMatch(/\bright-2\b/);
-        // Placed by the card itself: the nearest positioned box.
-        expect(screen.getByTestId('book-card').className).toMatch(/\brelative\b/);
+        expect(
+            within(screen.getByTestId('book-cover')).queryByRole('button', {
+                name: /bookAdminActions/,
+            }),
+        ).toBeNull();
+        // The title and the menu share one row: the title takes the room, the
+        // menu keeps its own width at the end of it.
+        expect(title.parentElement).toContainElement(menuButton());
+        expect(title.className).toMatch(/\bflex-1\b/);
     });
 
     it('comes after the title for a keyboard and a screen reader', () => {
@@ -94,13 +99,12 @@ describe('where the menu is', () => {
         ).toBeTruthy();
     });
 
-    it('keeps the title clear of it, and only on an administrator’s card', () => {
+    it('is only on an administrator’s card', () => {
         const admin = renderCard();
-        expect(screen.getByRole('heading', { name: book.title }).className).toMatch(/\bpr-8\b/);
+        expect(menuButton()).toBeInTheDocument();
         admin.unmount();
 
         renderCard({ isSuperuser: false });
-        expect(screen.getByRole('heading', { name: book.title }).className).not.toMatch(/\bpr-/);
         expect(screen.queryByRole('button', { name: /bookAdminActions/ })).toBeNull();
     });
 

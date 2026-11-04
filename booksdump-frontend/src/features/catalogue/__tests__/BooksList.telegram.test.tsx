@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { toast } from 'sonner';
 
 import BooksList from '@/features/catalogue/BooksList';
+import { CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
 import * as booksApi from '@/api/books';
 import type { Book } from '@/api/books';
 import type { User } from '@/api/auth';
@@ -135,6 +136,29 @@ const sendBook = async () => {
     const question = await screen.findByRole('dialog');
     await userEvent.click(within(question).getByRole('button', { name: 'sendToTelegram.confirm' }));
 };
+
+/*
+ * These follow the send flow, not the phone's row, so the list is given the
+ * wide card, where each send button sits in the rail on its own. On a phone
+ * with both targets on they are one «Отправить» and a sheet: BookCard.send.
+ */
+let wideCard: { mockRestore: () => void } | undefined;
+beforeEach(() => {
+    wideCard = vi.spyOn(window, 'matchMedia').mockImplementation(
+        (query: string) =>
+            ({
+                matches: query === CARD_WIDE_QUERY,
+                media: query,
+                onchange: null,
+                addListener: () => {},
+                removeListener: () => {},
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                dispatchEvent: () => false,
+            }) as unknown as MediaQueryList,
+    );
+});
+afterEach(() => wideCard?.mockRestore());
 
 beforeEach(() => {
     vi.clearAllMocks();

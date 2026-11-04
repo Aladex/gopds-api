@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -79,7 +79,15 @@ const renderCard = (isWide: boolean) =>
  */
 describe('the card has a single layout boundary', () => {
     const listSource = source('../BooksList.tsx');
-    const cardSource = source('../BookCard.tsx');
+    const cardSource = [
+        '../BookCard.tsx',
+        '../AuthorByline.tsx',
+        '../BookActions.tsx',
+        '../GenreChips.tsx',
+        '../BookCover.tsx',
+    ]
+        .map(source)
+        .join('\n');
 
     it('asks its one width question through the shared query', () => {
         expect(listSource).toContain('useMediaQuery(CARD_WIDE_QUERY)');
@@ -99,24 +107,14 @@ describe('the card has a single layout boundary', () => {
         expect([...listSource.matchAll(/useMediaQuery\(/g)]).toHaveLength(1);
     });
 
-    it('keeps the narrow card its longer annotation', () => {
-        // Expandable turns the count into an inline height, so this is
-        // observable without a stylesheet. A phone fits about a third of the
-        // words per line that a desktop does; the same count leaves it with a
-        // sentence fragment. An earlier refactor quietly dropped the wide
-        // count onto both.
-        // The card holds more than one collapsible; the annotation is the one
-        // clamped to a count of line heights.
-        const peekHeight = (container: HTMLElement) =>
-            [...container.querySelectorAll<HTMLElement>('[data-state="collapsed"]')]
-                .map((box) => box.style.maxHeight)
-                .find((height) => height.endsWith('lh'));
-
-        const narrow = renderCard(false);
-        expect(peekHeight(narrow.container)).toBe('5lh');
-        narrow.unmount();
-
-        const wide = renderCard(true);
-        expect(peekHeight(wide.container)).toBe('2lh');
+    it('clamps the annotation to the same three lines at both sizes', () => {
+        // One clamp for one card: the wide card used to peek two lines and the
+        // narrow one five, through an inline height. The redesign shows three
+        // at both sizes, and «Подробнее» appears only if they are not enough.
+        for (const isWide of [false, true]) {
+            const view = renderCard(isWide);
+            expect(screen.getByText('Test annotation.').className).toMatch(/\bline-clamp-3\b/);
+            view.unmount();
+        }
     });
 });

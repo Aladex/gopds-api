@@ -5,13 +5,13 @@ import BookCard from '@/features/catalogue/BookCard';
 import type { Book } from '@/api/books';
 
 /*
- * The wide card gives its cover column two grid rows (~206px: the cover plus
- * the format buttons), and when the text column beside it is shorter, the
+ * The wide card gives its cover column and its action rail two grid rows
+ * each, and when the text column beside it is shorter, the
  * grid's own auto rows share the extra height — the title row balloons and an
  * empty band opens between the dates and the metadata.
  *
  * jsdom lays nothing out, so no test here can see that band. What is pinned is
- * the class contract the fix rests on: on `sm+` the first row keeps its
+ * the class contract the fix rests on: on the wide card (`card:`) the first row keeps its
  * content height (`auto`) and the second takes whatever is spare (`1fr`), so
  * the spare height lands below the metadata block instead of inside the title
  * row. The measured half — that the band is really gone at both widths — was
@@ -28,9 +28,8 @@ const day = 24 * 60 * 60 * 1000;
 const registeredOn = new Date(Date.now() - 30 * day).toISOString().slice(0, 10);
 const publishedOn = new Date(Date.now() - 365 * day).toISOString().slice(0, 10);
 
-// The card that shows the bug: nothing under the dates but one author line
-// and the "no annotation" note, so the text column is far shorter than the
-// cover column beside it.
+// The card that shows the bug: nothing under the dates but one genre, so the
+// text column is far shorter than the cover and the rail beside it.
 const book: Book = {
     id: 1,
     title: 'Уик-энд с Остерманом',
@@ -82,12 +81,12 @@ describe('the card grid rows on a wide screen', () => {
         // The whole contract in one token: row 1 auto, row 2 1fr — the cover
         // column spans both, so the spare height the span forces lands in the
         // second row, under the metadata, not spread over the title row.
-        expect(gridOf(container)).toHaveClass('sm:grid-rows-[auto_1fr]');
+        expect(gridOf(container)).toHaveClass('card:grid-rows-[auto_1fr]');
     });
 
     it('leaves the mobile rows alone', () => {
         const { container } = renderCard();
-        // No unprefixed row template: below sm the grid keeps its own auto
+        // No unprefixed row template: below the wide card the grid keeps its own auto
         // rows, where the cover does not span and nothing stretches.
         expect(gridOf(container)?.className).not.toMatch(/(?:^|\s)grid-rows-/);
     });

@@ -67,12 +67,8 @@ const renderCard = (overrides: Partial<Book>) =>
         </MemoryRouter>,
     );
 
-/** The authors row, by its label. */
-const authorsRow = () => {
-    const row = screen.getByText('authors').closest('div');
-    expect(row).not.toBeNull();
-    return within(row as HTMLElement);
-};
+/** The byline under the title: the names, prose-style, with no label. */
+const authorsRow = () => within(screen.getByTestId('book-byline'));
 
 const linkTargets = () =>
     authorsRow()
@@ -114,8 +110,8 @@ describe('the authors of a book', () => {
         expect(linkTargets()).toEqual([['Иван Петров', '/books/find/author/7/1']]);
         const plain = authorsRow().getByText('Мастер');
         expect(plain.closest('a')).toBeNull();
-        // The separator stands between every two names, linked or not.
-        expect(authorsRow().getAllByText('·')).toHaveLength(1);
+        // A comma stands between every two names, linked or not.
+        expect(screen.getByTestId('book-byline')).toHaveTextContent('Иван Петров, Мастер');
     });
 
     it('show a line of unlinked names only, with no link at all', () => {
@@ -219,7 +215,7 @@ describe('a book whose entity line names no one', () => {
     it('links to no author', () => {
         renderCard(entityEmptyLine as unknown as Book);
 
-        expect(screen.queryByText('authors')).toBeNull();
+        expect(screen.queryByTestId('book-byline')).toBeNull();
         expect(
             screen.queryAllByRole('link').map((link) => link.getAttribute('href')),
         ).not.toContain('/books/find/author/177615/1');

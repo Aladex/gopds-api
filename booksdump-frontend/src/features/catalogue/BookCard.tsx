@@ -1,25 +1,20 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { BookOpen, ChevronDown, Star } from 'lucide-react';
+import { ChevronDown, Star } from 'lucide-react';
 
-import type { AuthorDisplay, AuthorEntityRef, Book } from '@/api/books';
+import type { AuthorDisplay, Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/shared/ui/dropdown-menu';
-import { BouncingDots } from '@/shared/ui/bouncing-dots';
-import { Expandable } from '@/shared/ui/expandable';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/tooltip';
 import BookCover from '@/features/catalogue/BookCover';
 import BookAdminMenu from '@/features/catalogue/BookAdminMenu';
+import AuthorByline from '@/features/catalogue/AuthorByline';
+import GenreChips from '@/features/catalogue/GenreChips';
+import BookActions from '@/features/catalogue/BookActions';
+import { isClippedBlock, isClippedLine, useMeasured } from '@/features/catalogue/hooks/useMeasured';
 import { cn } from '@/shared/lib/utils';
-import { authorTitle } from '@/shared/lib/authorTitle';
+import { formatCalendarDay } from '@/shared/lib/formatDate';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
-import { CARD_ACTION_CLASS, KindleButton, TelegramButton } from '@/features/kindle/SendButtons';
 
 import { API_URL } from '@/api/config';
 import { useAuthor } from '@/context/AuthorContext';
@@ -28,130 +23,19 @@ import { useSearchBar } from '@/context/SearchBarContext';
 /**
  * BookCard renders one row of the catalogue.
  *
- * Clicking the card reveals everything it was holding back — the rest of the
- * annotation, and whatever of the authors, series and genres did not fit on a
- * line. A book with twelve authors or nine genres would otherwise stretch every
- * row in the list to fit the longest one.
- */
-
-/**
- * The archived download is labelled ZIP rather than FB2+ZIP so all four labels
- * are of a length, which lets them sit in an even block the exact width of the
- * cover. Next to FB2, EPUB and MOBI it reads as what it is: the same book, in an
- * archive.
- */
-/** The one format the preview pipeline reads; the server refuses the rest. */
-const PREVIEWABLE_FORMAT = 'fb2';
-
-const DOWNLOAD_FORMATS = [
-    { id: 'zip', label: 'ZIP' },
-    { id: 'fb2', label: 'FB2' },
-    { id: 'epub', label: 'EPUB' },
-    { id: 'mobi', label: 'MOBI' },
-] as const;
-
-/**
- * MetaRow is one line of the card's metadata: what it is, then the values.
+ * One card, two arrangements of the same parts. A wide card is three zones:
+ * the cover, the bibliographic core, and an action rail. Below that the title
+ * block sits beside a smaller cover, the genres and annotation take the
+ * card's full width, and a row of three verbs closes the card.
  *
- * Shut, it shows a single line and lets the browser mark the cut. That is the
- * whole reason it is line-clamped rather than sliced in JavaScript:
- * `-webkit-line-clamp` adds the ellipsis only where it actually truncated, so a
- * book with one genre says nothing about hidden ones and a book with nine says
- * so — and nothing has to measure the row, or re-measure it as the window
- * changes width.
- *
- * The values break like ordinary text, so a first value longer than the line
- * still shows as much of itself as fits. They were unbreakable boxes to begin
- * with, on the reasoning that a cut should fall between two names rather than
- * inside one — which is true right up to the book whose only series is longer
- * than the row, where it left the label standing over an ellipsis and no
- * content at all.
- *
- * That is also why the values are links rather than buttons. A button is an
- * atomic inline box whatever its `display` says — measured: laid out as
- * `inline` it still vanishes whole — and these are navigations anyway, so they
- * gain the browser's own openings into a new tab on the way.
- *
- * The line is given more height than the text needs because each value carries
- * an underline, and a clamped line clips whatever leans out of it.
+ * The core reads in one order at both sizes: the title, «by» its authors, the
+ * series, the dates, the genres, a colophon, the annotation. Shut, the card
+ * shows the annotation's first three lines and one row of genres, and a phone
+ * leaves the colophon out; «Подробнее» opens the rest, and it is offered only
+ * when something actually was left out.
  */
-const MetaRow: React.FC<React.PropsWithChildren<{ label: string; open: boolean }>> = ({
-    label,
-    open,
-    children,
-}) => (
-    <div className={cn('text-sm leading-6 break-words', !open && 'line-clamp-1')}>
-        <span className="mr-1.5 text-xs tracking-wide text-muted-foreground uppercase">
-            {label}
-        </span>
-        {children}
-    </div>
-);
 
-/** MetaItem is one value in such a row: where it goes, and what to forget first. */
-const MetaItem: React.FC<
-    React.PropsWithChildren<{ first: boolean; to?: string; onGo?: () => void }>
-> = ({ first, to, onGo, children }) => (
-    <>
-        {!first && <span className="mx-1.5 text-muted-foreground">·</span>}
-        {to ? (
-            <Link to={to} onClick={onGo} className="border-b border-border hover:border-current">
-                {children}
-            </Link>
-        ) : (
-            <span>{children}</span>
-        )}
-    </>
-);
-
-/**
- * AuthorPeople is a name of several people (several author entities, under
- * the entity identity): the name as the book writes it, opening a short menu
- * of each of them — the card's admin menu is the pattern. Its trigger is not
- * a <button> for the reason MetaRow's values are links: a clamped row drops
- * a button whole.
- */
-const AuthorPeople: React.FC<{
-    first: boolean;
-    name: string;
-    people: AuthorEntityRef[];
-    onGo: (person: AuthorEntityRef) => void;
-}> = ({ first, name, people, onGo }) => {
-    const { t } = useTranslation();
-    return (
-        <>
-            {!first && <span className="mx-1.5 text-muted-foreground">·</span>}
-            <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                    <span
-                        role="button"
-                        tabIndex={0}
-                        className="cursor-pointer border-b border-dashed border-border hover:border-current"
-                    >
-                        {name}
-                    </span>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                    {people.map((person) => (
-                        <DropdownMenuItem key={person.id} asChild>
-                            <Link
-                                to={`/books/find/author/${person.id}/1`}
-                                onClick={() => onGo(person)}
-                            >
-                                {authorTitle(person, t)}
-                            </Link>
-                        </DropdownMenuItem>
-                    ))}
-                </DropdownMenuContent>
-            </DropdownMenu>
-        </>
-    );
-};
-
-/**
- * authorLine is what the authors row shows: the book's author line when the
- * list sends one, or else the catalogue authors, every one of them a link.
- */
+/** Two names and the counter, or the full author line, from what the list sends. */
 const authorLine = (book: Book): AuthorDisplay[] =>
     book.authors_display ??
     (book.authors ?? []).map((author) => ({ name: author.full_name, legacy_author_id: author.id }));
@@ -164,8 +48,8 @@ export interface BookCardProps {
      * Taken from the list rather than measured here, because twenty cards
      * asking the same question of the browser is twenty listeners where one
      * will do. The list asks it with CARD_WIDE_QUERY, the same number the
-     * `sm:` classes below use — see shared/layout/breakpoints for why exactly
-     * one layout decision is still made in JS.
+     * `card:` classes below use — see shared/layout/breakpoints for why the
+     * action area and the authors list are still decided in JS.
      */
     isWide: boolean;
     /**
@@ -177,14 +61,11 @@ export interface BookCardProps {
      */
     showLanguage: boolean;
     isSuperuser: boolean;
+    /** Formats the date the book was added; the published date is a day, shown as one. */
     formatDate: (value: string) => string;
     isBookConverting: (bookID: number, format: string) => boolean;
     onDownload: (format: string, bookID: number) => void;
-    /**
-     * Opens the in-place reader. Only FB2 is offered it: the preview pipeline
-     * reads nothing else, and a button that always answers "not for this
-     * format" teaches the reader to stop pressing it.
-     */
+    /** Opens the in-place reader. */
     onPreview: (book: Book) => void;
     onEpubRequest: (bookID: number) => void;
     onMobiRequest: (bookID: number) => void;
@@ -214,6 +95,47 @@ export interface BookCardProps {
 /** coverPath mirrors the sanitising the poster route expects. */
 const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, '');
 
+/**
+ * FavouriteStar sits on the cover's top-right corner at both sizes.
+ *
+ * On the cover, «in favourites» is visible as an amber disc while scanning a
+ * list: it is a property of the book. The dark scrim makes the star readable
+ * on any cover and on the typographic tile, and the hit area reaches past the
+ * 28px disc to a finger's 40px. One name in both states, as a toggle's name
+ * should be: the pressed state says which, and the hint what a press does.
+ */
+const FavouriteStar: React.FC<{ book: Book; onToggle: (book: Book) => void }> = ({
+    book,
+    onToggle,
+}) => {
+    const { t } = useTranslation();
+    return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-pressed={book.fav}
+                        aria-label={t('bookFav')}
+                        onClick={() => onToggle(book)}
+                        className={cn(
+                            'absolute top-1 right-1 size-7 rounded-full text-white card:size-[30px]',
+                            "before:absolute before:-inset-1.5 before:content-['']",
+                            book.fav
+                                ? 'bg-amber-500 hover:bg-amber-500/90 hover:text-white dark:hover:bg-amber-500/90'
+                                : 'bg-black/45 hover:bg-black/60 hover:text-white dark:hover:bg-black/60',
+                        )}
+                    >
+                        <Star className={cn('size-[15px]', book.fav && 'fill-current')} />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>{book.fav ? t('bookFavRemove') : t('bookFavAdd')}</TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    );
+};
+
 const BookCard: React.FC<BookCardProps> = ({
     book,
     isWide,
@@ -242,6 +164,7 @@ const BookCard: React.FC<BookCardProps> = ({
     const { setSearchItem } = useSearchBar();
     const { setAuthorName } = useAuthor();
     const [open, setOpen] = React.useState(false);
+    const [chipsHidden, setChipsHidden] = React.useState(0);
 
     /** Names the block the control opens, for anything reading the page aloud. */
     const detailsID = `book-${book.id}-details`;
@@ -253,362 +176,239 @@ const BookCard: React.FC<BookCardProps> = ({
     // reader less than the empty space where it would have gone.
     const bookLanguage = getLanguageDisplaySafe(book.lang);
     const authors = authorLine(book);
+    const published = formatCalendarDay(book.docdate);
+    const genres = book.genres ?? [];
+
+    // Publisher and ISBNs as the source file states them, and only when it
+    // does. Plain text, not links: nothing in the catalogue is filtered by them.
+    const colophon = [
+        book.publisher,
+        book.isbn && book.isbn.length > 0 ? `${t('bookIsbn')} ${book.isbn.join(', ')}` : null,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+    // A wide card always has room for the line, cut if it must be; a phone
+    // keeps it for the opened card.
+    const showColophon = colophon !== '' && (isWide || open);
+
+    const [annotationRef, annotationClipped] = useMeasured<HTMLParagraphElement, boolean>(
+        isClippedBlock,
+        false,
+        !open,
+    );
+    const [colophonRef, colophonClipped] = useMeasured<HTMLParagraphElement, boolean>(
+        isClippedLine,
+        false,
+        isWide && !open,
+    );
+
+    // «Подробнее» only when the shut card is holding something back. Once
+    // open it stays, as the way to shut it again.
+    const holdingBack =
+        annotationClipped || chipsHidden > 0 || (isWide ? colophonClipped : colophon !== '');
+    const offerMore = open || holdingBack;
+
+    const hasDetails = genres.length > 0 || showColophon || Boolean(book.annotation) || offerMore;
 
     const cover = `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`;
-
-    const handleFormat = (id: string) => {
-        if (id === 'epub') return onEpubRequest(book.id);
-        if (id === 'mobi') return onMobiRequest(book.id);
-        return onDownload(id, book.id);
-    };
-
-    /*
-     * The four ways to take the book away. Two equal cells with the label
-     * centred in each, so they read as an even block rather than as four links
-     * of differing length.
-     *
-     * They sit under the cover on a wide screen, as quiet links. On a phone they
-     * go below the rule instead, among the other things one can do to a book,
-     * and become targets a finger can land on: beside an 88px cover each was 42
-     * by 22, half the size that needs to be. They used to close the grid above
-     * the rule, where the control that sits on it cut into their outlines.
-     */
-    const downloads = (
-        <div className={cn('grid grid-cols-2', 'w-full gap-2', 'sm:w-auto sm:gap-1')}>
-            {DOWNLOAD_FORMATS.map((format) => {
-                const converting = isBookConverting(book.id, format.id);
-                return (
-                    <button
-                        key={format.id}
-                        type="button"
-                        disabled={converting}
-                        onClick={() => handleFormat(format.id)}
-                        className={cn(
-                            'flex items-center justify-center rounded text-center text-primary',
-                            'hover:bg-accent hover:underline',
-                            'min-h-9 border border-border text-[13px]',
-                            'sm:min-h-0 sm:border-0 sm:py-0.5 sm:text-[12px]',
-                            'disabled:cursor-default disabled:text-muted-foreground disabled:no-underline disabled:hover:bg-transparent',
-                        )}
-                    >
-                        {converting && <BouncingDots className="mr-1" />}
-                        {format.label}
-                    </button>
-                );
-            })}
-        </div>
-    );
 
     return (
         <article
             data-testid="book-card"
             data-state={open ? 'open' : 'collapsed'}
-            className="relative rounded border border-border bg-card p-4 transition-colors hover:border-muted-foreground"
+            className="relative rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground card:p-5"
         >
             {/*
-              One grid, two arrangements. A phone has no room for a cover beside
-              the whole text: at 340px that leaves 155px, in which the title
-              breaks in two, every label parts from its value and the annotation
-              comes to a couple of words — before a book with several authors
-              makes it worse.
-
-              So only the title and the dates sit beside the cover, which is what
-              a reader scans first, and the metadata and annotation drop below to
-              the card's full width. On a wider screen the same three blocks fall
-              into the two columns they had.
+              One grid, two arrangements. Wide, the cover and the rail each span
+              both rows: the first row (the title block) keeps its content
+              height and the second takes whatever the cover or the rail
+              leave, so spare height lands below the text and not inside the
+              title row. Narrow, only the title block sits beside the cover,
+              and the rest drops below it to the card's full width: at 320px a
+              cover beside the whole text leaves the annotation a word a line.
             */}
-            {/*
-              On sm+ the cover column spans both rows (~206px: the cover plus
-              the format buttons), and when the text column is shorter than
-              that, two auto rows share the difference — the title row grows an
-              empty band under the dates. Naming the rows keeps the title row
-              at its content height and hands all spare height to the second
-              row, where it lands below the metadata. Below sm nothing spans
-              rows and the grid's own auto rows are left alone.
-            */}
-            <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-x-4 gap-y-3 sm:grid-rows-[auto_1fr] sm:gap-y-1.5">
-                <div className="contents sm:row-span-2 sm:flex sm:flex-col sm:gap-2">
+            <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-x-3.5 gap-y-3 card:grid-cols-[108px_minmax(0,1fr)_240px] card:grid-rows-[auto_1fr] card:gap-x-6 card:gap-y-2">
+                <div className="col-start-1 row-start-1 flex flex-col items-center gap-1.5 card:row-span-2 card:gap-2">
                     <BookCover
                         src={cover}
                         alt={book.title}
-                        className="col-start-1 row-start-1 h-[150px] w-[104px] flex-none rounded-sm"
-                    />
-                    {isWide && downloads}
+                        hasPicture={book.cover}
+                        title={book.title}
+                        author={authors[0]?.name}
+                        className="h-[116px] w-20 flex-none rounded shadow-[0_2px_5px_rgba(0,0,0,0.12)] card:h-[156px] card:w-[108px]"
+                    >
+                        <FavouriteStar book={book} onToggle={onToggleFavourite} />
+                    </BookCover>
+                    {/* Only when the list is mixed: it answers "can I read this
+                        one?", which nothing else on the card does. */}
+                    {showLanguage && bookLanguage && (
+                        <span className="rounded-sm bg-secondary px-1.5 text-[11px] leading-[18px] font-semibold text-muted-foreground uppercase">
+                            <span aria-hidden="true">{book.lang}</span>
+                            <span className="sr-only">{bookLanguage}</span>
+                        </span>
+                    )}
                 </div>
 
-                <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1.5">
-                    <h3
-                        className={cn(
-                            'text-lg font-medium text-balance [overflow-wrap:anywhere]',
-                            isSuperuser && 'pr-8',
-                        )}
-                    >
-                        {book.title}
-                    </h3>
+                <div className="col-start-2 row-start-1 flex min-w-0 flex-col gap-1">
                     {/*
-                      The administrator's menu, in the card's top-right corner rather
-                      than in the action row: there it sat among the buttons a reader
-                      presses every day, one stray tap from a rescan, and it took the
-                      room the labelled Kindle button needs at 320px. The title keeps
-                      clear of it with padding of its own. Here in the source, after
-                      the title, so it is read and tabbed to after it; placed by the
-                      card, the nearest positioned box.
+                      The administrator's menu ends the title row at both sizes:
+                      never in the rail, never on the cover where the star is,
+                      and out of the buttons a reader presses every day. After
+                      the title in the source, so it is read and tabbed to after
+                      it.
                     */}
-                    {isSuperuser && (
-                        <div className="absolute top-2 right-2">
-                            <BookAdminMenu
-                                book={book}
-                                onRescan={onRescan}
-                                onEdit={onEdit}
-                                onToggleApproved={onToggleApproved}
-                            />
+                    <div className="flex items-start gap-1">
+                        <h3 className="min-w-0 flex-1 text-[17px] leading-[1.3] font-semibold text-balance [overflow-wrap:anywhere] card:text-[19px] card:leading-[1.35]">
+                            {book.title}
+                        </h3>
+                        {isSuperuser && (
+                            <div className="-my-2 -mr-2 flex-none">
+                                <BookAdminMenu
+                                    book={book}
+                                    onRescan={onRescan}
+                                    onEdit={onEdit}
+                                    onToggleApproved={onToggleApproved}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <AuthorByline
+                        authors={authors}
+                        isWide={isWide}
+                        bookTitle={book.title}
+                        onGo={(scopeName) => {
+                            leaveScope();
+                            // The name is on screen already, so the search panel
+                            // need not fetch it to say whose books it is scoped to.
+                            setAuthorName(scopeName);
+                        }}
+                    />
+
+                    {book.series && book.series.length > 0 && (
+                        <div className="text-[13px] leading-snug text-muted-foreground">
+                            {t('bookSeriesLabel')}:{' '}
+                            {book.series.map((series, index) => (
+                                <React.Fragment key={series.id ?? series.ser}>
+                                    {index > 0 && ', '}
+                                    <Link
+                                        to={`/books/find/category/${series.id}/1`}
+                                        onClick={leaveScope}
+                                        className="border-b border-border text-foreground hover:border-current"
+                                    >
+                                        {series.ser}
+                                    </Link>
+                                </React.Fragment>
+                            ))}
                         </div>
                     )}
 
-                    <div className="flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-muted-foreground">
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12.5px] leading-snug text-muted-foreground">
                         <span>
                             {t('bookAdded')} {formatDate(book.registerdate)}
                         </span>
-                        <span>
-                            {t('bookPublished')} {formatDate(book.docdate)}
-                        </span>
-                        {/* Last, and only when the list is mixed: it answers
-                            "can I read this one?", which the dates do not. */}
-                        {showLanguage && bookLanguage && <span>{bookLanguage}</span>}
+                        {published && (
+                            <span>
+                                {t('bookPublished')} {published}
+                            </span>
+                        )}
                     </div>
                 </div>
 
-                <div
-                    id={detailsID}
-                    className="col-span-2 row-start-2 flex min-w-0 flex-col gap-1.5 sm:col-span-1 sm:col-start-2"
-                >
-                    {authors.length > 0 && (
-                        <MetaRow label={t('authors')} open={open}>
-                            {authors.map((author, index) => {
-                                const people = author.entities ?? [];
-                                if (people.length > 1) {
-                                    return (
-                                        <AuthorPeople
-                                            key={index}
-                                            first={index === 0}
-                                            name={author.name}
-                                            people={people}
-                                            onGo={(person) => {
-                                                leaveScope();
-                                                setAuthorName(authorTitle(person, t));
-                                            }}
-                                        />
-                                    );
-                                }
-                                // Under the entity identity a name links to its
-                                // entity, and the scope is named as the entity's
-                                // page names it, so a reload says the same.
-                                const entity = people[0];
-                                const id = entity ? entity.id : author.legacy_author_id;
-                                return (
-                                    <MetaItem
-                                        // Two credits may share a name, and an
-                                        // unlinked one has no ID: the place in
-                                        // the line is the only stable key.
-                                        key={index}
-                                        first={index === 0}
-                                        to={
-                                            id === undefined
-                                                ? undefined
-                                                : `/books/find/author/${id}/1`
-                                        }
-                                        onGo={() => {
-                                            leaveScope();
-                                            // The name is on screen already, so the
-                                            // search panel need not fetch it to say
-                                            // whose books it is scoped to.
-                                            setAuthorName(
-                                                entity ? authorTitle(entity, t) : author.name,
-                                            );
-                                        }}
-                                    >
-                                        {author.name}
-                                    </MetaItem>
-                                );
-                            })}
-                        </MetaRow>
-                    )}
-
-                    {book.series && book.series.length > 0 && (
-                        <MetaRow label={t('series')} open={open}>
-                            {book.series.map((series, index) => (
-                                <MetaItem
-                                    key={series.id ?? series.ser}
-                                    first={index === 0}
-                                    to={`/books/find/category/${series.id}/1`}
-                                    onGo={leaveScope}
-                                >
-                                    {series.ser}
-                                </MetaItem>
-                            ))}
-                        </MetaRow>
-                    )}
-
-                    {book.genres && book.genres.length > 0 && (
-                        <MetaRow label={t('genres')} open={open}>
-                            {book.genres.map((genre, index) => (
-                                <MetaItem
-                                    key={genre.id}
-                                    first={index === 0}
-                                    to={`/books/find/genre/${genre.id}/1`}
-                                    onGo={leaveScope}
-                                >
-                                    {t(genre.genre, genre.genre)}
-                                </MetaItem>
-                            ))}
-                        </MetaRow>
-                    )}
-
-                    {/* As the source file states them, and only when it does:
-                        no row stands over an empty value. Plain text, not
-                        links — nothing in the catalogue is filtered by them. */}
-                    {book.publisher && (
-                        <MetaRow label={t('bookPublisher')} open={open}>
-                            {book.publisher}
-                        </MetaRow>
-                    )}
-
-                    {book.isbn && book.isbn.length > 0 && (
-                        <MetaRow label={t('bookIsbn')} open={open}>
-                            {book.isbn.join(', ')}
-                        </MetaRow>
-                    )}
-
-                    {book.annotation ? (
-                        <Expandable
-                            open={open}
-                            peekLines={isWide ? 2 : 5}
-                            className="text-sm text-muted-foreground"
-                        >
-                            {book.annotation}
-                        </Expandable>
-                    ) : (
-                        <p className="text-sm italic text-muted-foreground">{t('noAnnotation')}</p>
-                    )}
-                </div>
-            </div>
-
-            {/*
-              The rule that separates the book from what can be done with it, with
-              the way in and out sitting on it. On the line rather than in the
-              flow because that is what it divides: everything above is the book
-              as the list shows it, everything below is the reader acting on it,
-              and opening the card is the move between the two.
-
-              The card used to open on a click anywhere on it, which was never
-              announced and could not be reached from a keyboard at all: it was an
-              <article> with an onClick. It could not simply be given a role
-              either — it holds links and buttons, and an interactive element
-              wrapping interactive elements is flattened by the software that
-              reads a page aloud. Selecting a line of the annotation with the
-              mouse also counted as a click on the card and shut it, taking the
-              text with it.
-            */}
-            {/* Roomier on a phone: the control sits astride the rule, and the
-                downloads are the first thing under it, so the two touch targets
-                would otherwise share an edge. */}
-            <div className="relative mt-5 border-t border-border pt-8 sm:mt-3 sm:pt-2.5">
-                <button
-                    type="button"
-                    onClick={() => setOpen((value) => !value)}
-                    aria-expanded={open}
-                    aria-controls={detailsID}
-                    className={cn(
-                        // Centred on the rule, painted in the card's own colour
-                        // so the line appears to break for it rather than to run
-                        // behind it. Taller where it is pressed with a finger
-                        // rather than pointed at, and the offset follows so it
-                        // still straddles the line.
-                        'absolute left-1/2 -translate-x-1/2',
-                        '-top-4 py-1.5 sm:-top-3 sm:py-0',
-                        'flex items-center gap-1 rounded bg-card px-3 text-[13px] text-primary sm:px-2',
-                        'hover:underline focus-visible:ring-[3px] focus-visible:ring-focus focus-visible:outline-none',
-                    )}
-                >
-                    <ChevronDown
-                        aria-hidden="true"
-                        className={cn(
-                            'size-4 transition-transform duration-200 motion-reduce:transition-none',
-                            open && 'rotate-180',
+                {hasDetails && (
+                    <div
+                        id={detailsID}
+                        className="col-span-2 row-start-2 flex min-w-0 flex-col gap-2 card:col-span-1 card:col-start-2"
+                    >
+                        {genres.length > 0 && (
+                            <GenreChips
+                                genres={genres}
+                                open={open}
+                                onOpen={() => setOpen(true)}
+                                onGo={leaveScope}
+                                onHiddenChange={setChipsHidden}
+                            />
                         )}
-                    />
-                    {open ? t('bookLess') : t('bookMore')}
-                </button>
 
-                {!isWide && downloads}
+                        {showColophon && (
+                            <p
+                                ref={colophonRef}
+                                data-testid="book-colophon"
+                                data-clip="colophon"
+                                className={cn(
+                                    'text-[12.5px] leading-normal text-muted-foreground',
+                                    !open && 'truncate',
+                                )}
+                            >
+                                {colophon}
+                            </p>
+                        )}
 
-                {/*
-                  Every action labelled. Four labels do not fit one row of a
-                  phone — at 320px the row of two labels and two icons already
-                  ran past the card's padding — so below the card's wide layout
-                  they take a two-column grid, as the format buttons above them
-                  do, each a finger's height; from it up, one row on the right.
-                  A button switched off in the profile leaves no hole: the grid
-                  fills in order, and an odd one out takes the whole last row.
-                */}
-                <div
-                    data-testid="book-actions"
-                    className={cn(
-                        'grid grid-cols-2 gap-2 pt-2',
-                        '[&>:last-child:nth-child(odd)]:col-span-2',
-                        'sm:flex sm:items-center sm:justify-end sm:gap-0.5 sm:pt-0',
-                    )}
-                >
-                    {book.format === PREVIEWABLE_FORMAT && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            title={t('bookRead')}
-                            onClick={() => onPreview(book)}
-                            className={CARD_ACTION_CLASS}
-                        >
-                            <BookOpen className="size-4" />
-                            {t('bookRead')}
-                        </Button>
-                    )}
-                    {showKindleButton && (
-                        <KindleButton
-                            configured={kindleConfigured}
-                            sending={isSendingToKindle}
-                            onClick={() => onSendToKindle?.(book)}
-                        />
-                    )}
-                    {showTelegramButton && (
-                        <TelegramButton
-                            connected={telegramConnected}
-                            sending={isSendingToTelegram}
-                            onClick={() => onSendToTelegram?.(book)}
-                        />
-                    )}
-                    {/* One word in both states, as a toggle's name should be:
-                        the filled star and the pressed state say which, and
-                        the hint says what a press does. «В избранном» did not
-                        fit half a 320px card beside its star. */}
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    aria-pressed={book.fav}
-                                    onClick={() => onToggleFavourite(book)}
-                                    className={cn(CARD_ACTION_CLASS, book.fav && 'text-amber-500')}
-                                >
-                                    <Star className={cn('size-4', book.fav && 'fill-current')} />
-                                    {t('bookFav')}
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                {book.fav ? t('bookFavRemove') : t('bookFavAdd')}
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                </div>
+                        {/* Three lines shut at both sizes; open, it flows in the
+                            card rather than in a box of its own that scrolls
+                            inside the page. */}
+                        {book.annotation && (
+                            <p
+                                ref={annotationRef}
+                                data-clip="annotation"
+                                className={cn(
+                                    'text-sm leading-normal whitespace-pre-line text-muted-foreground card:text-[13.5px] card:leading-[1.55]',
+                                    !open && 'line-clamp-3',
+                                )}
+                            >
+                                {book.annotation}
+                            </p>
+                        )}
+
+                        {/*
+                          The one way in and out. The card used to open on a click
+                          anywhere on it, which was never announced and could not
+                          be reached from a keyboard; and selecting a line of the
+                          annotation with the mouse shut it, taking the text with
+                          it.
+                        */}
+                        {offerMore && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setOpen((value) => !value)}
+                                aria-expanded={open}
+                                aria-controls={detailsID}
+                                className="-my-1 -ml-2 h-10 gap-1 self-start px-2 font-semibold text-primary has-[>svg]:px-2 card:h-8"
+                            >
+                                <ChevronDown
+                                    aria-hidden="true"
+                                    className={cn(
+                                        'size-4 transition-transform duration-200 motion-reduce:transition-none',
+                                        open && 'rotate-180',
+                                    )}
+                                />
+                                {open ? t('bookLess') : t('bookMore')}
+                            </Button>
+                        )}
+                    </div>
+                )}
+
+                <BookActions
+                    book={book}
+                    isWide={isWide}
+                    isBookConverting={isBookConverting}
+                    onDownload={onDownload}
+                    onPreview={onPreview}
+                    onEpubRequest={onEpubRequest}
+                    onMobiRequest={onMobiRequest}
+                    showKindleButton={showKindleButton}
+                    showTelegramButton={showTelegramButton}
+                    kindleConfigured={kindleConfigured}
+                    isSendingToKindle={isSendingToKindle}
+                    onSendToKindle={onSendToKindle}
+                    telegramConnected={telegramConnected}
+                    isSendingToTelegram={isSendingToTelegram}
+                    onSendToTelegram={onSendToTelegram}
+                    className={
+                        isWide ? 'col-start-3 row-span-2 row-start-1 self-start' : 'col-span-2'
+                    }
+                />
             </div>
         </article>
     );
