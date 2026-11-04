@@ -96,8 +96,10 @@ describe('the cards of a page', () => {
         await act(async () => {});
 
         expect(RecordingObserver.instances).toHaveLength(1);
-        // Every card's annotation, genre row and colophon are watched.
-        expect(RecordingObserver.instances[0].observed.size).toBe(15);
+        // Every card's annotation, genre row and colophon are watched — and
+        // on a wide card, the rail and the title block too, for the
+        // reservation the annotation flows under the rail around.
+        expect(RecordingObserver.instances[0].observed.size).toBe(25);
         expect(fontsWaits).toBe(1);
 
         views.forEach((view) => view.unmount());

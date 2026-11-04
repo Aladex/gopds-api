@@ -80,6 +80,10 @@ export interface FakeLayout {
     colophonClipped?: boolean;
     /** How many genre chips sit on the first row; the rest wrap below it. */
     chipsOnFirstRow?: number;
+    /** The wide card's action rail, by its height — the annotation flows under it. */
+    railHeight?: number;
+    /** The wide card's title block, by its height. */
+    titleHeight?: number;
 }
 
 const CHIP_WIDTH = 60;
@@ -91,6 +95,7 @@ const METRICS = [
     'clientHeight',
     'scrollWidth',
     'clientWidth',
+    'offsetHeight',
     'offsetTop',
     'offsetLeft',
     'offsetWidth',
@@ -108,8 +113,13 @@ export const fakeLayout = (layout: FakeLayout): (() => void) => {
     const chipIndex = (el: HTMLElement) => Number(el.dataset.chip);
     const firstRow = layout.chipsOnFirstRow ?? Number.POSITIVE_INFINITY;
     const values: Record<(typeof METRICS)[number], (el: HTMLElement) => number> = {
+        // The details block is measured too (its own open/collapse motion): shut
+        // it is as tall as the annotation's three lines, open as the whole text.
         scrollHeight: (el) =>
-            el.dataset.clip === 'annotation' && layout.annotationClipped ? 120 : 60,
+            (el.dataset.clip === 'annotation' || el.dataset.clip === 'details') &&
+            layout.annotationClipped
+                ? 120
+                : 60,
         clientHeight: () => 60,
         scrollWidth: (el) => (el.dataset.clip === 'colophon' && layout.colophonClipped ? 900 : 300),
         clientWidth: (el) => (el.dataset.clip === 'chips' ? CONTAINER_WIDTH : 300),
@@ -120,6 +130,12 @@ export const fakeLayout = (layout: FakeLayout): (() => void) => {
             const index = chipIndex(el);
             return (index < firstRow ? index : index - firstRow) * CHIP_WIDTH;
         },
+        offsetHeight: (el) =>
+            el.dataset.measure === 'rail'
+                ? (layout.railHeight ?? 0)
+                : el.dataset.measure === 'core-title'
+                  ? (layout.titleHeight ?? 0)
+                  : 0,
         offsetWidth: (el) => (el.dataset.chip !== undefined ? CHIP_WIDTH - 6 : 0),
     };
     for (const name of METRICS) {

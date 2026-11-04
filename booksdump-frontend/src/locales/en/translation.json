@@ -19,6 +19,7 @@
   "registerButton": "Register",
   "bookPublished": "Published",
   "bookIsbn": "ISBN",
+  "bookPublisherLabel": "Publisher",
   "bookAdded": "Added",
   "annotation": "Annotation",
   "routeTitles.books": "New books",
