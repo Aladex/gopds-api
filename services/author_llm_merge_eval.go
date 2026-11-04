@@ -1049,9 +1049,16 @@ func mergeOptions(mode string) llmeval.Options {
 	case mergeEvalModes[mode].holdoutAudit:
 		rule = llmeval.GateRuleHoldoutAudit
 	}
-	return llmeval.Options{MaxErrorShare: mergeEvalMaxErrorShare, ContestedIsError: true,
+	o := llmeval.Options{MaxErrorShare: mergeEvalMaxErrorShare, ContestedIsError: true,
 		ContestedAdjudicated: true, AcceptOnly: mergeSameCanonical, AnchorRecall: true, ByScript: true,
 		GateRule: rule}
+	if mode == models.AuthorLLMEvalModeMerge8 {
+		// E4q plan B, fixed before run 272's first label: the name kinds'
+		// audit samples 473 and tolerates one labeled different, the same
+		// 1% / 95% bound as 300 with none; the apply skips the different.
+		o.AuditSample, o.AuditTolerated = llmeval.AuditSampleTolerant, llmeval.AuditToleratedDifferent
+	}
+	return o
 }
 
 // mergeReport computes the report, stores it with its digest and completes

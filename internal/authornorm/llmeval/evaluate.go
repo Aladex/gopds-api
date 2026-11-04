@@ -685,7 +685,7 @@ func evaluateStratum(combos []Combo, all []*Item, o *Options) (StratumReport, St
 		if len(supplement) > 0 {
 			m.Supplement = measureSupplement(c, supplement, o)
 			if o.GateRule == GateRuleHoldoutAudit {
-				m.Supplement.Audit = measureAudit(c, supplement, o, AuditSupplementSize)
+				m.Supplement.Audit = measureAudit(c, supplement, o, AuditSupplementSize, 0)
 			}
 			m.Passed = m.Passed && m.Supplement.passed()
 		}
@@ -888,13 +888,13 @@ func measure(c Combo, scope []*Item, o *Options) ComboMetrics {
 	}
 	if o.GateRule == GateRuleCensusAudit {
 		// The errors are only reported: the audit of the applied set gates.
-		m.Census, m.Audit = measureCensus(c, scope), measureAudit(c, scope, o, AuditSampleSize)
+		m.Census, m.Audit = measureCensus(c, scope), measureAudit(c, scope, o, o.auditSample(), o.AuditTolerated)
 		m.ErrorsPassed = m.Census.Complete && m.Audit.passed()
 	}
 	if o.GateRule == GateRuleHoldoutAudit {
 		// The bound and the errors are only reported: the audit of the
 		// applied holdout items gates.
-		m.Audit = measureAudit(c, scope, o, AuditSampleSize)
+		m.Audit = measureAudit(c, scope, o, o.auditSample(), o.AuditTolerated)
 		m.ErrorsPassed = m.Audit.passed()
 	}
 	m.Invalid, m.InvalidPassed = comboInvalid(c, scope)

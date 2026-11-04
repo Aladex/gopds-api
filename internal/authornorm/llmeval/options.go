@@ -30,6 +30,12 @@ type Options struct {
 	// it per stratum: empty (K) and GateRuleHoldout bound the error share
 	// of a sample; GateRuleCensus is for a run that asked every candidate.
 	GateRule string `json:"gate_rule,omitempty"`
+	// AuditSample replaces AuditSampleSize as the size of an audited
+	// stratum's sample when positive; AuditTolerated is how many of its
+	// items labeled different still pass it. Both are fixed by the mode
+	// before any label: growing either after one is optional stopping.
+	AuditSample    int `json:"audit_sample,omitempty"`
+	AuditTolerated int `json:"audit_tolerated,omitempty"`
 	// auditRun is Input.AuditRun, for the audit order.
 	auditRun int64
 }

@@ -166,6 +166,10 @@ type AuthorEntityMergeApplyReport struct {
 	ReportID       int64  `json:"report_id"`
 	Items          int    `json:"items"`
 	Accepted       int    `json:"accepted"`
+	// SkippedAdjudicatedDifferent counts the items the production rule
+	// accepted but a human labeled different, which a mode that tolerates
+	// a different in its audit (merge8, E4q plan B) never inserts.
+	SkippedAdjudicatedDifferent int `json:"skipped_adjudicated_different,omitempty"`
 	database.MergeInsertReport
 }
 
@@ -227,6 +231,38 @@ func mergeProductionDissents(a *database.AuthorLLMEvalAnswer) bool {
 	return production && asked && !same
 }
 
+// mergeApplyDifferent are the items of a run of a mode whose audit tolerates
+// a labeled different (Options.AuditTolerated) that are currently labeled
+// different, sampled or not: the apply skips them, so the pair stays
+// undecided and, while its card is unchanged, is not asked again
+// (mergeDueFrom). Nil for every other mode: its apply is unchanged.
+func mergeApplyDifferent(
+	ctx context.Context, db pg.DBI, runID int64, items []database.MergeApplyItem,
+) (map[int64]bool, error) {
+	run, err := database.GetAuthorLLMRunByID(ctx, db, runID)
+	if err != nil {
+		return nil, err
+	}
+	if mergeOptions(run.Mode).AuditTolerated == 0 {
+		return nil, nil
+	}
+	ids := make([]int64, len(items))
+	for i := range items {
+		ids[i] = items[i].ID
+	}
+	labels, err := database.AuthorLLMAdjudications(ctx, db, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64]bool{}
+	for id, l := range labels {
+		if l.Label == database.AdjudicationDifferent {
+			out[id] = true
+		}
+	}
+	return out, nil
+}
+
 // ApplyMergeEval inserts the decisions of a live registration's eval: every
 // census or holdout item of the kind the production rule accepted, compared
 // with the latest completed build's candidates (an item whose card changed
@@ -261,6 +297,10 @@ func (a *AuthorEntityAdmin) ApplyMergeEval(
 	if err != nil {
 		return nil, err
 	}
+	different, err := mergeApplyDifferent(ctx, a.db, reg.RunID, items)
+	if err != nil {
+		return nil, err
+	}
 	verdicts, jobs, dissent := mergeVerdicts(answers), mergeVerdictJobs(answers), mergeProductionDissent(answers)
 	rep := &AuthorEntityMergeApplyReport{RegistrationID: reg.ID, Kind: reg.Kind, RunID: reg.RunID,
 		ReportID: reg.EvidenceReportID, Items: len(items)}
@@ -268,6 +308,10 @@ func (a *AuthorEntityAdmin) ApplyMergeEval(
 	for i := range items {
 		it := &items[i]
 		if !mergeApplyAccepted(reg.Kind, verdicts[it.ID], dissent[it.ID]) {
+			continue
+		}
+		if different[it.ID] {
+			rep.SkippedAdjudicatedDifferent++
 			continue
 		}
 		v := database.MergeVerdict{ConfigVersion: reg.ConfigVersion, Kind: reg.Kind, ReportID: reg.EvidenceReportID}

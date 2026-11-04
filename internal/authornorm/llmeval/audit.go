@@ -32,6 +32,16 @@ const GateRuleHoldoutAudit = "holdout_audit"
 // (migration 70's author_llm_eval_item_audited takes the same number).
 const AuditSampleSize = 300
 
+// AuditSampleTolerant and AuditToleratedDifferent are the wider audit a
+// mode may fix before any label (Options.AuditSample, AuditTolerated;
+// E4q plan B, merge8): 473 sampled with at most one labeled different keeps
+// the one-sided 95% Clopper–Pearson bound of the error share within 1%, as
+// 300 with none does. Migration 79 takes the same number.
+const (
+	AuditSampleTolerant     = 473
+	AuditToleratedDifferent = 1
+)
+
 // AuditSupplementSize is the most applied extra Latin questions a holdout's
 // audit samples besides (migration 72 takes the same number).
 const AuditSupplementSize = 100
@@ -46,8 +56,9 @@ func AuditKey(run, item int64) [32]byte {
 // AuditMetrics is a census combo's audit: Applied counts the items the
 // pair and both judges answered the accepting answer; Sample lists the
 // sampled ones in audit order with their labels' counts — Failed are those
-// labeled different or still pending: any fails the stratum. GoldErrors
-// are the accepts the judges agreed against, reported only.
+// still pending and those labeled different beyond the Tolerated ones (at
+// most Options.AuditTolerated): any fails the stratum. GoldErrors are the
+// accepts the judges agreed against, reported only.
 type AuditMetrics struct {
 	Applied              int     `json:"applied"`
 	Sample               []int64 `json:"sample"`
@@ -56,8 +67,11 @@ type AuditMetrics struct {
 	Unclear              int     `json:"unclear"`
 	Pending              int     `json:"pending"`
 	Failed               int     `json:"failed"`
-	GoldErrors           int     `json:"gold_errors"`
-	GoldErrorIDs         []int64 `json:"gold_error_ids"`
+	// Tolerated counts the sampled items labeled different that the mode's
+	// tolerance lets pass (Options.AuditTolerated); the apply skips them.
+	Tolerated    int     `json:"tolerated,omitempty"`
+	GoldErrors   int     `json:"gold_errors"`
+	GoldErrorIDs []int64 `json:"gold_error_ids"`
 	// Withheld counts the accepts the production rule withholds (Item):
 	// outside the applied set.
 	Withheld int `json:"withheld,omitempty"`
@@ -72,9 +86,19 @@ func (o *Options) audited() bool {
 	return o.GateRule == GateRuleCensusAudit || o.GateRule == GateRuleHoldoutAudit
 }
 
+// auditSample is the size of a stratum's audit sample: AuditSampleSize
+// unless the mode fixed another.
+func (o *Options) auditSample() int {
+	if o.AuditSample > 0 {
+		return o.AuditSample
+	}
+	return AuditSampleSize
+}
+
 // measureAudit samples a combo's applied items in the run's audit order,
-// the first size of them, and counts the sample's labels.
-func measureAudit(c Combo, scope []*Item, o *Options, size int) *AuditMetrics {
+// the first size of them, and counts the sample's labels: up to tolerated
+// labeled different do not fail it, a pending one always does.
+func measureAudit(c Combo, scope []*Item, o *Options, size, tolerated int) *AuditMetrics {
 	type keyed struct {
 		key [32]byte
 		it  *Item
@@ -108,7 +132,11 @@ func measureAudit(c Combo, scope []*Item, o *Options, size int) *AuditMetrics {
 			m.Unclear++
 		case AdjudicatedDifferent:
 			m.AdjudicatedDifferent++
-			m.Failed++
+			if m.Tolerated < tolerated {
+				m.Tolerated++
+			} else {
+				m.Failed++
+			}
 		default:
 			m.Pending++
 			m.Failed++
