@@ -448,20 +448,24 @@ func TestPGSearchRepositoryCancelledContext(t *testing.T) {
 	})
 
 	t.Run("canceling a lock-waiting statement aborts it promptly", func(t *testing.T) {
-		requireDatabase(t)
-
-		// An EXCLUSIVE lock conflicts with the ACCESS SHARE the search takes on
-		// every table in its range table, so the statement waits server-side.
-		// This case runs on the pool, not the fixture transaction: the
-		// fixture's own ROW EXCLUSIVE write locks would block LOCK TABLE
-		// itself, and the cancel would destroy the fixture connection anyway.
-		blocker, err := db.Begin()
+		// An ACCESS EXCLUSIVE lock conflicts with the ACCESS SHARE the search
+		// takes on every table in its range table, so the statement waits
+		// server-side whatever the catalog holds. (An EXCLUSIVE lock does not
+		// conflict with ACCESS SHARE: under it the search never waited, and
+		// the case held only while the restored dump made the search itself
+		// slower than the cancel.) It runs on the pool of a scratch database
+		// of its own: the fixture transaction's ROW EXCLUSIVE locks would
+		// block LOCK TABLE itself, the cancel would destroy the fixture
+		// connection, and the lock would stall every other suite reading the
+		// configured catalog.
+		scratch := jobsDB(t)
+		blocker, err := scratch.Begin()
 		require.NoError(t, err)
-		_, err = blocker.Exec(`LOCK TABLE opds_catalog_book IN EXCLUSIVE MODE`)
+		_, err = blocker.Exec(`LOCK TABLE opds_catalog_book IN ACCESS EXCLUSIVE MODE`)
 		require.NoError(t, err)
 		defer func() { _ = blocker.Rollback() }()
 
-		repo := NewPGSearchRepository(db)
+		repo := NewPGSearchRepository(scratch)
 		req := models.BookSearchRequest{Query: "война", Language: AllLanguages, Limit: 1}
 
 		waitCtx, stopWaiting := context.WithCancel(context.Background())
@@ -1249,6 +1253,7 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 
 	t.Run("the combined kind caps eight books and seven authors", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
+			moreMatches(f)
 			repo := NewPGSearchRepository(f.tx)
 
 			books, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
@@ -1279,6 +1284,7 @@ func TestPGSearchRepositorySuggestions(t *testing.T) {
 
 	t.Run("a single kind caps at fifteen", func(t *testing.T) {
 		withSearchFixture(t, func(f *searchFixture) {
+			moreMatches(f)
 			repo := NewPGSearchRepository(f.tx)
 
 			books, err := repo.Suggestions(context.Background(), models.SuggestionRequest{
@@ -1382,4 +1388,15 @@ func TestSuggestionLaneLimitsSpendExactlyTheBudget(t *testing.T) {
 		assert.Zero(t, books)
 		assert.Equal(t, 5, authors)
 	})
+}
+
+// moreMatches seeds more «война» books and «…ова» authors than any
+// suggestion cap, each its own title and author so none collapses: the caps
+// are only observable when the catalog holds more than they let through.
+func moreMatches(f *searchFixture) {
+	for i := 0; i < 20; i++ {
+		author := f.Author(fmt.Sprintf("cap%d", i), fmt.Sprintf("Иванова%c Мария", 'А'+rune(i)))
+		f.Book(fmt.Sprintf("cap%d", i), &fixtureBook{Title: fmt.Sprintf("Война номер %d", i+1), Approved: true,
+			Authors: []int64{author}})
+	}
 }

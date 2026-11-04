@@ -10,6 +10,7 @@ import (
 
 	"gopds-api/api"
 	"gopds-api/config"
+	"gopds-api/models"
 	"gopds-api/services"
 
 	"github.com/gin-gonic/gin"
@@ -132,12 +133,19 @@ func TestAuthorLLMAdminWiring(t *testing.T) {
 		assert.True(t, merge.Status.Enabled)
 		assert.True(t, merge.Status.OtherActive)
 		assert.Nil(t, merge.Status.Run, "the merge card showed K's run")
-		require.Len(t, merge.Status.Steps, 6, "merge0, the four stage modes and the merge run")
-		for _, step := range merge.Status.Steps[:5] {
+		// The eval of every merge kind, merge0 first, then the merge run. The
+		// number of kinds grows with each new one, so it is not pinned here.
+		steps := merge.Status.Steps
+		require.Greater(t, len(steps), 2, "merge0, the kinds' evals and the merge run")
+		assert.Equal(t, services.AuthorLLMStepMerge0, steps[0].Key)
+		for _, step := range steps[:len(steps)-1] {
+			assert.Equal(t, string(models.AuthorLLMRunEval), step.Kind, step.Key)
 			assert.Equal(t, services.AuthorLLMStepActiveRun, step.Blocked, step.Key)
 		}
 		// The merge run follows a registration: none yet.
-		assert.Equal(t, services.AuthorLLMStepPrerequisite, merge.Status.Steps[5].Blocked)
+		last := steps[len(steps)-1]
+		assert.Equal(t, services.AuthorLLMStepMergeRun, last.Key)
+		assert.Equal(t, services.AuthorLLMStepPrerequisite, last.Blocked)
 		rec = llmCall(t, r, http.MethodPost, "/merge/runs", `{"kind":"eval","mode":"merge0"}`)
 		assert.Equal(t, http.StatusConflict, rec.Code)
 		assert.JSONEq(t, `{"error":"active_run_exists"}`, rec.Body.String())

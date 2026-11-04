@@ -17,11 +17,9 @@ import (
 // with one key keep the newest first. Without the request the order is the
 // one it always was.
 func TestGetBooksSortsByTheFirstAuthorOnRequest(t *testing.T) {
+	// jobsDB brings the scratch database to the production shape: the list
+	// reads the genre title column the migration files do not create.
 	scratch := jobsDB(t)
-	// The production-only genre title column the list reads (see
-	// scanfixture.ScratchDB): the migration files do not create it.
-	_, err := scratch.Exec(`ALTER TABLE opds_catalog_genre ADD COLUMN IF NOT EXISTS title varchar NOT NULL DEFAULT ''`)
-	require.NoError(t, err)
 	previous := db
 	SetDB(scratch)
 	t.Cleanup(func() { SetDB(previous) })

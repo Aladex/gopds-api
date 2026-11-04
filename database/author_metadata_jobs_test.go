@@ -52,6 +52,7 @@ func jobsDB(t *testing.T) *pg.DB {
 
 	_, err = migrate.Run(context.Background(), scratch, os.DirFS(".."), "database_migrations", migrate.AppBaseline())
 	require.NoError(t, err, "migrating the scratch database")
+	require.NoError(t, testdb.ProductionShape(context.Background(), scratch))
 	return scratch
 }
 

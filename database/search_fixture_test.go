@@ -140,7 +140,13 @@ func withSearchFixture(t *testing.T, fn func(*searchFixture)) {
 		}
 	})
 
-	f := &searchFixture{
+	f := newSearchFixture(t, tx)
+	seedSearchCatalog(f)
+	fn(f)
+}
+
+func newSearchFixture(t *testing.T, tx *pg.Tx) *searchFixture {
+	return &searchFixture{
 		t:             t,
 		tx:            tx,
 		now:           time.Now(),
@@ -152,8 +158,28 @@ func withSearchFixture(t *testing.T, fn func(*searchFixture)) {
 		UserIDs:       map[string]int64{},
 		CollectionIDs: map[string]int64{},
 	}
+}
+
+// committedSearchCatalog is the search fixture's catalog committed into a
+// scratch database of its own (jobsDB), installed as the package's
+// connection until the test ends. It serves the tests that read through the
+// global connection or need the pool — GetBooks, a lock another session
+// holds — where the rollback fixture's transaction cannot reach. They used
+// to read the restored production dump, and an empty migrated database gave
+// them nothing to read. The returned fixture's transaction is committed:
+// use it for its IDs only.
+func committedSearchCatalog(t *testing.T) (*pg.DB, *searchFixture) {
+	t.Helper()
+	scratch := jobsDB(t)
+	tx, err := scratch.Begin()
+	require.NoError(t, err)
+	f := newSearchFixture(t, tx)
 	seedSearchCatalog(f)
-	fn(f)
+	require.NoError(t, tx.Commit())
+	previous := db
+	SetDB(scratch)
+	t.Cleanup(func() { SetDB(previous) })
+	return scratch, f
 }
 
 func (f *searchFixture) id() int64 {

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -29,6 +30,14 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 		conn = opened
+		// The configured database may be freshly migrated rather than
+		// restored from the production dump: bring it to the shape
+		// production runs on (see testdb.ProductionShape).
+		if err := testdb.ProductionShape(context.Background(), conn); err != nil {
+			fmt.Fprintf(os.Stderr, "database: %v\n", err)
+			_ = conn.Close()
+			os.Exit(1)
+		}
 		SetDB(conn)
 	} else {
 		fmt.Fprintf(os.Stderr, "database: %s\n", testdb.SkipReason)

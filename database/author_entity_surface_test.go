@@ -45,7 +45,6 @@ func (f *authorSchemaFixture) entityWithBooks(fill byte, family, given string, g
 // anyone's namesake.
 func TestTheEntityLookupLabelsNamesakesByTheirGenre(t *testing.T) {
 	f := entitySchema(t)
-	f.exec(`ALTER TABLE opds_catalog_genre ADD COLUMN IF NOT EXISTS title character varying NOT NULL DEFAULT ''`)
 	kingSF, _ := f.entityWithBooks(0x91, "Кинг", "Стивен", "e3_sf", "e3_sf", "e3_sf", "e3_detective")
 	kingDet, detBooks := f.entityWithBooks(0x92, "Кинговский", "Стивен", "e3_detective", "e3_detective",
 		"e3_sf", "e3_sf", "e3_sf")
@@ -95,11 +94,9 @@ func TestTheEntityLookupLabelsNamesakesByTheirGenre(t *testing.T) {
 // page lists them like any author's, newest first, with the reader's
 // language and the visibility rules.
 func TestTheBookListOfAnEntityIsTheBooksNamingIt(t *testing.T) {
+	// jobsDB brings the scratch database to the production shape: the list
+	// reads the genre title column the migration files do not create.
 	scratch := jobsDB(t)
-	// The production-only genre title column the list reads (see
-	// scanfixture.ScratchDB).
-	_, err := scratch.Exec(`ALTER TABLE opds_catalog_genre ADD COLUMN IF NOT EXISTS title varchar NOT NULL DEFAULT ''`)
-	require.NoError(t, err)
 	tx, err := scratch.Begin()
 	require.NoError(t, err)
 	next := authorSchemaIDBase

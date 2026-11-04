@@ -99,15 +99,13 @@ func ScratchDB(t testing.TB) *pg.DB {
 		"database_migrations", migrate.AppBaseline()); err != nil {
 		t.Fatalf("migrating the scratch database: %v", err)
 	}
-	// The one column the production catalog has and the migration files do
-	// not create (found by diffing information_schema of a fresh migration
-	// against the restored catalog): genre titles. models.Genre and
+	// The column the production catalog has and the migration files do not
+	// create (testdb.ProductionShape): models.Genre and
 	// database.UpdateBookTags write it, so without it ProcessBook fails on
 	// every book with a genre. The characterization has to see the schema
 	// production runs on; the missing migration is reported separately.
-	if _, err = scratch.Exec(`ALTER TABLE public.opds_catalog_genre
-		ADD COLUMN IF NOT EXISTS title character varying NOT NULL DEFAULT ''`); err != nil {
-		t.Fatalf("adding the production-only genre title column: %v", err)
+	if err = testdb.ProductionShape(context.Background(), scratch); err != nil {
+		t.Fatalf("bringing the scratch database to the production shape: %v", err)
 	}
 
 	previous := database.GetDB()

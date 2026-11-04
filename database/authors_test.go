@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"gopds-api/models"
+
+	"github.com/stretchr/testify/require"
 )
 
 // These contracts began life on the old GetAuthors and now run against the
@@ -14,7 +16,10 @@ import (
 // surname buried under three given ones, four namesakes of one famous author,
 // a count that must equal the list the reader lands on. A fixture can state
 // none of that, which is why the suite outlived the function it was written
-// for.
+// for. Two need no real distribution — a surname finds its author, and a
+// surname under three given names finds that full name — so they run on the
+// search fixture and hold on an empty migrated database too; the rest skip
+// there.
 //
 // One contract stayed behind in services: AllLanguages meaning "the whole
 // library" is folded to an empty language before a request reaches the
@@ -32,17 +37,20 @@ func searchAuthors(t *testing.T, req models.AuthorSearchRequest) models.AuthorSe
 }
 
 func TestAuthorSearchFindsByName(t *testing.T) {
-	requireDatabase(t)
-
-	page := searchAuthors(t, models.AuthorSearchRequest{Query: "Толстой", Limit: 10})
-	if page.Total == 0 || len(page.Authors) == 0 {
-		t.Fatal("a name known to be in the library returned nothing")
-	}
-	for _, a := range page.Authors {
-		if !strings.Contains(strings.ToLower(a.FullName), "толст") {
-			t.Errorf("%q does not look like a match for the query", a.FullName)
+	// The search fixture's catalog holds «Толстой Лев» with visible books.
+	withSearchFixture(t, func(f *searchFixture) {
+		page, err := NewPGSearchRepository(f.tx).SearchAuthors(context.Background(),
+			models.AuthorSearchRequest{Query: "Толстой", Limit: 10})
+		require.NoError(t, err)
+		if page.Total == 0 || len(page.Authors) == 0 {
+			t.Fatal("a name known to be in the library returned nothing")
 		}
-	}
+		for _, a := range page.Authors {
+			if !strings.Contains(strings.ToLower(a.FullName), "толст") {
+				t.Errorf("%q does not look like a match for the query", a.FullName)
+			}
+		}
+	})
 }
 
 // Normalization folds case before the trigrams are built, so the search is
@@ -87,9 +95,15 @@ func TestAuthorSearchOrdersByCloseness(t *testing.T) {
 // full name at 0.292 — under the 0.3 the operator demands — so the most
 // complete form of the name was not a result at all.
 func TestAuthorSearchFindsNamesWithManyGivenNames(t *testing.T) {
-	requireDatabase(t)
-
-	page := searchAuthors(t, models.AuthorSearchRequest{Query: "Толкин", Limit: 50})
+	var page models.AuthorSearchPage
+	withSearchFixture(t, func(f *searchFixture) {
+		tolkien := f.Author("tolkien", "Толкин Джон Рональд Руэл")
+		f.Book("hobbit", &fixtureBook{Title: "Хоббит", Approved: true, Authors: []int64{tolkien}})
+		var err error
+		page, err = NewPGSearchRepository(f.tx).SearchAuthors(context.Background(),
+			models.AuthorSearchRequest{Query: "Толкин", Limit: 50})
+		require.NoError(t, err)
+	})
 
 	var found bool
 	for _, a := range page.Authors {

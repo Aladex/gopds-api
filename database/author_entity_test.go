@@ -141,7 +141,9 @@ func TestTheBuildReadsTheSelectedAuthorCreditsOfCurrentSnapshots(t *testing.T) {
 	assert.Equal(t, string(fingerprint(32, 0xe1)), c.Fingerprint)
 	assert.Equal(t, 0, c.Tag)
 	assert.Equal(t, 2, got[tagged].Tag, "the namesake tag of the source fields")
-	assert.Equal(t, authorentity.Book{Title: "Война и мир", Series: []int64{701, 702}}, in.Books[book])
+	// The language is the book's own (the fixture's books are Russian): the
+	// other-language step reads it (E4n).
+	assert.Equal(t, authorentity.Book{Title: "Война и мир", Series: []int64{701, 702}, Lang: "ru"}, in.Books[book])
 	assert.Equal(t, legacy, in.Legacy[tolstoy])
 
 	unselected, err := CountUnselectedAuthorCredits(context.Background(), f.tx)

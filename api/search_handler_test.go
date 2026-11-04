@@ -12,6 +12,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/internal/scanfixture"
 	"gopds-api/internal/testdb"
 	"gopds-api/models"
 	"gopds-api/services"
@@ -37,6 +38,10 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "api: %v\n", err)
 			os.Exit(1)
 		}
+		if err := testdb.ProductionShape(context.Background(), conn); err != nil {
+			fmt.Fprintf(os.Stderr, "api: %v\n", err)
+			os.Exit(1)
+		}
 		searchTestDB = conn
 		database.SetDB(conn)
 	}
@@ -57,6 +62,37 @@ func requireSearchTestDB(t *testing.T) {
 	}
 	if searchTestDB == nil {
 		t.Skip(testdb.SkipReason)
+	}
+}
+
+// ordinaryListCatalog gives a test of the ordinary list a catalog of its own:
+// a scratch database migrated from the real files (scanfixture.ScratchDB,
+// installed as the package's connection until the test ends) holding six
+// approved books and two in the moderation queue, each with an author and a
+// genre so the list's relations have rows to load. The ordinary list reads
+// database.GetBooks directly, and a freshly migrated database has no books:
+// without these rows the tests below saw an empty answer and proved nothing.
+func ordinaryListCatalog(t *testing.T) {
+	t.Helper()
+	requireSearchTestDB(t)
+	db := scanfixture.ScratchDB(t)
+	exec := func(query string, args ...interface{}) int64 {
+		t.Helper()
+		var id int64
+		_, err := db.QueryOne(pg.Scan(&id), query, args...)
+		require.NoError(t, err, query)
+		return id
+	}
+	genre := exec(`INSERT INTO opds_catalog_genre (genre, title) VALUES ('sf', 'Фантастика') RETURNING id`)
+	author := exec(`INSERT INTO opds_catalog_author (full_name) VALUES ('Автор Списка') RETURNING id`)
+	for i := 0; i < 8; i++ {
+		approved := i < 6
+		book := exec(`INSERT INTO opds_catalog_book
+			(filename, path, format, title, annotation, lang, registerdate, docdate, approved, cover, md5, duplicate_hidden)
+			VALUES (?, 'list-test.zip', 'fb2', ?, '', 'ru', now(), '', ?, false, md5(?), false) RETURNING id`,
+			fmt.Sprintf("list-%d.fb2", i), fmt.Sprintf("Книга %d", i), approved, fmt.Sprintf("list-%d", i))
+		exec(`INSERT INTO opds_catalog_bauthor (book_id, author_id) VALUES (?, ?) RETURNING id`, book, author)
+		exec(`INSERT INTO opds_catalog_bgenre (book_id, genre_id) VALUES (?, ?) RETURNING id`, book, genre)
 	}
 }
 
@@ -204,10 +240,11 @@ func TestSearchHandler_Books_UnapprovedIsForModeratorsOnly(t *testing.T) {
  * not cover it and no fake can stand in here. This asserts the behavior
  * instead of the wiring: a non-moderator who asks for the queue by hand still
  * gets approved books only, while a moderator reaches the queue. The catalog
- * carries unapproved books, so both sides have visible answers.
+ * (ordinaryListCatalog) carries unapproved books, so both sides have visible
+ * answers.
  */
 func TestSearchHandler_Books_OrdinaryListUnapprovedGate(t *testing.T) {
-	requireSearchTestDB(t)
+	ordinaryListCatalog(t)
 
 	t.Run("a non-moderator asking by hand gets approved books only", func(t *testing.T) {
 		fake := &fakeSearch{}
@@ -369,7 +406,7 @@ func TestSearchHandler_ServiceErrorIs500JSON(t *testing.T) {
 }
 
 func TestSearchHandler_Books_OrdinaryListFallback(t *testing.T) {
-	requireSearchTestDB(t)
+	ordinaryListCatalog(t)
 	fake := &fakeSearch{}
 	r := newSearchTestRouter(fake, 1, false)
 

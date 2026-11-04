@@ -33,7 +33,20 @@ func TestGetBooksRefusesTextSearch(t *testing.T) {
 // of the old title path: every list the catalog draws without a needle must
 // still answer, and must still honor its scope.
 func TestGetBooksServesOrdinaryLists(t *testing.T) {
-	requireDatabase(t)
+	scratch, f := committedSearchCatalog(t)
+	// The newest book (the list goes by id) carries an author and a series,
+	// so both scopes below have one to take.
+	newestID := f.nextID
+	for _, q := range []string{
+		`INSERT INTO opds_catalog_book (id, filename, path, format, registerdate, docdate, lang, title, annotation,
+			cover, approved, md5, duplicate_hidden)
+			VALUES (?0, 'newest.fb2', 'fixture/newest.fb2', 'fb2', now(), '', 'fx', 'Новейшая', '', false, true, '', false)`,
+		`INSERT INTO opds_catalog_bauthor (id, author_id, book_id) VALUES (?0 + 1, ?1, ?0)`,
+		`INSERT INTO opds_catalog_bseries (id, ser_no, ser_id, book_id) VALUES (?0 + 2, 1, ?2, ?0)`,
+	} {
+		_, err := scratch.Exec(q, newestID, f.AuthorIDs["tolstoy"], f.SeriesIDs["great"])
+		require.NoError(t, err, q)
+	}
 
 	const userID = 1
 

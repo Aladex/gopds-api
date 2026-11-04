@@ -124,13 +124,11 @@ func TestSearchHandler_Books_LookupFailureIsAServerError(t *testing.T) {
 // The ordinary list (no search target) reads its rows from the catalog, so
 // this one needs the database; the lookup failure must surface there too.
 func TestSearchHandler_Books_OrdinaryListLookupFailureIsAServerError(t *testing.T) {
-	requireSearchTestDB(t)
+	ordinaryListCatalog(t)
 	sources := &fakeSources{err: errors.New("source layer unavailable")}
 
 	rec := doJSON(t, newSourcesTestRouter(&fakeSearch{}, sources), http.MethodGet, "/api/books/list?limit=1", nil)
 
-	if len(sources.calls) == 0 {
-		t.Skip("the catalog has no visible book, so the list asks no lookup")
-	}
+	require.NotEmpty(t, sources.calls, "the catalog has visible books, so the list asks the lookup")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code, "body=%s", rec.Body.String())
 }
