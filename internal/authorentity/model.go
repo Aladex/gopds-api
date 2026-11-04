@@ -3,6 +3,7 @@ package authorentity
 import (
 	"bytes"
 	"cmp"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -259,7 +260,7 @@ func looseMembersKey(a, b []FPKey) string {
 // evaluate matches every same decision with the pass's candidates and
 // settles the entity unions: a decision applies only on its exact digest;
 // one that would bridge a not-same pair or two given names is held on its
-// own (joinInOrder), and a set of unions that would join a revoked pair
+// own (joinRound, settle), and a set of unions that would join a revoked pair
 // applies none of them.
 func (m *modelStep) evaluate() {
 	var same []*MergeDecision
@@ -299,97 +300,164 @@ func (m *modelStep) evaluate() {
 			m.entityDecs = append(m.entityDecs, decided{d, si})
 		}
 	}
-	uf := m.joinInOrder()
-	held := map[int]string{}
-	for _, digest := range sortedDigests(revoked) {
-		if si := m.byDigest[digest]; si != nil && si.credit == nil &&
-			uf.find(si.sideA.root) == uf.find(si.sideB.root) {
-			if root := uf.find(si.sideA.root); held[root] == "" {
-				held[root] = ConflictRevoked
-			}
-		}
-	}
-	vetoed := m.vetoedUnions(uf)
-	refused := map[int]bool{}
-	var applied []decided
-	for _, e := range m.entityDecs {
-		switch root := uf.find(e.si.sideA.root); {
-		case held[root] != "":
-			m.set(e.d.ID, DecisionConflict, held[root])
-		case vetoed[root]:
-			m.set(e.d.ID, DecisionConflict, ConflictVetoed)
-			// One refused union, however many decisions proposed it.
-			if !refused[root] {
-				refused[root] = true
-				m.b.vetoRefused(VetoRefusedModel)
-			}
-		default:
-			applied = append(applied, e)
-		}
-	}
-	m.entityDecs = applied
+	m.entityDecs = m.settle(revoked)
 }
 
-// joinInOrder joins the entity decisions one by one in a stable order —
-// the ones the previous pass applied first, then by registration and id —
+// maxSettleRounds caps the rounds settle runs before it keeps the last.
+const maxSettleRounds = 8
+
+// settle decides the entity decisions in the order the next pass reads
+// them, and returns the applied ones in that order. A round joins them
+// with a set first (joinRound); the first round's are the ones the
+// previous pass applied. A round that applies another set than its first
+// is run again with that set first, as the next pass would: a decision the
+// given-name guard spares (a pen_name) may join two names another kind's
+// decision was held on, and in the next pass, sorted first, let it
+// through. Settling here makes the next pass change nothing. The states
+// and the veto refusals are the last round's.
+func (m *modelStep) settle(revoked map[[32]byte]bool) []decided {
+	first := map[int64]bool{}
+	for _, e := range m.entityDecs {
+		if e.d.WasApplied {
+			first[e.d.ID] = true
+		}
+	}
+	for round := 1; ; round++ {
+		r := m.joinRound(m.entityDecs, first, revoked)
+		applied := map[int64]bool{}
+		for _, e := range r.joined {
+			if r.heldBy(e) == "" {
+				applied[e.d.ID] = true
+			}
+		}
+		if !maps.Equal(applied, first) && round < maxSettleRounds {
+			first = applied
+			continue
+		}
+		for id, reason := range r.conflict {
+			m.set(id, DecisionConflict, reason)
+		}
+		refused := map[int]bool{}
+		var out []decided
+		for _, e := range r.joined {
+			switch reason := r.heldBy(e); reason {
+			case "":
+				out = append(out, e)
+			default:
+				m.set(e.d.ID, DecisionConflict, reason)
+				// One refused union, however many decisions proposed it.
+				if root := r.uf.find(e.si.sideA.root); reason == ConflictVetoed && !refused[root] {
+					refused[root] = true
+					m.b.vetoRefused(VetoRefusedModel)
+				}
+			}
+		}
+		return out
+	}
+}
+
+// joinedRound is what one round of settle did: the union, the joined
+// decisions in order, the reason each held one is held, and the unions a
+// revoke (revoked) or a live veto (vetoed) holds whole.
+type joinedRound struct {
+	uf       intUnion
+	joined   []decided
+	conflict map[int64]string
+	revoked  map[int]string
+	vetoed   map[int]bool
+}
+
+// heldBy is why a joined decision's union is held whole: a revoked pair
+// in it or a live veto across it; "" for none.
+func (r *joinedRound) heldBy(e decided) string {
+	root := r.uf.find(e.si.sideA.root)
+	switch {
+	case r.revoked[root] != "":
+		return r.revoked[root]
+	case r.vetoed[root]:
+		return ConflictVetoed
+	}
+	return ""
+}
+
+// joinRound joins decs one by one in a stable order — the ones in first
+// (the ones the previous pass applied) first, then by registration and id —
 // and holds each that would bridge a conflict on its own: a union joining
 // the two sides of a pair the production pair answered different
 // (not_same), or two full given names of one family that are not one name
-// (given_name; never a decision the previous pass applied: a live merge
-// keeps its state; a variant decision passes on the spellings it asked
-// about, nameClasses.variantOf). Only that decision is held, never the component; m.entityDecs
-// keeps the joined ones, and the union of them is returned.
-func (m *modelStep) joinInOrder() intUnion {
-	slices.SortStableFunc(m.entityDecs, func(x, y decided) int {
-		if x.d.WasApplied != y.d.WasApplied {
-			if x.d.WasApplied {
-				return -1
-			}
-			return 1
-		}
-		return cmp.Or(cmp.Compare(x.d.RegistrationID, y.d.RegistrationID), cmp.Compare(x.d.ID, y.d.ID))
-	})
-	partners := map[int][]int{}
-	for _, digest := range sortedDigests(m.b.in.NotSame) {
-		if si := m.byDigest[digest]; si != nil && si.credit == nil {
-			a, b := si.sideA.root, si.sideB.root
-			partners[a] = append(partners[a], b)
-			partners[b] = append(partners[b], a)
-		}
-	}
-	uf := newIntUnion()
+// (given_name; never a decision in first: a live merge keeps its state; a
+// variant decision passes on the spellings it asked about,
+// nameClasses.variantOf; never a pen_name decision, whose two sides are two
+// names of one person by definition, the given names included: «Мэри
+// Уэстмакотт» is «Агата Кристи»). Only that decision is held, never the
+// component. Then the unions a revoked pair or a live veto holds whole.
+// It changes no state.
+func (m *modelStep) joinRound(decs []decided, first map[int64]bool, revoked map[[32]byte]bool) *joinedRound {
+	decs = inSettleOrder(decs, first)
+	partners := m.notSamePartners()
+	r := &joinedRound{uf: newIntUnion(), conflict: map[int64]string{}}
+	uf := r.uf
 	roots := map[int][]int{}
 	names := map[int]nameClasses{}
-	component := func(r int) ([]int, nameClasses) {
-		if _, ok := roots[r]; !ok {
-			roots[r], names[r] = []int{r}, m.b.nameClassesOf(r)
+	component := func(c int) ([]int, nameClasses) {
+		if _, ok := roots[c]; !ok {
+			roots[c], names[c] = []int{c}, m.b.nameClassesOf(c)
 		}
-		return roots[r], names[r]
+		return roots[c], names[c]
 	}
-	var joined []decided
-	for _, e := range m.entityDecs {
+	for _, e := range decs {
 		x, y := uf.find(e.si.sideA.root), uf.find(e.si.sideB.root)
 		if x == y {
-			joined = append(joined, e)
+			r.joined = append(r.joined, e)
 			continue
 		}
 		rx, nx := component(x)
 		ry, ny := component(y)
 		switch {
 		case bridgesNotSame(uf, partners, rx, y):
-			m.set(e.d.ID, DecisionConflict, ConflictNotSame)
+			r.conflict[e.d.ID] = ConflictNotSame
 			continue
-		case !e.d.WasApplied && nx.joins(ny) && (!spellingTolerant(e.d.Kind) || !nx.variantOf(ny)):
-			m.set(e.d.ID, DecisionConflict, ConflictGivenName)
+		case !first[e.d.ID] && e.d.Kind != CandidatePenName && nx.joins(ny) &&
+			(!spellingTolerant(e.d.Kind) || !nx.variantOf(ny)):
+			r.conflict[e.d.ID] = ConflictGivenName
 			continue
 		}
 		uf.union(x, y)
-		r := uf.find(x)
-		roots[r], names[r] = append(slices.Clone(rx), ry...), nx.merged(ny)
-		joined = append(joined, e)
+		c := uf.find(x)
+		roots[c], names[c] = append(slices.Clone(rx), ry...), nx.merged(ny)
+		r.joined = append(r.joined, e)
 	}
-	m.entityDecs = joined
-	return uf
+	r.revoked = m.revokedUnions(uf, revoked)
+	r.vetoed = m.vetoedUnions(uf, r.joined)
+	return r
+}
+
+// inSettleOrder is a sorted copy of decs: the ones in first first, then by
+// registration and id.
+func inSettleOrder(decs []decided, first map[int64]bool) []decided {
+	decs = slices.Clone(decs)
+	slices.SortStableFunc(decs, func(x, y decided) int {
+		if fx, fy := first[x.d.ID], first[y.d.ID]; fx != fy {
+			if fx {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Or(cmp.Compare(x.d.RegistrationID, y.d.RegistrationID), cmp.Compare(x.d.ID, y.d.ID))
+	})
+	return decs
+}
+
+// revokedUnions are the unions (by root of uf) that join a revoked pair.
+func (m *modelStep) revokedUnions(uf intUnion, revoked map[[32]byte]bool) map[int]string {
+	out := map[int]string{}
+	for _, digest := range sortedDigests(revoked) {
+		if si := m.byDigest[digest]; si != nil && si.credit == nil &&
+			uf.find(si.sideA.root) == uf.find(si.sideB.root) {
+			out[uf.find(si.sideA.root)] = ConflictRevoked
+		}
+	}
+	return out
 }
 
 // bridgesNotSame reports a level-0 root of one component (rx) whose
@@ -415,16 +483,16 @@ func sortedDigests(set map[[32]byte]bool) [][32]byte {
 	return out
 }
 
-// vetoedUnions are the proposed unions (by root of uf) that would join two
+// vetoedUnions are the unions of decs (by root of uf) that would join two
 // level-0 components a live veto keeps apart: none of their decisions
 // applies.
-func (m *modelStep) vetoedUnions(uf intUnion) map[int]bool {
+func (m *modelStep) vetoedUnions(uf intUnion, decs []decided) map[int]bool {
 	b := m.b
 	if len(b.vetoOf) == 0 {
 		return nil
 	}
 	byUnion := map[int][]int{}
-	for _, e := range m.entityDecs {
+	for _, e := range decs {
 		for _, r := range []int{e.si.sideA.root, e.si.sideB.root} {
 			u := uf.find(r)
 			if !slices.Contains(byUnion[u], r) {
