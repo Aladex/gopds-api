@@ -64,18 +64,67 @@ const renderCard = (overrides: Partial<Book>) =>
 const colophon = () => screen.queryByTestId('book-colophon');
 
 /*
- * One muted line, «АСТ · ISBN 978-5-17-177750-0», always visible on a wide
- * card. A phone hides it behind «Подробнее»; BookCard.redesign holds that.
+ * One muted metadata line, «Издательство: АСТ · ISBN 978-5-17-177750-0», always
+ * visible on a wide card, labelled as the series line is labelled — a label
+ * and its value, so it reads as what the book is, not as its annotation. A
+ * phone hides it behind «Подробнее»; BookCard.redesign holds that.
  */
 describe('the publisher and ISBN of a book', () => {
-    it('are shown on one line, publisher first, when the book has them', () => {
+    it('are shown on one line, the label before the publisher', () => {
         renderCard({ publisher: 'Издательство «Мир»', isbn: ['978-5-03-000000-1'] });
 
-        expect(colophon()).toHaveTextContent(/^Издательство «Мир» · bookIsbn 978-5-03-000000-1$/);
+        expect(colophon()).toHaveTextContent(
+            /^bookPublisherLabel: Издательство «Мир» · bookIsbn 978-5-03-000000-1$/,
+        );
+    });
+
+    it('label the line the way the series line is labelled', () => {
+        renderCard({ publisher: 'Азбука', isbn: ['978-5-389-00000-1'] });
+
+        // The series line's own pattern: label and value as plain text in
+        // one muted line, no markup invented for this line.
+        const line = colophon()!;
+        expect(line).toHaveTextContent('bookPublisherLabel: Азбука');
+        expect(line.querySelectorAll('span, em, strong')).toHaveLength(0);
+    });
+
+    it('typeset the line with the series metadata classes, not its own', () => {
+        const { container } = renderCard({
+            publisher: 'Азбука',
+            series: [{ id: 1, ser: 'Мир Полудня', ser_no: 1 }],
+            isbn: ['978-5-389-00000-1'],
+        });
+
+        // Both metadata lines read as one voice: same size, same leading, same
+        // colour — the tokens the series line carries, not a colophon-specific
+        // size. What the colophon adds on top is only what its position needs:
+        // the wide card's margin and the shut cut.
+        const series = [...container.querySelectorAll<HTMLElement>('div')].find((el) =>
+            el.className.includes('text-[13px]'),
+        );
+        expect(series).not.toBeNull();
+        const tokens = series!.className.split(/\s+/);
+        const colophonTokens = colophon()!.className.split(/\s+/);
+        for (const token of tokens) {
+            if (token.startsWith('text-') || token.startsWith('leading-')) {
+                expect(colophonTokens).toContain(token);
+            }
+        }
+        expect(colophonTokens).toContain('text-muted-foreground');
+    });
+
+    it('leave the label out when the book has no publisher', () => {
+        renderCard({ publisher: null, isbn: ['978-5-03-000000-1'] });
+
+        expect(colophon()).toHaveTextContent(/^bookIsbn 978-5-03-000000-1$/);
+        expect(colophon()?.textContent).not.toContain('bookPublisherLabel');
     });
 
     it('list several ISBNs separated by commas', () => {
-        renderCard({ isbn: ['978-5-03-000000-1', '5-03-000000-2', '978-0-00-000000-3'] });
+        renderCard({
+            publisher: null,
+            isbn: ['978-5-03-000000-1', '5-03-000000-2', '978-0-00-000000-3'],
+        });
 
         expect(colophon()).toHaveTextContent(
             'bookIsbn 978-5-03-000000-1, 5-03-000000-2, 978-0-00-000000-3',
@@ -108,10 +157,15 @@ describe('the publisher and ISBN of a book', () => {
         expect(colophon()?.outerHTML).not.toMatch(/font-mono/);
     });
 
-    // The publisher stands unlabelled at the head of the line; the ISBN keeps
-    // its label, in both languages.
+    // The ISBN keeps its label, and the publisher line gets one of its own,
+    // in both languages.
     it('label the ISBN in both languages', () => {
         expect(enTranslation).toMatchObject({ bookIsbn: 'ISBN' });
         expect(ruTranslation).toMatchObject({ bookIsbn: 'ISBN' });
+    });
+
+    it('label the publisher in both languages, as the series line is', () => {
+        expect(enTranslation).toMatchObject({ bookPublisherLabel: 'Publisher' });
+        expect(ruTranslation).toMatchObject({ bookPublisherLabel: 'Издательство' });
     });
 });

@@ -18,6 +18,7 @@
   "registerButton": "Регистрация",
   "bookPublished": "Опубликовано",
   "bookIsbn": "ISBN",
+  "bookPublisherLabel": "Издательство",
   "bookAdded": "Добавлено",
   "annotation": "Аннотация",
   "routeTitles.books": "Новые книги",

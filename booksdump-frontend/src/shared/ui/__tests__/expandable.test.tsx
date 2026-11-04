@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
 import React from "react"
 import { render, screen, act } from "@testing-library/react"
 
@@ -207,5 +210,323 @@ describe("Expandable", () => {
     // Straight to released height, no intermediate pixel target.
     expect(screen.getByTestId("box").style.maxHeight).toBe("")
     expect(screen.getByTestId("box")).toHaveAttribute("data-state", "open")
+  })
+})
+
+/*
+ * The measured peek: the content clamps itself — line-clamp, truncate, one
+ * fixed row — and keeps the ellipsis that comes with those clamps, while this
+ * component animates between the height the clamped content measures and the
+ * height of the full content. The content learns when to clamp through the
+ * render prop; jsdom still lays nothing out, so the two heights are handed to
+ * the element directly.
+ */
+
+const PEEK = 60
+const FULL = 120
+
+/** Gives the element the two heights the animation runs between. */
+function setHeights(el: HTMLElement, visible: number, content: number) {
+  for (const [name, value] of [
+    ["clientHeight", visible],
+    ["scrollHeight", content],
+  ] as const) {
+    Object.defineProperty(el, name, { configurable: true, get: () => value })
+  }
+}
+
+/** The content as the card writes it: its own clamp while it is held shut. */
+const selfClamping = (clamped: boolean) => (
+  <p
+    data-testid="text"
+    data-clamped={String(clamped)}
+    className={clamped ? "line-clamp-3" : ""}
+  >
+    {LONG}
+  </p>
+)
+
+const clampedNow = () =>
+  screen.getByTestId("text").getAttribute("data-clamped") === "true"
+
+describe("Expandable with a measured peek", () => {
+  it("leaves the collapsed height to the content's own clamps", () => {
+    render(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, PEEK, FULL)
+
+    // No clamp of its own: the first paint is the clamped content as the
+    // content itself styled it, with nothing to correct afterwards.
+    expect(box.style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(true)
+    expect(screen.getByTestId("text")).toHaveClass("line-clamp-3")
+  })
+
+  it("arrives open with the content unclamped and nothing measured", () => {
+    render(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+
+    expect(screen.getByTestId("box").style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(false)
+  })
+
+  it("opens from a measured pin to a measured target", async () => {
+    const { rerender } = render(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, PEEK, FULL)
+    await act(async () => {})
+
+    const seen = recordMaxHeights(box)
+    rerender(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+
+    // The height it opens from is the one on screen — the clamped content —
+    // and the one it opens to is the full content, both in pixels, because
+    // those are the only two values a transition can run between.
+    expect(seen.indexOf(`${PEEK}px`)).toBeGreaterThanOrEqual(0)
+    expect(seen.indexOf(`${FULL}px`)).toBeGreaterThan(seen.indexOf(`${PEEK}px`))
+    // The clamp comes off as the height starts moving, not after it lands.
+    expect(clampedNow()).toBe(false)
+
+    endTransition(box)
+    expect(box.style.maxHeight).toBe("")
+  })
+
+  it("closes by pinning the full height before moving", async () => {
+    const { rerender } = render(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, PEEK, FULL)
+    await act(async () => {})
+    rerender(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+    endTransition(box)
+    expect(box.style.maxHeight).toBe("")
+
+    const seen = recordMaxHeights(box)
+    rerender(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+
+    // The full height first, the clamped one second: max-height can only
+    // clip, never hold anything open, so without the pin the re-clamped
+    // content would land at once.
+    expect(seen.indexOf(`${FULL}px`)).toBeGreaterThanOrEqual(0)
+    expect(seen.indexOf(`${PEEK}px`)).toBeGreaterThan(seen.indexOf(`${FULL}px`))
+    // While the height is still moving the content stays unclamped — the
+    // clamp returns only once the motion is done.
+    expect(clampedNow()).toBe(false)
+
+    endTransition(box)
+    expect(box.style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(true)
+    expect(screen.getByTestId("text")).toHaveClass("line-clamp-3")
+  })
+
+  it("settles at once when nothing is actually held back", async () => {
+    // A transition between two equal heights never ends, so waiting for it
+    // would leave the panel stuck halfway through its own state machine.
+    const { rerender } = render(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, FULL, FULL)
+    await act(async () => {})
+
+    rerender(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+
+    expect(box.style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(false)
+    expect(box).toHaveAttribute("data-state", "open")
+  })
+
+  it("skips the measured transition when the reader asked for less motion", async () => {
+    setReducedMotion(true)
+    const { rerender } = render(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, PEEK, FULL)
+    await act(async () => {})
+
+    rerender(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+
+    expect(box.style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(false)
+  })
+
+  it("drives its phases only in layout effects, so no frame can catch the measuring commit", () => {
+    // jsdom cannot observe this at runtime: act() flushes passive effects
+    // after every commit, which erases exactly the boundary the rule is
+    // about — in a real browser, a passive restore could let the browser
+    // paint the clamps-on measuring commit before the close starts moving.
+    // The contract is asserted on the source instead (the pattern the
+    // breakpoints spec uses for architecture rules): every effect that moves
+    // the phase machine must run before paint.
+    const source = readFileSync(resolve(__dirname, "../expandable.tsx"), "utf8")
+    expect(source).not.toMatch(/React\.useEffect/)
+    expect(source.match(/React\.useLayoutEffect/g)).toHaveLength(2)
+  })
+
+  it("closes onto the height the clamped content has now, not the one it had when it opened", async () => {
+    // The window narrows while the card is open: both heights move. Closing
+    // onto the remembered one would land beside the clamped content and jump
+    // when the clamps return.
+    const { rerender } = render(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, PEEK, FULL)
+    await act(async () => {})
+    rerender(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+    endTransition(box)
+
+    // The clamped flag the content renders by, recorded across the close: it
+    // must come back on for the measuring commit — before the motion, not
+    // just after it — or the "clamped" height is nothing of the kind.
+    const clampedSequence: string[] = []
+    const text = screen.getByTestId("text")
+    const clampedObserver = new MutationObserver((records) => {
+      // Records arrive in a batch, by which time the attribute holds the
+      // last value — the history comes from the records themselves.
+      for (const record of records) clampedSequence.push(record.oldValue ?? "")
+      clampedSequence.push(text.getAttribute("data-clamped") ?? "")
+    })
+    clampedObserver.observe(text, {
+      attributes: true,
+      attributeFilter: ["data-clamped"],
+      attributeOldValue: true,
+    })
+
+    const WIDER = 80
+    const TALLER = 140
+    setHeights(box, WIDER, TALLER)
+    const seen = recordMaxHeights(box)
+    rerender(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+
+    expect(seen.indexOf(`${TALLER}px`)).toBeGreaterThanOrEqual(0)
+    expect(seen.indexOf(`${WIDER}px`)).toBeGreaterThan(
+      seen.indexOf(`${TALLER}px`),
+    )
+    // true for the measurement, then false again for the motion — the record
+    // begins with the open state's own false, so it is the last false that
+    // has to come after the measurement's true.
+    expect(clampedSequence).toContain("true")
+    expect(clampedSequence.lastIndexOf("false")).toBeGreaterThan(
+      clampedSequence.indexOf("true"),
+    )
+
+    endTransition(box)
+    expect(box.style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(true)
+  })
+
+  it("settles shut at once when nothing would move, rather than waiting for a transition that never ends", async () => {
+    // A transition between two equal heights fires no transitionend, so an
+    // unconditional close would leave the panel stuck in its closing phase —
+    // unclamped, with a measured height holding it.
+    const { rerender } = render(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, FULL, FULL)
+    await act(async () => {})
+    rerender(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+    expect(box).toHaveAttribute("data-state", "open")
+
+    rerender(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+
+    expect(box.style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(true)
+  })
+
+  it("closes measured, too, when it arrived open and never saw the clamped content", async () => {
+    const { rerender } = render(
+      <Expandable open measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    const box = screen.getByTestId("box")
+    setHeights(box, PEEK, FULL)
+    await act(async () => {})
+    expect(box.style.maxHeight).toBe("")
+
+    const seen = recordMaxHeights(box)
+    rerender(
+      <Expandable open={false} measuredPeek data-testid="box">
+        {selfClamping}
+      </Expandable>,
+    )
+    await act(async () => {})
+
+    expect(seen.indexOf(`${FULL}px`)).toBeGreaterThanOrEqual(0)
+    expect(seen.indexOf(`${PEEK}px`)).toBeGreaterThan(seen.indexOf(`${FULL}px`))
+
+    endTransition(box)
+    expect(box.style.maxHeight).toBe("")
+    expect(clampedNow()).toBe(true)
   })
 })
