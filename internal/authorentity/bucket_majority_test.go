@@ -182,3 +182,42 @@ func TestAnEmptiedBucketsNameJoinsWhereItsBooksWent(t *testing.T) {
 	assert.Equal(t, p.EntityOf(1), p.EntityOf(200), "the majority empties the bucket")
 	assert.Equal(t, p.EntityOf(1), p.EntityOf(400))
 }
+
+// The bucket majority runs once, over the components the decisions made,
+// before the later equivalence rules (E4z review, missing test 5). A short
+// key the marks step joins to the bucket afterwards — «Джон О`Хара» beside
+// «Джон О'Хара» — neither counts toward the majority nor follows it: its
+// books stay on the bucket's entity, apart from the full name, while the
+// majority's own moves stand. The outcome is a fixed point: a second pass
+// changes nothing. Reordering the steps changes this (the joined key's books
+// would count as staying), so a change here is a change of semantics.
+func TestABucketMajorityIsDecidedBeforeTheMarksJoin(t *testing.T) {
+	ch := &churn{t: t, c: newCatalog(t), fields: map[int64]authorentity.CardBookFields{}}
+	for i := int64(1); i <= 6; i++ {
+		ch.c.book(i, fmt.Sprintf("Роман %d", i)).credit(i, i, "fp-full", person("О'Хара", "Джон", "Генри"))
+	}
+	for i := int64(0); i < 3; i++ {
+		ch.c.book(100+i, fmt.Sprintf("Роман %d", i+1)).credit(100+i, 100+i, "fp-short", person("О'Хара", "Джон"))
+		ch.c.book(200+i, fmt.Sprintf("Рассказ %d", i)).credit(200+i, 200+i, "fp-short", person("О'Хара", "Джон"))
+	}
+	ch.c.book(300, "Очерк").credit(300, 300, "fp-tick", person("О`Хара", "Джон"))
+	ch.c.book(900, "Мост").credit(900, 900, "fp-swap-a", person("Петров", "Иван")).
+		book(901, "Река").credit(901, 901, "fp-swap-b", person("Иван", "Петров"))
+	w := newWorld(t, ch)
+	w.pass()
+	w.decide(authorentity.CandidateSwap, 900, 901)
+	p := w.pass()
+
+	// The majority: three moved, three stay, the rest goes to the full name.
+	for _, id := range []int64{100, 200, 201, 202} {
+		same(t, p, 1, id)
+	}
+	assert.Equal(t, "D3:majority", p.RuleOf(200))
+	assert.Equal(t, 3, p.Report.Buckets.MajorityBooks)
+	// The marks step joins the backtick key to the bucket, not to the full
+	// name, and leaves the majority's moves where they are.
+	assert.Equal(t, 1, p.Report.Model.Marks)
+	assert.Equal(t, authorentity.RuleMarks, p.RuleOf(300))
+	apart(t, p, 1, 300)
+	assert.Zero(t, w.pass().Changes(), "the order of the steps is a fixed point")
+}
