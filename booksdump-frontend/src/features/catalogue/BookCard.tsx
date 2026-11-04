@@ -408,7 +408,7 @@ const BookCard: React.FC<BookCardProps> = ({
         <article
             data-testid="book-card"
             data-state={open ? 'open' : 'collapsed'}
-            className="relative rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground card:p-5"
+            className="relative isolate rounded-lg border border-border bg-card p-4 transition-colors hover:border-muted-foreground card:p-5"
         >
             {/*
               One grid, two arrangements. Wide, the cover and the rail each span
@@ -557,12 +557,22 @@ const BookCard: React.FC<BookCardProps> = ({
                   footprint is what the annotation flows around) without
                   BookActions knowing anything about it. A phone's row of verbs
                   keeps its place in the flow, under the text.
+
+                  Wide, the cell is lifted above the details region. That
+                  region spans the rail's column too (the wrap needs it there)
+                  and its Expandable is positioned, so without a layer of its
+                  own the rail sat under the region's box: every button the
+                  region overlapped was painted but never received a click.
+                  The card isolates its stacking context, so this z-index
+                  stays inside the card and cannot rise over the page chrome.
                 */}
                 <div
                     ref={railRef}
                     data-measure="rail"
                     className={
-                        isWide ? 'col-start-3 row-span-2 row-start-1 self-start' : 'col-span-2'
+                        isWide
+                            ? 'relative z-[1] col-start-3 row-span-2 row-start-1 self-start'
+                            : 'col-span-2'
                     }
                 >
                     <BookActions

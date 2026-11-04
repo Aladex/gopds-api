@@ -1,4 +1,4 @@
-import { act, screen } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
@@ -241,5 +241,94 @@ describe('keeping the reservation honest', () => {
             );
         });
         expect(block.style.maxHeight).toBe('');
+    });
+});
+
+/*
+ * The details region spans the rail's column (the wrap needs it there), and
+ * its Expandable is a positioned box: painted after every in-flow block, it
+ * sat over the rail and took the clicks of every rail button it overlapped —
+ * FB2 to Telegram went dead on prod while still painted. jsdom does no
+ * hit-testing, so what is pinned here is the stacking contract that keeps the
+ * rail on top; the real-browser elementFromPoint check is in the fix report.
+ */
+describe('the rail above the details region', () => {
+    const classes = (element: Element) => element.className.split(/\s+/);
+    /** The element's z-index utility, if it has one: z-1, z-[1], -z-1, z-auto… */
+    const zClass = (names: string[]) => names.find((name) => /^-?z-/.test(name));
+    /**
+     * The stacking level that utility sets: a number for z-N, z-[N] and their
+     * negatives, NaN for anything else (z-auto, an arbitrary non-integer), so
+     * only an explicit positive level passes a `> 0` check.
+     */
+    const zLevel = (names: string[]) => {
+        const name = zClass(names);
+        if (name === undefined) return undefined;
+        const match = /^(-?)z-(?:\[(-?\d+)\]|(\d+))$/.exec(name);
+        if (!match) return Number.NaN;
+        const level = Number(match[2] ?? match[3]);
+        return match[1] ? -level : level;
+    };
+
+    it('is a positioned layer above the region the annotation wraps in', () => {
+        undo = fakeLayout({ annotationClipped: true, railHeight: 320, titleHeight: 90 });
+        const { container } = renderCard({ isWide: true, book });
+
+        const rail = classes(container.querySelector('[data-measure="rail"]')!);
+        const region = classes(details());
+        // The region is positioned (Expandable's own box), so the rail must
+        // be too, and on a higher level — DOM order alone is not a contract.
+        expect(region).toContain('relative');
+        expect(rail).toContain('relative');
+        // A positive level, not just any z utility: z-auto or a negative one
+        // would leave the rail under the region again.
+        expect(zLevel(rail)).toBeGreaterThan(0);
+        expect(zClass(region)).toBeUndefined();
+    });
+
+    it('keeps that z-index inside the card', () => {
+        undo = fakeLayout({ railHeight: 320, titleHeight: 90 });
+        renderCard({ isWide: true, book });
+
+        // Without its own stacking context the card's rail would compete with
+        // the page chrome (the phone's tab bar, sticky headers) for the top.
+        expect(classes(screen.getByTestId('book-card'))).toContain('isolate');
+    });
+
+    it('still takes a press on every button while the details are open', async () => {
+        undo = fakeLayout({ annotationClipped: true, railHeight: 320, titleHeight: 90 });
+        const handlers = {
+            onPreview: vi.fn(),
+            onDownload: vi.fn(),
+            onEpubRequest: vi.fn(),
+            onMobiRequest: vi.fn(),
+            onSendToKindle: vi.fn(),
+            onSendToTelegram: vi.fn(),
+        };
+        renderCard({
+            isWide: true,
+            book,
+            showKindleButton: true,
+            showTelegramButton: true,
+            kindleConfigured: true,
+            telegramConnected: true,
+            ...handlers,
+        });
+        await userEvent.click(screen.getByRole('button', { name: 'bookMore' }));
+
+        const rail = screen.getByTestId('book-actions');
+        for (const button of within(rail).getAllByRole('button')) {
+            await userEvent.click(button);
+        }
+
+        expect(handlers.onPreview).toHaveBeenCalledWith(book);
+        expect(handlers.onDownload.mock.calls).toEqual([
+            ['fb2', book.id],
+            ['zip', book.id],
+        ]);
+        expect(handlers.onEpubRequest).toHaveBeenCalledWith(book.id);
+        expect(handlers.onMobiRequest).toHaveBeenCalledWith(book.id);
+        expect(handlers.onSendToKindle).toHaveBeenCalledWith(book);
+        expect(handlers.onSendToTelegram).toHaveBeenCalledWith(book);
     });
 });

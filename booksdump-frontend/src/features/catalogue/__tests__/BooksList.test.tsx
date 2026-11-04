@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 
 import BooksList from '@/features/catalogue/BooksList';
+import { CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
+import { downloadViaIframe } from '@/shared/lib/downloadViaIframe';
 import * as booksApi from '@/api/books';
 import * as authApi from '@/api/auth';
 import type { Book, BooksPage } from '@/api/books';
@@ -387,6 +389,86 @@ describe('BooksList rendering', () => {
         // than in a pointer-events rule.
         expect(sheet.getByRole('button', { name: 'EPUB' })).toBeDisabled();
         expect(sheet.getByRole('button', { name: 'MOBI' })).toBeEnabled();
+    });
+
+    /*
+     * The whole path a press takes, from the list's handlers through the card
+     * to the button, with the book's own id: the wide rail and the phone's
+     * sheet each reach the same download and the same conversion request.
+     */
+    describe('routes every format to the book it is pressed on', () => {
+        const book = makeBook({ id: 41, annotation: 'Длинная аннотация. '.repeat(40) });
+        let fetchSpy: ReturnType<typeof vi.spyOn> | undefined;
+        let media: ReturnType<typeof vi.spyOn> | undefined;
+
+        beforeAll(() => {
+            // vaul's sheet captures the pointer on press; jsdom has no such API.
+            Element.prototype.setPointerCapture ??= () => {};
+            Element.prototype.releasePointerCapture ??= () => {};
+            Element.prototype.hasPointerCapture ??= () => false;
+        });
+
+        beforeEach(() => {
+            listBooks.mockResolvedValue({ books: [book], length: 1 });
+            fetchSpy = vi
+                .spyOn(globalThis, 'fetch')
+                .mockResolvedValue(new Response(null, { status: 200 }));
+        });
+        afterEach(() => {
+            fetchSpy?.mockRestore();
+            media?.mockRestore();
+        });
+
+        const expectRouted = async () => {
+            const urls = vi.mocked(downloadViaIframe).mock.calls.map(([url]) => url);
+            expect(urls).toEqual([
+                expect.stringMatching(/\/files\/books\/get\/fb2\/41$/),
+                expect.stringMatching(/\/files\/books\/get\/zip\/41$/),
+            ]);
+            await waitFor(() =>
+                expect(conversionValue.dispatch.mock.calls).toEqual([
+                    [{ type: 'ADD_CONVERTING_BOOK', payload: { bookID: 41, format: 'epub' } }],
+                    [{ type: 'ADD_CONVERTING_BOOK', payload: { bookID: 41, format: 'mobi' } }],
+                ]),
+            );
+        };
+
+        it('from the wide rail', async () => {
+            media = vi.spyOn(window, 'matchMedia').mockImplementation(
+                (query: string) =>
+                    ({
+                        matches: query === CARD_WIDE_QUERY,
+                        media: query,
+                        onchange: null,
+                        addListener: () => {},
+                        removeListener: () => {},
+                        addEventListener: () => {},
+                        removeEventListener: () => {},
+                        dispatchEvent: () => false,
+                    }) as unknown as MediaQueryList,
+            );
+            renderAt('/books/page/1');
+            await screen.findByText(book.title);
+            const rail = within(screen.getByTestId('book-actions'));
+            expect(rail.getByRole('button', { name: 'FB2' })).toBeInTheDocument();
+
+            for (const format of ['FB2', 'EPUB', 'MOBI', 'ZIP']) {
+                await userEvent.click(rail.getByRole('button', { name: format }));
+            }
+            await expectRouted();
+        });
+
+        it('from the phone’s download sheet', async () => {
+            renderAt('/books/page/1');
+            await screen.findByText(book.title);
+
+            for (const format of ['FB2', 'EPUB', 'MOBI', 'ZIP']) {
+                const sheet = await openDownloads();
+                await userEvent.click(sheet.getByRole('button', { name: format }));
+                await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+            }
+            await expectRouted();
+        });
     });
 
     // A card with no annotation says nothing about it: a line that says
