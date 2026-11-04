@@ -6,9 +6,10 @@ import { MemoryRouter } from 'react-router';
 import BookCard, { type BookCardProps } from '@/features/catalogue/BookCard';
 import type { Book } from '@/api/books';
 
-// The card's action row: every button labelled, the two send buttons each
-// shown or hidden by the reader's switch, each either sending or — muted —
-// leading to its setup, and the favourite a toggle with one name.
+// The send buttons: each shown or hidden by the reader's switch, each either
+// sending or — muted — leading to its setup. Which of them a card offers, and
+// in what shape, is the send rule in BookCard.redesign; here is how each one
+// behaves once it is there, in the wide card's rail and on a phone's row.
 
 const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
@@ -63,120 +64,138 @@ const kindleButton = () =>
 const telegramButton = () =>
     screen.queryByRole('button', { name: /sendToTelegram\.(send|setup|sending)/ });
 
-const actions = () => screen.getByTestId('book-actions');
-const tokens = (el: Element) => el.className.split(/\s+/);
-// A finger's height on a phone, the small height from the card's wide layout up.
-const ACTION_SIZE = ['h-10', 'sm:h-8'];
-
-describe('every action in the row', () => {
-    it.each([false, true])('says what it is beside its icon (favourite %s)', (fav) => {
-        renderCard({
-            book: { ...book, fav },
-            showKindleButton: true,
-            showTelegramButton: true,
-            kindleConfigured: true,
-            telegramConnected: true,
-        });
-        const buttons = within(actions()).getAllByRole('button');
-
-        expect(buttons.map((button) => button.textContent)).toEqual([
-            'bookRead',
-            'sendToKindle.button',
-            'sendToTelegram.button',
-            'bookFav',
-        ]);
-        for (const button of buttons) {
-            expect(button.querySelector('svg')).toBeInTheDocument();
-            expect(tokens(button)).toEqual(expect.arrayContaining(ACTION_SIZE));
-        }
-    });
-
-    it('takes two columns on a phone and one row from the wide card up', () => {
-        renderCard({ showKindleButton: true, showTelegramButton: true });
-        const row = tokens(actions());
-
-        expect(row).toEqual(expect.arrayContaining(['grid', 'grid-cols-2', 'sm:flex']));
-        // An odd one out fills the last row rather than leaving half of it empty.
-        expect(row).toContain('[&>:last-child:nth-child(odd)]:col-span-2');
-    });
-
+describe('the read button', () => {
+    // There are no non-FB2 books: every format is converted from FB2, so the
+    // reader is offered on every card, at both sizes.
     it.each([
-        [true, true, true, 4],
-        [true, false, true, 3],
-        [true, true, false, 3],
-        [false, true, true, 3],
-        [false, false, false, 1],
-    ])(
-        'read %s, kindle %s, telegram %s: %i buttons and nothing else',
-        (readable, showKindle, showTelegram, count) => {
-            renderCard({
-                book: { ...book, format: readable ? 'fb2' : 'epub' },
-                showKindleButton: showKindle,
-                showTelegramButton: showTelegram,
-            });
-            const row = actions();
+        [true, 'bookReadOnline'],
+        [false, 'bookRead'],
+    ])('opens the book (wide %s, %s)', async (isWide, name) => {
+        const onPreview = vi.fn();
+        renderCard({ isWide, onPreview });
 
-            // No placeholder of a hidden button holds a cell of the grid.
-            expect(row.children).toHaveLength(count);
-            for (const child of row.children) expect(child.tagName).toBe('BUTTON');
-        },
-    );
-});
-
-describe('the favourite button', () => {
-    it.each([
-        [false, 'bookFavAdd'],
-        [true, 'bookFavRemove'],
-    ])('keeps its name, pressed %s, and its hint says %s', async (fav, hint) => {
-        const user = userEvent.setup();
-        const onToggleFavourite = vi.fn();
-        renderCard({ book: { ...book, fav }, onToggleFavourite });
-        const button = within(actions()).getByRole('button', { name: 'bookFav' });
-
-        expect(button).toHaveAttribute('aria-pressed', String(fav));
-        expect(button.querySelector('svg')?.getAttribute('class') ?? '').toSatisfy(
-            (cls: string) => cls.includes('fill-current') === fav,
+        await userEvent.click(
+            within(screen.getByTestId('book-actions')).getByRole('button', { name }),
         );
-
-        while (document.activeElement !== button) await user.tab();
-        expect(await screen.findByRole('tooltip')).toHaveTextContent(hint);
-
-        await user.click(button);
-        expect(onToggleFavourite).toHaveBeenCalledWith({ ...book, fav });
+        expect(onPreview).toHaveBeenCalledWith(book);
     });
 });
 
-describe('which send buttons the card shows', () => {
-    it.each([
-        [true, true],
-        [true, false],
-        [false, true],
-        [false, false],
-    ])('kindle %s, telegram %s', (showKindle, showTelegram) => {
-        renderCard({ showKindleButton: showKindle, showTelegramButton: showTelegram });
-
-        expect(Boolean(kindleButton())).toBe(showKindle);
-        expect(Boolean(telegramButton())).toBe(showTelegram);
-    });
-
-    it('puts them between Read and the star', () => {
+describe('the rail puts Kindle and Telegram side by side', () => {
+    it('in one row of two equal cells', () => {
         renderCard({ showKindleButton: true, showTelegramButton: true });
-        const names = screen
-            .getAllByRole('button')
-            .map((button) => button.getAttribute('aria-label') ?? button.textContent);
-        const read = names.indexOf('bookRead');
-        const kindle = names.indexOf('sendToKindle.setup');
-        const telegram = names.indexOf('sendToTelegram.setup');
-        const star = names.indexOf('bookFav');
-        expect([read, kindle, telegram, star].every((at) => at >= 0)).toBe(true);
-        expect(read < kindle && kindle < telegram && telegram < star).toBe(true);
+        const block = screen.getByTestId('book-send');
+
+        expect(block.className.split(/\s+/)).toEqual(
+            expect.arrayContaining(['grid', 'grid-cols-2']),
+        );
+        expect(block.children).toHaveLength(2);
+    });
+
+    it('and gives a single one the whole row', () => {
+        renderCard({ showKindleButton: true });
+        const block = screen.getByTestId('book-send');
+
+        expect(block.className).not.toMatch(/grid-cols-2/);
+        expect(block.children).toHaveLength(1);
     });
 });
 
-describe('the Telegram button', () => {
+/*
+ * The rail says each target's state in words, not only in its name for a
+ * screen reader and its tooltip: a muted «Kindle» alone did not tell a reader
+ * that a press opens the setup, nor that a book was on its way.
+ */
+describe('the rail says the state of each target', () => {
+    const rail = () => screen.getByTestId('book-send');
+
+    describe('with one target, across the whole row', () => {
+        it.each([
+            [
+                'a Kindle not set up',
+                { showKindleButton: true, kindleConfigured: false },
+                ['sendToKindle.railLabel', 'sendToKindle.setupShort'],
+                [],
+            ],
+            [
+                'a Kindle ready',
+                { showKindleButton: true, kindleConfigured: true },
+                ['sendToKindle.railLabel'],
+                ['sendToKindle.setupShort', 'sendToKindle.sending'],
+            ],
+            [
+                'a book on its way to the Kindle',
+                { showKindleButton: true, kindleConfigured: true, isSendingToKindle: true },
+                ['sendToKindle.sending'],
+                ['sendToKindle.setupShort'],
+            ],
+            [
+                'a Telegram not connected',
+                { showTelegramButton: true, telegramConnected: false },
+                ['sendToTelegram.railLabel', 'sendToTelegram.setupShort'],
+                [],
+            ],
+            [
+                'a book on its way to Telegram',
+                { showTelegramButton: true, telegramConnected: true, isSendingToTelegram: true },
+                ['sendToTelegram.sending'],
+                ['sendToTelegram.setupShort'],
+            ],
+        ] as const)('%s', (_, props, shown, absent) => {
+            renderCard(props);
+            const button = within(rail()).getByRole('button');
+
+            for (const text of shown) expect(button).toHaveTextContent(text);
+            for (const text of absent) expect(button).not.toHaveTextContent(text);
+        });
+    });
+
+    describe('with two targets side by side', () => {
+        /** The second line under a target's name, or null when it has none. */
+        const stateLine = (button: HTMLElement) =>
+            button.querySelector<HTMLElement>('[data-send-state]');
+
+        it('puts the state on a line of its own under the name', () => {
+            renderCard({
+                showKindleButton: true,
+                showTelegramButton: true,
+                kindleConfigured: false,
+                telegramConnected: true,
+                isSendingToTelegram: true,
+            });
+            const [kindle, telegram] = within(rail()).getAllByRole('button');
+
+            expect(kindle).toHaveTextContent('sendToKindle.button');
+            expect(stateLine(kindle)).toHaveTextContent(/^sendToKindle\.setupShort$/);
+            expect(telegram).toHaveTextContent('sendToTelegram.button');
+            expect(stateLine(telegram)).toHaveTextContent(/^sendToTelegram\.sendingShort$/);
+        });
+
+        it('says nothing more for a target that is ready', () => {
+            renderCard({
+                showKindleButton: true,
+                showTelegramButton: true,
+                kindleConfigured: true,
+                telegramConnected: false,
+            });
+            const [kindle, telegram] = within(rail()).getAllByRole('button');
+
+            expect(stateLine(kindle)).toBeNull();
+            expect(kindle).toHaveTextContent(/^sendToKindle\.button$/);
+            expect(stateLine(telegram)).toHaveTextContent(/^sendToTelegram\.setupShort$/);
+        });
+    });
+});
+
+describe.each([true, false])('the Telegram button (wide %s)', (isWide) => {
     it('looks muted and still answers when the bot is not connected', async () => {
         const onSendToTelegram = vi.fn();
-        renderCard({ showTelegramButton: true, telegramConnected: false, onSendToTelegram });
+        renderCard({
+            isWide,
+            showTelegramButton: true,
+            telegramConnected: false,
+            onSendToTelegram,
+        });
         const button = telegramButton()!;
 
         expect(button).toHaveAccessibleName('sendToTelegram.setup');
@@ -189,7 +208,7 @@ describe('the Telegram button', () => {
 
     it('asks to send the book when the bot is connected', async () => {
         const onSendToTelegram = vi.fn();
-        renderCard({ showTelegramButton: true, telegramConnected: true, onSendToTelegram });
+        renderCard({ isWide, showTelegramButton: true, telegramConnected: true, onSendToTelegram });
         const button = telegramButton()!;
 
         expect(button).toHaveAccessibleName('sendToTelegram.send');
@@ -200,7 +219,7 @@ describe('the Telegram button', () => {
 
     it('says what it does on a Tab onto it and on a hover', async () => {
         const user = userEvent.setup();
-        renderCard({ showTelegramButton: true, telegramConnected: true });
+        renderCard({ isWide, showTelegramButton: true, telegramConnected: true });
         const button = telegramButton()!;
 
         while (document.activeElement !== button) await user.tab();
@@ -213,6 +232,7 @@ describe('the Telegram button', () => {
 
     it('shows that the book is on its way', () => {
         renderCard({
+            isWide,
             showTelegramButton: true,
             telegramConnected: true,
             isSendingToTelegram: true,
@@ -225,10 +245,10 @@ describe('the Telegram button', () => {
     });
 });
 
-describe('the Kindle button', () => {
+describe.each([true, false])('the Kindle button (wide %s)', (isWide) => {
     it('looks muted and still answers when there is no Kindle yet', async () => {
         const onSendToKindle = vi.fn();
-        renderCard({ showKindleButton: true, kindleConfigured: false, onSendToKindle });
+        renderCard({ isWide, showKindleButton: true, kindleConfigured: false, onSendToKindle });
         const button = kindleButton()!;
 
         expect(button).toHaveAccessibleName('sendToKindle.setup');
@@ -241,7 +261,7 @@ describe('the Kindle button', () => {
 
     it('asks to send the book when there is a Kindle to send to', async () => {
         const onSendToKindle = vi.fn();
-        renderCard({ showKindleButton: true, kindleConfigured: true, onSendToKindle });
+        renderCard({ isWide, showKindleButton: true, kindleConfigured: true, onSendToKindle });
         const button = kindleButton()!;
 
         expect(button).toHaveAccessibleName('sendToKindle.send');
@@ -250,30 +270,77 @@ describe('the Kindle button', () => {
         expect(onSendToKindle).toHaveBeenCalledWith(book);
     });
 
-    it('says «Kindle» beside its icon, in the size every action shares', () => {
-        renderCard({ showKindleButton: true, kindleConfigured: true });
+    // A lone target has the rail's whole row and says «В Kindle»; the
+    // phone's row has a third of the width and says «Kindle».
+    const word = isWide ? 'sendToKindle.railLabel' : 'sendToKindle.button';
+
+    it('says «Kindle» beside its icon', () => {
+        renderCard({ isWide, showKindleButton: true, kindleConfigured: true });
         const button = kindleButton()!;
 
-        expect(button).toHaveTextContent('sendToKindle.button');
+        expect(button).toHaveTextContent(word);
         // The visible word is in the name, for voice control.
         expect(button).toHaveAccessibleName('sendToKindle.send');
         expect(button.querySelector('svg')).toBeInTheDocument();
-        expect(button.className.split(/\s+/)).toEqual(expect.arrayContaining(ACTION_SIZE));
     });
 
     it('keeps the word, muted, when there is no Kindle yet', () => {
-        renderCard({ showKindleButton: true, kindleConfigured: false });
+        renderCard({ isWide, showKindleButton: true, kindleConfigured: false });
 
-        expect(kindleButton()).toHaveTextContent('sendToKindle.button');
+        expect(kindleButton()).toHaveTextContent(word);
         expect(kindleButton()!.className).toMatch(/text-muted-foreground/);
     });
 
     it('shows that the book is on its way', () => {
-        renderCard({ showKindleButton: true, kindleConfigured: true, isSendingToKindle: true });
+        renderCard({
+            isWide,
+            showKindleButton: true,
+            kindleConfigured: true,
+            isSendingToKindle: true,
+        });
         const button = kindleButton()!;
 
         expect(button).toHaveAccessibleName('sendToKindle.sending');
         expect(button).toHaveAttribute('aria-busy', 'true');
         expect(button.querySelector('svg')?.getAttribute('class')).toMatch(/animate-spin/);
+    });
+});
+
+describe('the «Отправить» button on a phone', () => {
+    beforeAll(() => {
+        Element.prototype.setPointerCapture ??= () => {};
+        Element.prototype.releasePointerCapture ??= () => {};
+        Element.prototype.hasPointerCapture ??= () => false;
+    });
+
+    it('shows a book on its way to either target', () => {
+        renderCard({
+            isWide: false,
+            showKindleButton: true,
+            showTelegramButton: true,
+            isSendingToTelegram: true,
+        });
+        const button = screen.getByRole('button', { name: 'bookSend' });
+
+        expect(button).toHaveAttribute('aria-busy', 'true');
+        expect(button.querySelector('svg')?.getAttribute('class')).toMatch(/animate-spin/);
+    });
+
+    it('closes its sheet once a target is chosen', async () => {
+        const onSendToTelegram = vi.fn();
+        renderCard({
+            isWide: false,
+            showKindleButton: true,
+            showTelegramButton: true,
+            telegramConnected: true,
+            onSendToTelegram,
+        });
+
+        await userEvent.click(screen.getByRole('button', { name: 'bookSend' }));
+        const sheet = await screen.findByRole('dialog');
+        await userEvent.click(within(sheet).getByRole('button', { name: 'sendToTelegram.send' }));
+
+        expect(onSendToTelegram).toHaveBeenCalledWith(book);
+        expect(screen.queryByRole('dialog')).toBeNull();
     });
 });

@@ -5,26 +5,16 @@ import { MemoryRouter } from 'react-router';
 
 import BookCard from '@/features/catalogue/BookCard';
 import type { Book } from '@/api/books';
+import { fakeLayout, translate } from './bookCardHarness';
 
 /*
- * The card holds three lists — authors, series, genres — and while it is shut
- * each of them shows one line. What does the shortening is `-webkit-line-clamp`,
- * which jsdom does not implement and could not honour anyway without a
- * stylesheet or a layout. So how it looks was measured in a browser: five
- * authors in a 520px row cut after the third with the ellipsis after a whole
- * name, no ellipsis at all where everything fitted, and — the case that sent
- * this back for a second try — a single series longer than a 190px row showing
- * as much of itself as fits rather than disappearing and leaving the label over
- * an ellipsis.
- *
- * What is held here is the half that survives without layout, and the half the
- * browser cannot check: that nothing is removed from the document to make it
- * fit. Slicing the lists in JavaScript — which is what the authors used to get,
- * two of them and a count of the rest — takes the names away from anyone
- * reading the page with something other than their eyes.
+ * The card shows the book the way a list is scanned — title, byline, series,
+ * dates, genres, a colophon and the start of the annotation — and opens to
+ * show the rest. Opening is one real button, «Подробнее», and it is offered
+ * only when the card is holding something back (BookCard.redesign holds the
+ * rule itself); here the annotation is made to run long so it is there.
  */
 
-const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
@@ -89,33 +79,17 @@ const renderCard = ({ isWide = true } = {}) =>
         </MemoryRouter>,
     );
 
-/** The row a given value sits in, whichever of the three lists that is. */
-const rowOf = (value: string) => screen.getByRole('link', { name: value }).closest('div');
-
 /** The one control that opens and shuts the card. */
 const disclosure = () => screen.getByRole('button', { name: /bookMore|bookLess/ });
 
-beforeEach(() => vi.clearAllMocks());
+let undoLayout: () => void;
+beforeEach(() => {
+    vi.clearAllMocks();
+    undoLayout = fakeLayout({ annotationClipped: true });
+});
+afterEach(() => undoLayout());
 
 describe('a card that is shut', () => {
-    it('keeps every author in the document, however many there are', async () => {
-        renderCard();
-
-        // Including the ones the clamp will hide: the list is shortened by the
-        // browser, so what a reader with a screen reader hears is all of it.
-        for (const name of AUTHORS) {
-            expect(await screen.findByRole('link', { name })).toBeInTheDocument();
-        }
-    });
-
-    it('clamps each of the three lists to a line', () => {
-        renderCard();
-
-        expect(rowOf('Аркадий Стругацкий')?.className).toMatch(/line-clamp-1/);
-        expect(rowOf('Мир Полудня')?.className).toMatch(/line-clamp-1/);
-        expect(rowOf('Научная фантастика')?.className).toMatch(/line-clamp-1/);
-    });
-
     // The title is what the list is scanned by, so it is the one thing that is
     // never shortened.
     it('shows the title in full', () => {
@@ -124,17 +98,24 @@ describe('a card that is shut', () => {
         const title = screen.getByRole('heading', { name: book.title });
         expect(title.className).not.toMatch(/line-clamp|truncate/);
     });
+
+    it('clamps the annotation to three lines at both sizes', () => {
+        for (const isWide of [true, false]) {
+            const view = renderCard({ isWide });
+            expect(screen.getByText('Возвращение.').className).toMatch(/\bline-clamp-3\b/);
+            view.unmount();
+        }
+    });
 });
 
 describe('a card that has been opened', () => {
-    it('lets all three lists wrap', async () => {
-        renderCard();
+    it('lets the annotation and the genres run in full', async () => {
+        const { container } = renderCard();
 
         await userEvent.click(disclosure());
 
-        expect(rowOf('Аркадий Стругацкий')?.className).not.toMatch(/line-clamp-1/);
-        expect(rowOf('Мир Полудня')?.className).not.toMatch(/line-clamp-1/);
-        expect(rowOf('Научная фантастика')?.className).not.toMatch(/line-clamp-1/);
+        expect(screen.getByText('Возвращение.').className).not.toMatch(/line-clamp/);
+        expect(container.querySelector('[data-clip="chips"]')?.className).not.toMatch(/max-h-/);
     });
 });
 
@@ -166,7 +147,7 @@ describe('opening and shutting a card', () => {
         const controlled = disclosure().getAttribute('aria-controls');
         expect(controlled).toBeTruthy();
         expect(container.querySelector(`#${controlled}`)).toContainElement(
-            screen.getByRole('link', { name: 'Аркадий Стругацкий' }),
+            screen.getByText('Возвращение.'),
         );
     });
 
@@ -178,27 +159,6 @@ describe('opening and shutting a card', () => {
 
         await userEvent.keyboard('{Enter}');
         expect(screen.getByTestId('book-card')).toHaveAttribute('data-state', 'open');
-    });
-
-    /*
-     * The rule divides the book from what can be done with it, so on a phone the
-     * downloads belong under it with the rest of the doing. They used to close
-     * the block above it, where the control sitting on the rule cut into their
-     * outlines. On a wide screen there is room for them under the cover, and
-     * they stay there.
-     */
-    it('puts the downloads below the rule on a phone and above it otherwise', () => {
-        const wide = renderCard();
-        const ruleOf = (c: HTMLElement) => c.querySelector('.border-t');
-        expect(ruleOf(wide.container)).not.toContainElement(
-            screen.getByRole('button', { name: 'EPUB' }),
-        );
-        wide.unmount();
-
-        const narrow = renderCard({ isWide: false });
-        expect(ruleOf(narrow.container)).toContainElement(
-            screen.getByRole('button', { name: 'EPUB' }),
-        );
     });
 
     // Nothing else on the card opens it, so selecting a line of the annotation
@@ -215,20 +175,17 @@ describe('opening and shutting a card', () => {
     });
 });
 
-describe('the values in those lists', () => {
+describe('the values on the card', () => {
     /*
-     * Links rather than buttons, for two reasons that happen to agree. A button
-     * is an atomic inline box whatever its display, so one longer than the row
-     * vanished whole and left the label over an ellipsis. And these are
-     * navigations: as links they can be opened in a new tab, which a button
-     * dispatching navigate() can never be.
+     * Links rather than buttons: these are navigations, and as links they can
+     * be opened in a new tab, which a button dispatching navigate() never can.
      */
     it('are links to where they go', () => {
         renderCard();
 
-        expect(screen.getByRole('link', { name: 'Кир Булычёв' })).toHaveAttribute(
+        expect(screen.getByRole('link', { name: 'Аркадий Стругацкий' })).toHaveAttribute(
             'href',
-            '/books/find/author/3/1',
+            '/books/find/author/1/1',
         );
         expect(screen.getByRole('link', { name: 'Мир Полудня' })).toHaveAttribute(
             'href',
@@ -243,12 +200,19 @@ describe('the values in those lists', () => {
     it('drop the scope the reader was browsing under on the way', async () => {
         renderCard();
 
-        await userEvent.click(screen.getByRole('link', { name: 'Кир Булычёв' }));
+        await userEvent.click(screen.getByRole('link', { name: 'Борис Стругацкий' }));
 
         // A stale query would otherwise survive the move and filter the author's
         // own books. The name is handed over rather than fetched again: it is on
         // screen already.
         expect(setSearchItem).toHaveBeenCalledWith('');
-        expect(setAuthorName).toHaveBeenCalledWith('Кир Булычёв');
+        expect(setAuthorName).toHaveBeenCalledWith('Борис Стругацкий');
+    });
+
+    it('name the series with its label, as one line', () => {
+        renderCard();
+
+        const line = screen.getByRole('link', { name: 'Мир Полудня' }).parentElement!;
+        expect(line).toHaveTextContent('bookSeriesLabel: Мир Полудня');
     });
 });

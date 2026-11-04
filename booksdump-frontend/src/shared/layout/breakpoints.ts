@@ -8,22 +8,32 @@
  * a container built for the other layout.
  *
  * Layout belongs in CSS, and most of this card's does. What cannot go there is
- * the block of format buttons: narrow, it sits below the rule at the foot of
- * the card; wide, it sits under the cover, in a different parent. No media
- * query moves a node between parents, and rendering it twice would put two
- * copies of every button in the document — two tab stops, two announcements to
- * a screen reader, and two elements answering to the same name.
+ * the action area: wide, it is a rail beside the text holding every format
+ * and send button; narrow, it is a row of three verbs whose formats and send
+ * targets open in sheets. Those are different controls, not the same ones
+ * restyled, and rendering both would put two copies of every button in the
+ * document — two tab stops, two announcements to a screen reader, and two
+ * elements answering to the same name. The byline's counter makes the same
+ * choice (a dropdown beside it, or a sheet).
  *
  * So one decision stays in JS, and this module keeps it honest.
  *
- * The unit matters as much as the number. Tailwind emits `sm:` as
- * `@media (width >= 40rem)`, and a media query's rem is the reader's own font
- * size, not ours. Asking for 640px instead would agree only while that size is
- * 16px: a reader who set 20px would get CSS switching at 800px and React at
- * 640px — the same defect as before, over a band four times wider. So the
- * query is written in the same unit Tailwind uses.
+ * The number is where the rail has room. The wide card is cover (108px) | text
+ * | rail (240px) with 24px gaps and 20px padding, and below a 760px card the
+ * text column drops under ~320px — the 156-character title runs to seven
+ * lines. The list draws cards inside the page's 1rem padding on either side,
+ * and a classic scrollbar takes up to 15px more, so a 760px card needs an
+ * 807px viewport: 51rem. Tailwind's own `md` (48rem) would hand the rail a
+ * 721–736px card. The stylesheet names it `card` (`--breakpoint-card` in
+ * index.css).
+ *
+ * The unit matters as much as the number. Tailwind emits the variant as
+ * `@media (width >= 51rem)`, and a media query's rem is the reader's own font
+ * size, not ours. Asking in pixels instead would agree only while that size is
+ * 16px: a reader who set 20px would get CSS switching at 1020px and React at
+ * 816px. So the query is written in the same unit Tailwind uses.
  */
-export const CARD_WIDE_MIN_WIDTH_REM = 40;
+export const CARD_WIDE_MIN_WIDTH_REM = 51;
 
 /**
  * The Tailwind variant the card styles its wide layout with.
@@ -33,7 +43,7 @@ export const CARD_WIDE_MIN_WIDTH_REM = 40;
  * rule — and arrive at a layout React never agreed to. Requiring the name
  * means nothing whose meaning has to be re-derived gets in.
  */
-export const CARD_WIDE_VARIANT = 'sm';
+export const CARD_WIDE_VARIANT = 'card';
 
 /** The media query the card's layout decision is made with. */
 export const CARD_WIDE_QUERY = `(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`;

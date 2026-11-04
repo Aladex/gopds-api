@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 
@@ -356,16 +356,24 @@ describe('BooksList rendering', () => {
         expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
     });
 
+    /*
+     * jsdom reports no media query as matching, so the list hands its cards
+     * the narrow layout: the formats are in the «Скачать» sheet, which is the
+     * path a phone takes.
+     */
+    const openDownloads = async () => {
+        await userEvent.click(screen.getByRole('button', { name: 'bookDownload' }));
+        return within(await screen.findByRole('dialog'));
+    };
+
     it('offers all four download formats', async () => {
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
+        const sheet = await openDownloads();
 
-        // ZIP is the archived FB2; the label is short so the four sit in an even
-        // block under the cover.
+        // ZIP is the archived FB2.
         for (const format of ['ZIP', 'FB2', 'EPUB', 'MOBI']) {
-            expect(
-                screen.getByRole('button', { name: new RegExp(`^\\W*${format}$`) }),
-            ).toBeInTheDocument();
+            expect(sheet.getByRole('button', { name: format })).toBeInTheDocument();
         }
     });
 
@@ -373,19 +381,22 @@ describe('BooksList rendering', () => {
         conversionState.convertingBooks = [{ bookID: 1, format: 'epub' }];
         renderAt('/books/page/1');
         await screen.findByText('Заклятые в любви');
+        const sheet = await openDownloads();
 
-        // Real disabled buttons now, so the guarantee is in the semantics rather
-        // than in a pointer-events rule. The name carries a spinner while the
-        // conversion runs.
-        expect(screen.getByRole('button', { name: /EPUB$/ })).toBeDisabled();
-        expect(screen.getByRole('button', { name: /^MOBI$/ })).toBeEnabled();
+        // Real disabled buttons, so the guarantee is in the semantics rather
+        // than in a pointer-events rule.
+        expect(sheet.getByRole('button', { name: 'EPUB' })).toBeDisabled();
+        expect(sheet.getByRole('button', { name: 'MOBI' })).toBeEnabled();
     });
 
-    it('says so when a book has no annotation', async () => {
+    // A card with no annotation says nothing about it: a line that says
+    // «Нет аннотаций» on a third of the catalogue is noise, not information.
+    it('says nothing when a book has no annotation', async () => {
         listBooks.mockResolvedValue({ books: [makeBook({ annotation: '' })], length: 1 });
         renderAt('/books/page/1');
+        await screen.findByText('Заклятые в любви');
 
-        expect(await screen.findByText('noAnnotation')).toBeInTheDocument();
+        expect(screen.queryByText('noAnnotation')).toBeNull();
     });
 });
 
@@ -550,29 +561,6 @@ describe('BooksList opens the reader', () => {
         await waitFor(() => expect(screen.queryByTestId('opened-portion')).toBeNull());
 
         expect(trigger).toHaveFocus();
-    });
-
-    it('offers the reader only where the pipeline can read the book', async () => {
-        // A mixed page, so the rule is observed as "exactly the FB2 one" and
-        // not as "not EPUB": a condition like format !== 'epub' would pass a
-        // page of EPUBs and fail here on the MOBI.
-        listBooks.mockResolvedValue({
-            books: [
-                makeBook({ id: 1, title: 'An EPUB', format: 'epub' }),
-                makeBook({ id: 2, title: 'An FB2', format: 'fb2' }),
-                makeBook({ id: 3, title: 'A MOBI', format: 'mobi' }),
-            ],
-            length: 3,
-        });
-        renderAt('/books/page/1');
-        await screen.findByText('A MOBI');
-
-        const offered = screen.getAllByRole('button', { name: 'bookRead' });
-        expect(offered).toHaveLength(1);
-
-        await userEvent.click(offered[0]);
-        await screen.findByTestId('opened-portion');
-        expect(getPreview).toHaveBeenCalledWith(2, expect.anything());
     });
 });
 

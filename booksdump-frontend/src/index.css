@@ -59,6 +59,14 @@
         'Twemoji Country Flags', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
         'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 
+    /* The book card's wide layout: cover | text | action rail. It needs a
+       760px card, and the list draws its cards inside the page's 1rem padding
+       on each side, with up to 15px more taken by a classic scrollbar — so
+       the viewport has to reach 760 + 32 + 15 = 807px. 51rem is 816px at the
+       default font size. shared/layout/breakpoints.ts says the same number
+       to React, and its test holds the two together. */
+    --breakpoint-card: 51rem;
+
     --z-index-chrome: 1100;
     --z-index-chrome-top: 1200;
     --z-index-modal: 1300;
