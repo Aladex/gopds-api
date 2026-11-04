@@ -609,6 +609,7 @@ func (m *modelStep) replan() *Plan {
 	for _, id := range sortedKeys(m.states) {
 		np.states = append(np.states, *m.states[id])
 	}
+	m.refusePins()
 	np.pinStates = m.pinStates
 	for _, r := range np.revivals {
 		switch r.Outcome {

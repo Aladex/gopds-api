@@ -405,6 +405,7 @@ func (b *builder) fallbackGroups(groups []*group) (out []*group, joined map[int]
 	byWritten, words := b.rootsByWritten(groups)
 	joined, pairs = map[int]int{}, map[int][2]int{}
 	b.pinRule, b.pinTook, b.pinJoined = map[int]string{}, map[int64]bool{}, map[int][]int{}
+	b.pinRefused = map[int]string{}
 	has := map[int]bool{}
 	for _, g := range groups {
 		has[g.root] = true
@@ -493,11 +494,16 @@ func (f *fallbackCredit) joins(r, root int, found bool, byName map[string]map[in
 
 // pinClassRoots are the roots the classes of fallback fingerprints the
 // pins join alone (no key) go to: the one root their credits join by name,
-// by class; -1 for a class whose credits join several, which keep their
-// joins and leave the others as they are. A class none of whose credits
-// joins is absent.
+// by class. A class none of whose credits joins is absent. -1 is a class
+// placed nowhere: its credits keep their joins and the others stay as they
+// are. That is a class whose credits join several roots — a pin of
+// fallback credits never joins two entities of keys (split) — and one whose
+// root holds the other side of a veto of the class (vetoed): the veto
+// check of the pins (applyPins) saw no key of theirs, and this root is
+// where the pins would put the class.
 func (b *builder) pinClassRoots(byName, byWritten map[string]map[int]bool, words map[int]map[string]bool) map[int]int {
 	out := map[int]int{}
+	masks := map[int]vetoMask{}
 	for i := range b.fallback {
 		f := &b.fallback[i]
 		place, ok := b.pinPlaces[b.in.Credits[f.ci].Fingerprint]
@@ -514,9 +520,31 @@ func (b *builder) pinClassRoots(byName, byWritten map[string]map[int]bool, words
 		if r, seen := out[place.class]; seen && r != root {
 			root = -1
 		}
-		out[place.class] = root
+		out[place.class], masks[place.class] = root, place.mask
+	}
+	for _, class := range sortedKeys(out) {
+		switch r := out[class]; {
+		case r < 0:
+			b.pinRefused[class] = PinSplit
+		case masks[class].apart(b.entityVetoSides(r)):
+			out[class] = -1
+			b.pinRefused[class] = PinVetoed
+			b.vetoRefused(VetoRefusedPin)
+		}
 	}
 	return out
+}
+
+// entityVetoSides are the veto sides of the entity of root r: of its
+// component's keys and of the credits moved into it.
+func (b *builder) entityVetoSides(r int) vetoMask {
+	m := b.vetoSidesOfKeys(b.membersOf(r))
+	for ci, to := range b.movedTo {
+		if b.find(to) == r {
+			m.add(b.vetoOf[b.in.Credits[ci].Fingerprint])
+		}
+	}
+	return m
 }
 
 // pinRoot is the group root of key k's component, else the one root its

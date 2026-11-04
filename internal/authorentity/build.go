@@ -206,11 +206,16 @@ type builder struct {
 	// a credit of a pinned fingerprint, by raw fingerprint; and, in one
 	// plan, the rule of each fallback credit a pin placed, the ones it put
 	// into a group of keys by its root, and the unselected credits it took
-	// from the same-name join, by credit ID.
-	pinPlaces map[string]pinPlace
-	pinRule   map[int]string
-	pinJoined map[int][]int
-	pinTook   map[int64]bool
+	// from the same-name join, by credit ID. The pins of each class of
+	// pinned fallback fingerprints, and the state the fallback step found a
+	// class of pins of fallback credits alone in when it does not apply
+	// (vetoed, split), by class.
+	pinPlaces   map[string]pinPlace
+	pinRule     map[int]string
+	pinJoined   map[int][]int
+	pinTook     map[int64]bool
+	pinsOfClass map[int][]int64
+	pinRefused  map[int]string
 }
 
 // Build computes one pass over the input.

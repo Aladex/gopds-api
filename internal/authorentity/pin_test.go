@@ -164,3 +164,53 @@ func TestAPinNeverMovesAList(t *testing.T) {
 	assert.Equal(t, authorentity.RuleListed, p.RuleOf(44))
 	apart(t, p, 44, 11)
 }
+
+// A pin of fallback credits alone goes to the entity one of them joins by
+// name (F3 review): that entity's veto sides count for the pin too. Here
+// «Андрей Иванович Смирнов» (fp-full) and «Борис Петров (Другой)» (fp-alias)
+// are the two sides of a live veto; an unselected credit of the full name
+// (fp-anchor) joins it by name. A pin of fp-anchor and fp-alias would put
+// fp-alias beside fp-full: it is vetoed, and nothing moves.
+func TestAFallbackPinNeverCrossesTheVetoOfItsNameTarget(t *testing.T) {
+	w := pinWorld(t, authorentity.MergePin{ID: 8, A: []string{"fp-anchor"}, B: []string{"fp-alias"}})
+	anchor := &name{family: "Смирнов", given: "Андрей", additional: []string{"Иванович"}, script: "Cyrl",
+		displayAs: "Андрей Иванович Смирнов"}
+	other := &name{family: "Петров", given: "Борис", script: "Cyrl", displayAs: "Борис Петров (Другой)"}
+	w.ch.c.book(50, "Якорь").unselected(50, 50, "fp-anchor", "unusual_characters", nil, anchor).done().
+		book(51, "Другой").unselected(51, 51, "fp-alias", "unusual_characters", nil, other).done()
+	w.ch.c.veto(1, []bookFP{{11, "fp-full"}}, []bookFP{{51, "fp-alias"}})
+	w.ch.c.in.VetoBooks = map[int64][]string{11: {"fp-full"}, 51: {"fp-alias"}}
+	p := w.pass()
+	same(t, p, 50, 11)
+	assert.Equal(t, authorentity.PinVetoed, pinState(p, 8))
+	apart(t, p, 51, 11)
+	assert.NotEqual(t, "pin:8", p.RuleOf(50), "the anchor keeps its own name join")
+	assert.NotEqual(t, "pin:8", p.RuleOf(51))
+	assert.Equal(t, 1, p.Report.Model.Pins[authorentity.PinVetoed])
+	assert.Zero(t, p.Report.Model.Pins[authorentity.PinApplied])
+	assert.Equal(t, 1, p.Report.Veto.Refused[authorentity.VetoRefusedPin])
+	assert.Zero(t, w.pass().Changes())
+}
+
+// A pin of fallback credits alone whose credits join two entities by name
+// never joins the two (F3 review): a fallback pin moves fallback credits,
+// not keyed entities. It is not applied — split — and its credits keep
+// their name joins.
+func TestAFallbackPinBetweenTwoNamedEntitiesIsSplit(t *testing.T) {
+	w := pinWorld(t, authorentity.MergePin{ID: 9, A: []string{"fp-a"}, B: []string{"fp-b"}})
+	for i := int64(0); i < 3; i++ {
+		w.ch.c.book(60+i, fmt.Sprintf("Петров %d", i)).credit(60+i, 60+i, "fp-petrov", person("Петров", "Борис"))
+	}
+	smirnov := &name{family: "Смирнов", given: "Андрей", script: "Cyrl", displayAs: "Андрей Смирнов"}
+	petrov := &name{family: "Петров", given: "Борис", script: "Cyrl", displayAs: "Борис Петров"}
+	w.ch.c.book(70, "А").unselected(70, 70, "fp-a", "unusual_characters", nil, smirnov).done().
+		book(71, "Б").unselected(71, 71, "fp-b", "unusual_characters", nil, petrov).done()
+	p := w.pass()
+	same(t, p, 70, 1)
+	same(t, p, 71, 60)
+	apart(t, p, 1, 60)
+	assert.Equal(t, authorentity.PinSplit, pinState(p, 9))
+	assert.Equal(t, 1, p.Report.Model.Pins[authorentity.PinSplit])
+	assert.Zero(t, p.Report.Model.Pins[authorentity.PinApplied])
+	assert.Zero(t, w.pass().Changes())
+}

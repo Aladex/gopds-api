@@ -41,6 +41,11 @@ const (
 	PinVetoed = "vetoed"
 	// PinUnanchored: a side's fingerprints are credited nowhere.
 	PinUnanchored = "unanchored"
+	// PinSplit: the pin names fallback credits alone, and they join two
+	// entities by name. A pin of fallback credits moves those credits into
+	// one entity; it never joins two entities of keys, so its sides stay
+	// apart.
+	PinSplit = "split"
 )
 
 // PinState is what a pass did with one pin.
@@ -93,7 +98,7 @@ func (m *modelStep) applyPins() bool {
 		m.pinStates = append(m.pinStates, PinState{PinID: pin.ID, State: state})
 		m.rep.Pins[state]++
 	}
-	b.pinPlaces = fb.places()
+	b.pinPlaces, b.pinsOfClass = fb.places(), fb.classPins()
 	if joined {
 		// A moved book follows its target into the entity it joined, as
 		// after the Wikidata step.
@@ -177,17 +182,19 @@ func (b *builder) joinPin(id int64, keys []int) bool {
 
 // pinPlace is where the fallback step puts a credit of a pinned
 // fingerprint: with key (into the entity of its component), or, -1, into
-// the one entity of its class; rule is the pin that placed it first.
+// the one entity of its class; rule is the pin that placed it first, mask
+// the veto sides of its class.
 type pinPlace struct {
 	key   int
 	class int
 	rule  string
+	mask  vetoMask
 }
 
 // pinFallback joins the pinnable fingerprints of fallback credits across
 // the pins of a pass: a union-find over them, each class with a key of the
-// component it joined (-1 when none), its veto sides and, by node, the
-// rule of the first pin that named it.
+// component it joined (-1 when none), its veto sides, the pins that joined
+// it and, by node, the rule of the first pin that named it.
 type pinFallback struct {
 	b     *builder
 	node  map[string]int
@@ -195,13 +202,14 @@ type pinFallback struct {
 	uf    intUnion
 	key   map[int]int
 	mask  map[int]vetoMask
+	pins  map[int][]int64
 	rule  map[int]string
 	named map[int]bool
 }
 
 func (b *builder) newPinFallback() *pinFallback {
 	fb := &pinFallback{b: b, node: map[string]int{}, uf: newIntUnion(), key: map[int]int{}, mask: map[int]vetoMask{},
-		rule: map[int]string{}, named: map[int]bool{}}
+		pins: map[int][]int64{}, rule: map[int]string{}, named: map[int]bool{}}
 	for i := range b.fallback {
 		f := &b.fallback[i]
 		fp := b.in.Credits[f.ci].Fingerprint
@@ -280,14 +288,17 @@ func (fb *pinFallback) join(id int64, keys, classes []int) {
 	if len(keys) > 0 {
 		key = keys[0]
 	}
+	pins := []int64{id}
 	for _, c := range classes {
 		for v, s := range fb.mask[c] {
 			m[v] |= s
 		}
+		pins = append(pins, fb.pins[c]...)
 		fb.uf.union(c, classes[0])
 	}
 	root := fb.uf.find(classes[0])
-	fb.key[root], fb.mask[root] = key, m
+	slices.Sort(pins)
+	fb.key[root], fb.mask[root], fb.pins[root] = key, m, slices.Compact(pins)
 	// A fingerprint no pin named yet is a class of its own.
 	for _, c := range classes {
 		if !fb.named[c] {
@@ -304,7 +315,45 @@ func (fb *pinFallback) places() map[string]pinPlace {
 			continue
 		}
 		c := fb.uf.find(n)
-		out[fp] = pinPlace{key: fb.key[c], class: c, rule: fb.rule[n]}
+		out[fp] = pinPlace{key: fb.key[c], class: c, rule: fb.rule[n], mask: fb.mask[c]}
 	}
 	return out
+}
+
+// classPins are the pins that joined each class, by class.
+func (fb *pinFallback) classPins() map[int][]int64 {
+	out := map[int][]int64{}
+	for n := range fb.fps {
+		if c := fb.uf.find(n); fb.named[n] && out[c] == nil {
+			out[c] = fb.pins[c]
+		}
+	}
+	return out
+}
+
+// refusePins records, in the pass's pin states and report, what the
+// fallback step found a class of pins of fallback credits alone in when it
+// placed none of them (pinClassRoots): an applied pin of such a class is
+// vetoed or split. These pins joined no key, so nothing else undoes.
+func (m *modelStep) refusePins() {
+	if len(m.b.pinRefused) == 0 {
+		return
+	}
+	refused := map[int64]string{}
+	for class, state := range m.b.pinRefused {
+		for _, id := range m.b.pinsOfClass[class] {
+			refused[id] = state
+		}
+	}
+	for i := range m.pinStates {
+		s := &m.pinStates[i]
+		if state, ok := refused[s.PinID]; ok && s.State == PinApplied {
+			m.rep.Pins[PinApplied]--
+			if m.rep.Pins[PinApplied] == 0 {
+				delete(m.rep.Pins, PinApplied)
+			}
+			s.State = state
+			m.rep.Pins[state]++
+		}
+	}
 }
