@@ -1,15 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
-import { Check, Copy, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Check, Copy, ExternalLink, QrCode as QrIcon } from 'lucide-react';
 
 import type { DonateMethod } from '@/api/system';
 import { useTheme } from '@/context/ThemeContext';
 import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
-import { Tabs, TabsList, TabsTrigger } from '@/shared/ui/tabs';
-import FadingTabPanel from '@/shared/components/FadingTabPanel';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { cn } from '@/shared/lib/utils';
 import { copyText } from '@/shared/lib/copyText';
@@ -21,12 +19,12 @@ import { copyText } from '@/shared/lib/copyText';
  * It knows nothing about Bitcoin or PayPal. Each method arrives from
  * /api/donate saying how it wants to be shown — an address to copy, a card
  * number, a link to follow — so adding one is an edit to the configuration
- * rather than to this file. The tabs are built from that same list: it used to
- * be six of them written into the markup, with every address repeated three
- * times — once for its code, once as text, once inside the copy button.
+ * rather than to this file. Everything below branches on `kind`, `link` and
+ * `qr`, never on which method it is.
  *
- * A tab also means only the method being looked at is mounted, so the QR codes
- * of the others are never drawn.
+ * Cards come first, as objects: one in its sleeve, several as a row of sleeves
+ * swiped sideways. Everything else follows as rows, every value on show at
+ * once with nothing to choose between.
  *
  * The methods are handed in rather than fetched here. The header has to ask for
  * them anyway — an installation offering none should not show the button at all
@@ -43,6 +41,34 @@ type DonateModalProps = {
 
 /** formatCard groups the digits the way they are printed on the card. */
 const formatCard = (value: string) => value.replace(/(.{4})/g, '$1 ').trim();
+
+/**
+ * hostOf names where a link goes. The configuration is hand-written, so a
+ * mistyped address is shown as it stands rather than taking the dialog down.
+ */
+const hostOf = (url: string) => {
+    try {
+        return new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+        return url;
+    }
+};
+
+/** Phones short and narrow enough that the chrome gives way to the card. */
+const COMPACT_QUERY = '(max-width: 375px) and (max-height: 699px)';
+
+/** A fixed 40px toolbar, two lines of address and the 200px code. */
+const QR_VIEW_HEIGHT = 272;
+
+/** How long after the track last moved a tap is taken for the end of a swipe. */
+const SCROLL_SETTLE_MS = 160;
+const DRAG_SETTLE_MS = 250;
+
+/** Pixels a mouse has to travel before it means a drag. */
+const DRAG_THRESHOLD = 6;
+
+/** Opens a method's code, remembering what asked so that going back can return to it. */
+type QrOpener = (event: React.MouseEvent<HTMLElement>, id: string) => void;
 
 /**
  * useCopied copies, and says so for a moment — but only if it worked.
@@ -67,9 +93,8 @@ function useCopied(): [boolean, (value: string) => void] {
 }
 
 /**
- * CopyButton is an icon rather than a labelled button: it sits inside the block
- * holding the value, where what it copies is unambiguous and the word for it
- * would cost more width than the address can spare.
+ * CopyButton is an icon rather than a labelled button: it sits in the QR view's
+ * toolbar, directly over the value it copies, where that is unambiguous.
  */
 const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }) => {
     const { t } = useTranslation();
@@ -81,8 +106,8 @@ const CopyButton: React.FC<{ value: string; label: string }> = ({ value, label }
         <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="shrink-0 hover:bg-background/60"
+            size="icon-lg"
+            className="text-muted-foreground"
             aria-label={name}
             title={name}
             onClick={() => copy(value)}
@@ -128,28 +153,6 @@ const QrCode: React.FC<{ value: string }> = ({ value }) => {
 };
 
 /**
- * OpenLink goes to a page that takes the money.
- *
- * One appearance wherever it appears. It used to be an outlined button when a
- * method was nothing but a link, and bare text beside a card number — the same
- * word for the same act, dressed two ways, and the second dressed as something
- * that could not be clicked at all: the link variant only underlines on hover,
- * so at rest it was a line of centred text.
- */
-const OpenLink: React.FC<{ href: string }> = ({ href }) => {
-    const { t } = useTranslation();
-
-    return (
-        <Button asChild variant="outline" size="sm">
-            <a href={href} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="size-4" />
-                {t('donateOpen')}
-            </a>
-        </Button>
-    );
-};
-
-/**
  * PaymentCard shows a card number as the thing it is.
  *
  * A row of digits in a grey box is a string; a card is an object someone
@@ -158,8 +161,17 @@ const OpenLink: React.FC<{ href: string }> = ({ href }) => {
  *
  * The whole card copies, because that is the only thing anyone wants to do
  * with it, and a target the size of a card is easier to hit than an icon.
+ *
+ * The number stays 15px at every width; what gives on a narrow face is the
+ * tracking. The container query reads the face's content box, so 225px there
+ * is a 260px card.
  */
-const PaymentCard: React.FC<{ value: string; label: string }> = ({ value, label }) => {
+const PaymentCard: React.FC<{
+    value: string;
+    label: string;
+    compact: boolean;
+    tabIndex?: number;
+}> = ({ value, label, compact, tabIndex }) => {
     const { t } = useTranslation();
     const [copied, copy] = useCopied();
 
@@ -171,18 +183,30 @@ const PaymentCard: React.FC<{ value: string; label: string }> = ({ value, label 
             onClick={() => copy(value)}
             aria-label={name}
             title={name}
+            tabIndex={tabIndex}
             className={cn(
-                'relative flex aspect-[1.586] w-full max-w-80 flex-col justify-between rounded-xl p-4 text-left',
-                'border border-border bg-gradient-to-br from-muted to-accent',
+                '@container relative flex aspect-[1.586] w-[var(--card-width)] flex-col justify-between rounded-xl text-left',
+                compact ? 'p-3' : 'p-4',
+                'border border-border bg-gradient-to-br shadow-[0_2px_4px_rgba(0,0,0,.07)]',
+                'from-[#ebe6dd] to-[#f3eee5] dark:from-[#342e27] dark:to-[#2b251f]',
                 'outline-none transition-shadow hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-focus',
             )}
         >
-            <span className="text-xs tracking-wide text-muted-foreground uppercase">{label}</span>
+            <span className="max-w-[calc(100%-1.5rem)] text-xs tracking-wide text-[#5b5044] uppercase dark:text-[#c9beac]">
+                {label}
+            </span>
 
             {/* The chip: enough of one to read as a card at a glance. */}
             <span aria-hidden="true" className="h-6 w-9 rounded-[3px] bg-foreground/25" />
 
-            <span className="font-mono text-[15px] tracking-[0.18em] tabular-nums">
+            <span
+                className={cn(
+                    'font-mono text-[15px] whitespace-nowrap tabular-nums',
+                    compact
+                        ? 'tracking-[0.08em]'
+                        : 'tracking-[0.18em] @max-[225px]:tracking-[0.08em]',
+                )}
+            >
                 {formatCard(value)}
             </span>
 
@@ -193,113 +217,639 @@ const PaymentCard: React.FC<{ value: string; label: string }> = ({ value, label 
     );
 };
 
-const Method: React.FC<{ method: DonateMethod }> = ({ method }) => {
+/**
+ * Sleeve is a card and what can be done with it, held in one frame: the number
+ * to copy, and the page of the bank that takes the money, named by its host so
+ * nobody has to follow it to find out whose it is.
+ *
+ * Where a code was configured its action sits beside that page's, outside the
+ * card: the whole face is a button already, and one cannot hold another.
+ *
+ * A card with neither is the card alone. Another frame around it would have
+ * nothing to group it with.
+ */
+const Sleeve: React.FC<{
+    method: DonateMethod;
+    compact: boolean;
+    /** Tighter still, where one card shares a small screen with the rows. */
+    dense: boolean;
+    tabIndex?: number;
+    qrId?: string;
+    onQr: QrOpener;
+}> = ({ method, compact, dense, tabIndex, qrId, onQr }) => {
+    const { t } = useTranslation();
+    const face = (
+        <PaymentCard
+            value={method.value}
+            label={method.label}
+            compact={compact}
+            tabIndex={tabIndex}
+        />
+    );
+
+    if (!method.link && !method.qr) return face;
+
     return (
-        <div className="flex w-full flex-col items-center gap-2">
-            {method.kind === 'link' ? (
-                <OpenLink href={method.value} />
-            ) : method.kind === 'card' ? (
-                <PaymentCard value={method.value} label={method.label} />
-            ) : (
-                /*
-                  The copy control lives inside the block it copies, as an icon.
-                  A labelled button beside the address took 135px of a 308px
-                  sheet, leaving the address to wrap three times to say what it
-                  could have said in two.
-                */
-                <div className="flex w-full items-start gap-1 rounded bg-muted py-1.5 pr-1.5 pl-2">
-                    <code className="min-w-0 flex-1 self-center text-[13px] break-all">
-                        {method.value}
-                    </code>
-                    <CopyButton value={method.value} label={method.label} />
-                </div>
+        <div
+            className={cn(
+                'flex w-fit flex-none flex-col rounded-2xl border border-border bg-accent',
+                compact ? 'p-1.5' : 'p-2',
             )}
+        >
+            {face}
+            <div className={cn('flex gap-2', dense ? 'mt-1.5' : 'mt-2')}>
+                {method.link && (
+                    <Button
+                        asChild
+                        className={cn(
+                            'h-auto min-w-0 flex-1 justify-between rounded-lg text-left whitespace-normal sm:h-auto sm:text-sm',
+                            dense
+                                ? 'min-h-10 px-2 py-[3px] text-xs font-semibold sm:px-2 sm:text-xs'
+                                : 'min-h-12 px-3 py-[5px] text-sm leading-5 font-semibold sm:px-3',
+                        )}
+                    >
+                        <a
+                            href={method.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            tabIndex={tabIndex}
+                        >
+                            <span>
+                                {t('donatePayOnline')}
+                                <span className="block text-[11px] leading-[14px] font-normal">
+                                    {hostOf(method.link)}
+                                </span>
+                            </span>
+                            <ExternalLink className="size-4" />
+                        </a>
+                    </Button>
+                )}
+                {method.qr && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-lg"
+                        tabIndex={tabIndex}
+                        aria-label={t('donateQr', { label: method.label })}
+                        aria-expanded={method.id === qrId}
+                        onClick={(event) => onQr(event, method.id)}
+                        className={cn(
+                            'h-auto rounded-lg',
+                            dense ? 'min-h-10' : 'min-h-12',
+                            !method.link ? 'flex-1' : !dense && 'w-12',
+                        )}
+                    >
+                        <QrIcon className="size-4" />
+                    </Button>
+                )}
+            </div>
+        </div>
+    );
+};
 
-            {method.link && method.kind !== 'link' && <OpenLink href={method.link} />}
+/**
+ * CardCarousel is several cards as a row of whole sleeves, each with its own
+ * action, the next one showing at the edge to say there is more.
+ *
+ * The scrolling is the browser's: a snapping track moves under a finger, a
+ * trackpad and a sideways wheel with nothing here to arbitrate, and the slide
+ * nearest its centre is whichever one is selected. The rest exists because a
+ * track can be scrolled past things that can be pressed. A tap on a card that
+ * is only peeking means that card, not what is under the finger, and the end of
+ * a swipe is not a tap at all, so both are stopped before they reach the card
+ * or its controls. The dots and the count sit outside every sleeve for the same
+ * reason.
+ */
+const CardCarousel: React.FC<{
+    cards: DonateMethod[];
+    compact: boolean;
+    qrId?: string;
+    onQr: QrOpener;
+}> = ({ cards, compact, qrId, onQr }) => {
+    const { t } = useTranslation();
+    const track = useRef<HTMLDivElement>(null);
+    const [active, setActive] = useState(0);
+    const [dragging, setDragging] = useState(false);
+    const settledAt = useRef(0);
+    const drag = useRef<{
+        x: number;
+        y: number;
+        left: number;
+        pointer: number;
+        moving: boolean;
+    } | null>(null);
 
-            {method.qr && <QrCode value={method.value} />}
+    const slides = () =>
+        Array.from(track.current?.querySelectorAll<HTMLElement>('[data-slide]') ?? []);
+
+    const nearest = () => {
+        const box = track.current?.getBoundingClientRect();
+        if (!box) return 0;
+        const centre = box.left + box.width / 2;
+        const distances = slides().map((slide) => {
+            const rect = slide.getBoundingClientRect();
+            return Math.abs(rect.left + rect.width / 2 - centre);
+        });
+        return distances.indexOf(Math.min(...distances));
+    };
+
+    const go = (index: number) => {
+        const all = slides();
+        const target = all[index];
+        if (!target) return;
+        track.current?.scrollTo({
+            left: target.offsetLeft - all[0].offsetLeft,
+            behavior: 'smooth',
+        });
+    };
+
+    const onScroll = () => {
+        settledAt.current = performance.now() + SCROLL_SETTLE_MS;
+        const next = nearest();
+        if (next === active) return;
+        // Focus left behind would sit on a slide that has just been hidden.
+        const all = slides();
+        if (all[active]?.contains(document.activeElement)) {
+            all[next]?.querySelector('button')?.focus({ preventScroll: true });
+        }
+        setActive(next);
+    };
+
+    const onClickCapture = (event: React.MouseEvent) => {
+        const slide = (event.target as Element).closest<HTMLElement>('[data-slide]');
+        if (!slide) return;
+        const index = Number(slide.dataset.slide);
+        const moving = performance.now() < settledAt.current;
+        if (!moving && index === active) return;
+        // Prevented for the link, stopped for the card.
+        event.preventDefault();
+        event.stopPropagation();
+        if (!moving) go(index);
+    };
+
+    const onKeyDown = (event: React.KeyboardEvent) => {
+        const target = {
+            ArrowLeft: active - 1,
+            ArrowRight: active + 1,
+            Home: 0,
+            End: cards.length - 1,
+        }[event.key];
+        if (target === undefined) return;
+        event.preventDefault();
+        go(target);
+    };
+
+    // A mouse has no swipe of its own, so its drag is laid over the same track.
+    const onPointerDown = (event: React.PointerEvent) => {
+        if (event.pointerType !== 'mouse' || event.button !== 0) return;
+        drag.current = {
+            x: event.clientX,
+            y: event.clientY,
+            left: track.current?.scrollLeft ?? 0,
+            pointer: event.pointerId,
+            moving: false,
+        };
+    };
+
+    const onPointerMove = (event: React.PointerEvent) => {
+        const state = drag.current;
+        const element = track.current;
+        if (!state || !element) return;
+        const dx = event.clientX - state.x;
+        const dy = event.clientY - state.y;
+        if (!state.moving) {
+            if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > DRAG_THRESHOLD) {
+                drag.current = null;
+                return;
+            }
+            if (Math.abs(dx) <= DRAG_THRESHOLD) return;
+            state.moving = true;
+            element.setPointerCapture(state.pointer);
+            setDragging(true);
+        }
+        event.preventDefault();
+        element.scrollLeft = state.left - dx;
+    };
+
+    const onPointerEnd = () => {
+        const state = drag.current;
+        drag.current = null;
+        if (!state?.moving) return;
+        setDragging(false);
+        settledAt.current = performance.now() + DRAG_SETTLE_MS;
+        go(nearest());
+    };
+
+    return (
+        <section
+            // A card's code is that card's: selecting another under it would
+            // leave the sheet showing one card and offering another's code.
+            inert={cards.some((method) => method.id === qrId)}
+            aria-roledescription={t('donateCarouselRole')}
+            aria-label={t('donateCarousel')}
+            style={
+                {
+                    '--card-width': 'min(286px, calc(100vw - 80px))',
+                    '--slide-width': `calc(var(--card-width) + ${compact ? 14 : 18}px)`,
+                } as React.CSSProperties
+            }
+            className="w-[min(calc(100%+1.5rem),384px)] min-w-0 shrink-0"
+        >
+            <div
+                ref={track}
+                role="group"
+                tabIndex={0}
+                aria-label={t('donateCarouselHint')}
+                onScroll={onScroll}
+                onClickCapture={onClickCapture}
+                onKeyDown={onKeyDown}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerEnd}
+                onPointerCancel={onPointerEnd}
+                onLostPointerCapture={onPointerEnd}
+                className={cn(
+                    'flex gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain py-1',
+                    'touch-pan-x touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+                    'scroll-px-[calc((100%-var(--slide-width))/2)] px-[calc((100%-var(--slide-width))/2)]',
+                    'rounded-md focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-focus',
+                    dragging
+                        ? 'cursor-grabbing snap-none select-none'
+                        : 'cursor-grab snap-x snap-mandatory',
+                )}
+            >
+                {cards.map((method, index) => (
+                    <div
+                        key={method.id}
+                        data-slide={index}
+                        role="group"
+                        aria-roledescription={t('donateCarouselSlideRole')}
+                        aria-label={t('donateCarouselSlide', {
+                            index: index + 1,
+                            total: cards.length,
+                        })}
+                        aria-hidden={index !== active}
+                        className={cn(
+                            // As tall as a sleeve whether or not this one has
+                            // one, so a linkless card sits in the same height.
+                            'flex min-w-0 flex-[0_0_var(--slide-width)] snap-center snap-always items-center justify-center',
+                            compact
+                                ? 'min-h-[calc(var(--card-width)/1.586+70px)]'
+                                : 'min-h-[calc(var(--card-width)/1.586+74px)]',
+                        )}
+                    >
+                        <Sleeve
+                            method={method}
+                            compact={compact}
+                            dense={false}
+                            tabIndex={index === active ? 0 : -1}
+                            qrId={qrId}
+                            onQr={onQr}
+                        />
+                    </div>
+                ))}
+            </div>
+
+            <div className="flex min-h-10 items-center justify-center">
+                <div role="group" aria-label={t('donateCarouselPick')} className="flex">
+                    {cards.map((method, index) => (
+                        <Button
+                            key={method.id}
+                            type="button"
+                            variant="ghost"
+                            size="icon-lg"
+                            aria-label={t('donateCarouselCard', {
+                                index: index + 1,
+                                label: method.label,
+                            })}
+                            aria-current={index === active}
+                            onClick={() => go(index)}
+                            className="text-muted-foreground"
+                        >
+                            <span
+                                className={cn(
+                                    'h-1.5 rounded-full bg-current',
+                                    index === active ? 'w-4' : 'w-1.5 opacity-35',
+                                )}
+                            />
+                        </Button>
+                    ))}
+                </div>
+                <span
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="ml-2 min-w-[30px] text-xs text-muted-foreground tabular-nums"
+                >
+                    {active + 1} / {cards.length}
+                </span>
+            </div>
+        </section>
+    );
+};
+
+const rowIcon = 'flex size-10 shrink-0 items-center justify-center text-muted-foreground';
+const rowTarget =
+    'h-auto min-w-0 flex-1 gap-0 rounded-sm px-0 text-left whitespace-normal sm:h-auto sm:px-0';
+
+/** An address and its whole row to copy it with; it wraps, and is never cut. */
+const AddressRow: React.FC<{ method: DonateMethod }> = ({ method }) => {
+    const { t } = useTranslation();
+    const [copied, copy] = useCopied();
+
+    const name = `${copied ? t('copied') : t('copy')}: ${method.label}`;
+
+    return (
+        <Button
+            type="button"
+            variant="ghost"
+            onClick={() => copy(method.value)}
+            aria-label={name}
+            title={name}
+            className={cn(rowTarget, 'min-h-14 justify-start py-[3px] font-normal')}
+        >
+            <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-sm leading-[18px] font-medium">{method.label}</span>
+                <span className="text-xs leading-4 [overflow-wrap:anywhere] text-muted-foreground">
+                    {method.value}
+                </span>
+            </span>
+            <span aria-hidden="true" className={rowIcon}>
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            </span>
+        </Button>
+    );
+};
+
+/** A method that is nothing but a link: its name, and whose page it is. */
+const LinkRow: React.FC<{ method: DonateMethod }> = ({ method }) => (
+    <Button asChild variant="ghost" className={cn(rowTarget, 'min-h-[43px] justify-between py-0')}>
+        <a href={method.value} target="_blank" rel="noopener noreferrer">
+            <span className="flex min-w-0 flex-1 items-baseline gap-2 text-sm font-medium">
+                {method.label}
+                <span className="text-xs font-normal [overflow-wrap:anywhere] text-muted-foreground">
+                    {hostOf(method.value)}
+                </span>
+            </span>
+            <span aria-hidden="true" className={rowIcon}>
+                <ExternalLink className="size-4" />
+            </span>
+        </a>
+    </Button>
+);
+
+/**
+ * QrView takes the list's place rather than opening a layer over it: the list
+ * was the reason for coming here and is one press away, with the full value
+ * and its copy beside the code.
+ */
+const QrView: React.FC<{
+    method: DonateMethod;
+    backRef: React.Ref<HTMLButtonElement>;
+    onBack: () => void;
+}> = ({ method, backRef, onBack }) => {
+    const { t } = useTranslation();
+
+    return (
+        <div data-testid="donate-qr" className="col-start-1 row-start-1 flex flex-col">
+            <div className="flex h-10 items-center">
+                <Button
+                    ref={backRef}
+                    type="button"
+                    variant="ghost"
+                    onClick={onBack}
+                    aria-label={`${t('donateBack')}: ${method.label}`}
+                    className="min-w-0 flex-1 justify-start px-1 sm:px-1"
+                >
+                    <ArrowLeft className="size-4" />
+                    {method.label}
+                </Button>
+                <CopyButton value={method.value} label={method.label} />
+            </div>
+            <span className="min-h-8 text-xs leading-4 [overflow-wrap:anywhere] text-muted-foreground select-text">
+                {method.value}
+            </span>
+            <QrCode value={method.value} />
+        </div>
+    );
+};
+
+/**
+ * useQrView is the one code on show, whichever method it belongs to: what opens
+ * it, what it keeps of the place it was opened from, and the return there.
+ */
+function useQrView() {
+    const [id, setId] = useState<string>();
+    const container = useRef<HTMLDivElement>(null);
+    const back = useRef<HTMLButtonElement>(null);
+    const origin = useRef<{ trigger: HTMLElement; scrollTop: number } | null>(null);
+
+    useLayoutEffect(() => {
+        const list = container.current;
+        const body = list?.closest('[data-donate-body]');
+        if (!list || !body) return;
+
+        if (!id) {
+            // Going back puts the reader where they were, on what they pressed.
+            const from = origin.current;
+            if (!from) return;
+            origin.current = null;
+            list.style.minHeight = '';
+            body.scrollTop = from.scrollTop;
+            from.trigger.focus({ preventScroll: true });
+            return;
+        }
+
+        // Near the end of the body the code would be cut off, and a short list
+        // leaves nothing to scroll it into view with, so it is given the room.
+        const top =
+            list.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+        if (top + QR_VIEW_HEIGHT > body.clientHeight) {
+            list.style.minHeight = `${Math.max(list.offsetHeight, body.clientHeight)}px`;
+            body.scrollTop = Math.floor(top);
+        }
+        back.current?.focus({ preventScroll: true });
+    }, [id]);
+
+    const open: QrOpener = (event, next) => {
+        origin.current = {
+            trigger: event.currentTarget,
+            // A card's code can replace an address's: the list was left once.
+            scrollTop:
+                origin.current?.scrollTop ??
+                container.current?.closest('[data-donate-body]')?.scrollTop ??
+                0,
+        };
+        setId(next);
+    };
+
+    return { id, container, back, open, close: () => setId(undefined) };
+}
+
+/**
+ * MethodRows lists everything that is not a card, each value whole, and gives
+ * up its place to a code, a card's included.
+ *
+ * It reserves the height of a code whenever one can be shown, so opening one
+ * moves nothing: the sheet is centred on a desktop and hangs from the bottom
+ * edge on a phone, and a change of height would slide its title out from under
+ * the eye. Codes are drawn on request, except where there is only the one and
+ * room for it in the list.
+ */
+const MethodRows: React.FC<{
+    rows: DonateMethod[];
+    shown?: DonateMethod;
+    reserve: boolean;
+    listRef: React.Ref<HTMLDivElement>;
+    backRef: React.Ref<HTMLButtonElement>;
+    onQr: QrOpener;
+    onBack: () => void;
+}> = ({ rows, shown, reserve, listRef, backRef, onQr, onBack }) => {
+    const { t } = useTranslation();
+
+    const coded = rows.filter((method) => method.qr);
+    const inline = coded.length === 1 && rows.length <= 2 ? coded[0] : undefined;
+
+    return (
+        <div
+            ref={listRef}
+            className="grid grid-cols-1"
+            style={{
+                gridTemplateRows: reserve ? `minmax(${QR_VIEW_HEIGHT}px, auto)` : undefined,
+            }}
+        >
+            {/*
+              Faded rather than made invisible: Button transitions everything,
+              visibility included, so a row made visible again is still hidden
+              in the frame that has to give focus back to it, and refuses it.
+            */}
+            <div
+                data-testid="donate-list"
+                inert={shown !== undefined}
+                className={cn('col-start-1 row-start-1 min-w-0', shown && 'opacity-0')}
+            >
+                {rows.map((method) => (
+                    <div
+                        key={method.id}
+                        className="flex items-center border-b border-border last:border-0"
+                    >
+                        {method.kind === 'link' ? (
+                            <LinkRow method={method} />
+                        ) : (
+                            <AddressRow method={method} />
+                        )}
+                        {method.kind !== 'link' && method.link && (
+                            <Button asChild variant="ghost" size="icon-lg">
+                                <a
+                                    href={method.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    aria-label={`${t('donatePayOnline')}: ${method.label}`}
+                                    className="text-muted-foreground"
+                                >
+                                    <ExternalLink className="size-4" />
+                                </a>
+                            </Button>
+                        )}
+                        {method.qr && method !== inline && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-lg"
+                                aria-label={t('donateQr', { label: method.label })}
+                                aria-expanded={method.id === shown?.id}
+                                onClick={(event) => onQr(event, method.id)}
+                                className="text-muted-foreground"
+                            >
+                                <QrIcon className="size-4" />
+                            </Button>
+                        )}
+                    </div>
+                ))}
+                {inline && (
+                    <div className="mt-2 flex flex-col">
+                        <QrCode value={inline.value} />
+                    </div>
+                )}
+            </div>
+            {shown && <QrView method={shown} backRef={backRef} onBack={onBack} />}
         </div>
     );
 };
 
 const DonateModal: React.FC<DonateModalProps> = ({ open, methods, onClose }) => {
     const { t } = useTranslation();
-    const [chosen, setChosen] = useState<string>();
     // The same break the profile uses to choose between a sheet and a dialog.
     const isMobile = useMediaQuery('(max-width: 600px)');
+    const short = useMediaQuery(COMPACT_QUERY);
 
-    // Derived rather than held: the chosen method while it is still on offer,
-    // the first otherwise. So no effect has to correct it when the list changes
-    // under a configuration the reader has never seen.
-    const active = methods.some((method) => method.id === chosen) ? chosen : methods[0]?.id;
+    const cards = methods.filter((method) => method.kind === 'card');
+    const rows = methods.filter((method) => method.kind !== 'card');
+    // Only when the two compete for the height: alone, either has room.
+    const compact = short && cards.length > 0 && rows.length > 0;
+    const { id: qrId, container, back, open: openQr, close: closeQr } = useQrView();
+    const reserve = methods.some((method) => method.qr);
 
-    /**
-     * The panel keeps one height whichever method is showing.
-     *
-     * Methods differ wildly — a wallet address under a 200px QR code against a
-     * single button — and the dialog is centred, so switching tab used to move
-     * it by half the difference. Going from Bitcoin to PayPal took 220px off
-     * the dialog and carried the tab strip 110px down the screen, out from
-     * under the cursor that had just clicked it.
-     *
-     * The reserve is the tallest shape the configured methods can take, not a
-     * constant: an operator offering nothing but cards and links should not
-     * get a dialog sized around a QR code nobody has.
-     */
-    const room = methods.some((method) => method.qr)
-        ? 'min-h-[17rem]' // a value, an optional link, and a 200px code
-        : methods.some((method) => method.kind === 'card')
-          ? 'min-h-[15rem]' // a card at its own proportions, and a link
-          : 'min-h-24';
+    const body = (
+        <div
+            data-donate-body
+            style={{ '--card-width': 'min(286px, calc(100vw - 52px))' } as React.CSSProperties}
+            className={cn(
+                'scrollbar-thin min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain',
+                !isMobile && '-mx-1 px-1 pb-1',
+                isMobile && (compact ? 'px-4 pb-3' : 'px-4 pt-2 pb-5'),
+            )}
+        >
+            {cards.length > 0 && (
+                <div
+                    // Left to itself the sheet takes the first few pixels of any
+                    // swipe with a downward slant, 13 of them in Chrome, before
+                    // the browser settles on panning the track. A vertical swipe
+                    // that starts here still scrolls the body; the sheet is
+                    // dragged by its title. On this side of the carousel because
+                    // an inert element is no pointer target: while a card's code
+                    // is up the press lands here, and vaul looks from here up.
+                    data-vaul-no-drag={cards.length > 1 ? '' : undefined}
+                    className={cn('flex justify-center last:mb-0', compact ? 'mb-1.5' : 'mb-3')}
+                >
+                    {cards.length > 1 ? (
+                        <CardCarousel cards={cards} compact={compact} qrId={qrId} onQr={openQr} />
+                    ) : (
+                        <Sleeve
+                            method={cards[0]}
+                            compact={compact}
+                            dense={compact}
+                            qrId={qrId}
+                            onQr={openQr}
+                        />
+                    )}
+                </div>
+            )}
+            {(rows.length > 0 || reserve) && (
+                <MethodRows
+                    rows={rows}
+                    shown={methods.find((method) => method.id === qrId)}
+                    reserve={reserve}
+                    listRef={container}
+                    backRef={back}
+                    onQr={openQr}
+                    onBack={closeQr}
+                />
+            )}
+        </div>
+    );
 
-    const body =
-        // One way of giving needs no choosing between ways — but it still needs
-        // naming, which is otherwise the tab's job.
-        methods.length === 1 ? (
-            <section className={cn('flex flex-col items-center justify-center gap-2', room)}>
-                <h3 className="text-sm font-medium">{methods[0].label}</h3>
-                <Method method={methods[0]} />
-            </section>
-        ) : (
-            methods.length > 1 && (
-                /* A grid of one column, so every panel shares the second row
-                   and the sheet is as tall as the tallest of them. They used to
-                   be mounted one at a time, which made switching an instant
-                   substitution with nothing to animate. */
-                <Tabs value={active} onValueChange={setChosen} className="grid grid-cols-1">
-                    <TabsList className="row-start-1">
-                        {methods.map((method) => (
-                            <TabsTrigger key={method.id} value={method.id}>
-                                {method.label}
-                            </TabsTrigger>
-                        ))}
-                    </TabsList>
-                    {methods.map((method) => (
-                        <FadingTabPanel
-                            key={method.id}
-                            value={method.id}
-                            active={method.id === active}
-                            className={cn('flex flex-col items-center justify-center', room)}
-                        >
-                            <Method method={method} />
-                        </FadingTabPanel>
-                    ))}
-                </Tabs>
-            )
-        );
-
-    // The same sheet the profile and the language use: a phone has the room to
-    // show every method's tab at once, which a dialog inset from both edges
-    // does not.
+    // The same sheet the profile and the language use, with its bottom cap left
+    // as the primitive sets it. A plain max-h here would lose to that on
+    // specificity, as ResponsiveSheet explains.
     if (isMobile) {
         return (
             <Drawer open={open} onOpenChange={(next) => !next && onClose()}>
-                <DrawerContent className="max-h-[85vh]">
+                <DrawerContent>
                     <DrawerTitle className="px-4 pb-1 text-base font-medium">
                         {t('donateTitle')}
                     </DrawerTitle>
                     <DrawerDescription className="sr-only">{t('donateTitle')}</DrawerDescription>
-                    <div className="scrollbar-thin overflow-y-auto px-4 pb-6">{body}</div>
+                    {body}
                 </DrawerContent>
             </Drawer>
         );
@@ -307,16 +857,12 @@ const DonateModal: React.FC<DonateModalProps> = ({ open, methods, onClose }) => 
 
     return (
         <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-            {/*
-              Wide enough that six tabs — what this project itself offers — sit
-              in one row rather than scrolling. Beyond that the list scrolls,
-              which is the honest fallback for a count nobody here decides.
-            */}
+            {/* A column as in ResponsiveSheet: the title stays, the body scrolls. */}
             <DialogContent
                 closeLabel={t('close')}
-                className="scrollbar-thin max-h-[85vh] overflow-y-auto sm:max-w-xl"
+                className="flex max-h-[85vh] flex-col sm:max-w-xl"
             >
-                <DialogTitle>{t('donateTitle')}</DialogTitle>
+                <DialogTitle className="pr-8">{t('donateTitle')}</DialogTitle>
                 <DialogDescription className="sr-only">{t('donateTitle')}</DialogDescription>
                 {body}
             </DialogContent>
