@@ -129,13 +129,6 @@ func apart(t *testing.T, p *authorentity.Plan, a, b int64) {
 	}
 }
 
-func none(t *testing.T, p *authorentity.Plan, a int64) {
-	t.Helper()
-	if e := p.EntityOf(a); e != uuid.Nil {
-		t.Errorf("credit %d: want no entity, got %v", a, e)
-	}
-}
-
 // fallback asserts credit a names an entity of the fallback step (E4p): its
 // own, by its name as written, by its name as a collective, or the
 // placeholder — never one of selected credits.
