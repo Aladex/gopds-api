@@ -36,3 +36,55 @@ describe('bookCount', () => {
         expect(i18n.t('bookCount', { count })).toBe(want);
     });
 });
+
+describe('authorSearch.total', () => {
+    it.each([
+        [1, '1 author'],
+        [2, '2 authors'],
+        [38, '38 authors'],
+    ])('reads %i in English as %s', async (count, want) => {
+        await i18n.changeLanguage('en');
+        expect(i18n.t('authorSearch.total', { count })).toBe(want);
+    });
+
+    it.each([
+        [1, '1 автор'],
+        [2, '2 автора'],
+        [5, '5 авторов'],
+        [11, '11 авторов'],
+        [21, '21 автор'],
+        [2840, '2840 авторов'],
+    ])('reads %i in Russian as %s', async (count, want) => {
+        await i18n.changeLanguage('ru');
+        expect(i18n.t('authorSearch.total', { count })).toBe(want);
+    });
+});
+
+describe('author search wording', () => {
+    const keys = [
+        'authorSearch.coauthors',
+        'authorSearch.similarName',
+        'authorSearch.alsoIn',
+        'authorSearch.narrowDown',
+        'authorSearch.narrowDownShort',
+        'authorSearch.emptyHint',
+        'authorSearch.searchBooks',
+    ] as const;
+
+    it.each(['en', 'ru'])('is there in %s', async (lng) => {
+        await i18n.changeLanguage(lng);
+        for (const key of keys) {
+            expect(i18n.t(key, { name: 'x' })).not.toBe(key);
+        }
+    });
+
+    it('puts the query in the empty result', async () => {
+        await i18n.changeLanguage('ru');
+        expect(i18n.t('noAuthorsFound', { query: 'шмурдяк' })).toContain('«шмурдяк»');
+    });
+
+    it('puts the matched name in the note', async () => {
+        await i18n.changeLanguage('ru');
+        expect(i18n.t('authorSearch.alsoIn', { name: 'Алекс' })).toBe('в книгах также: Алекс');
+    });
+});

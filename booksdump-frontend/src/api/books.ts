@@ -28,6 +28,28 @@ export interface AuthorHit {
     books_count?: number;
 }
 
+/** One book of an author's pile. */
+export interface AuthorCover {
+    path: string;
+    filename: string;
+    title: string;
+}
+
+/**
+ * AuthorCardData is an author as the search page shows one. The summary fields
+ * are absent from a server without the summary and empty until it reaches the
+ * author, so nothing here can be counted on.
+ */
+export interface AuthorCardData extends AuthorHit {
+    /** 'person' or 'collective'. */
+    kind?: string;
+    genres?: string[] | null;
+    works?: string[] | null;
+    covers?: AuthorCover[] | null;
+    /** The name the search matched, when it is closer than the one shown. */
+    matched_name?: string;
+}
+
 export interface Genre {
     id: number;
     genre: string;
@@ -163,7 +185,14 @@ export const listAuthors = (query: {
      * the two disagreeing would make it a promise the next page breaks.
      */
     lang?: string;
-}) => http.get<{ authors: AuthorHit[]; length: number }>('/books/authors', { query });
+}) =>
+    http.get<{
+        authors: AuthorCardData[];
+        /** Pages. */
+        length: number;
+        /** Authors found; not sent by a server that has no author summary yet. */
+        total?: number;
+    }>('/books/authors', { query });
 
 /**
  * getAuthor names a single author, which the search panel needs when a reader

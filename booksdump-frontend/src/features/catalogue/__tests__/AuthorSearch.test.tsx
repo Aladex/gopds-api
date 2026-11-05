@@ -14,8 +14,9 @@ import * as booksApi from '@/api/books';
 // i18next plurals in the application; here the key and the count are enough to
 // tell the number apart from the name.
 const translate = (key: string, options?: Record<string, unknown> | string) => {
-    if (options && typeof options === 'object' && 'count' in options) {
-        return `${key}:${String(options.count)}`;
+    if (options && typeof options === 'object') {
+        if ('count' in options) return `${key}:${String(options.count)}`;
+        if ('query' in options) return `${key}:${String(options.query)}`;
     }
     return typeof options === 'string' ? options : key;
 };
@@ -32,7 +33,7 @@ const authorState = {
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
-const searchBarState = { setSearchItem: vi.fn() };
+const searchBarState = { setSearchItem: vi.fn(), clearSelectedSearch: vi.fn() };
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 
 // The pager is reduced to the number it was given, so a stale page count is
@@ -55,13 +56,20 @@ vi.mock('@/features/catalogue/BookPagination', () => ({
 
 const listAuthors = vi.mocked(booksApi.listAuthors);
 
-const Landing: React.FC = () => <div data-testid="landing">{useLocation().pathname}</div>;
+const Landing: React.FC = () => {
+    const { pathname, search } = useLocation();
+    return <div data-testid="landing">{pathname + search}</div>;
+};
+
+/** The list the type names, the way SearchPage picks it. */
+const SearchRoute: React.FC = () =>
+    useLocation().search.includes('type=authors') ? <AuthorSearch /> : <Landing />;
 
 const renderPage = (path = '/search?q=%D0%A2%D0%BE%D0%BB%D1%81%D1%82%D0%BE%D0%B9&type=authors') =>
     render(
         <MemoryRouter initialEntries={[path]}>
             <Routes>
-                <Route path="/search" element={<AuthorSearch />} />
+                <Route path="/search" element={<SearchRoute />} />
                 <Route path="/author/:id" element={<Landing />} />
             </Routes>
         </MemoryRouter>,
@@ -145,14 +153,14 @@ describe('AuthorSearch', () => {
         });
         renderPage();
 
-        expect(await screen.findByText('Толстой А')).toBeInTheDocument();
+        expect(await screen.findByRole('link', { name: /Толстой А/ })).toBeInTheDocument();
         expect(screen.queryByText(/^bookCount:/)).not.toBeInTheDocument();
     });
 
     it('carries the chosen author through to their books', async () => {
         renderPage();
 
-        const row = await screen.findByRole('button', { name: /Достоевский Федор/ });
+        const row = await screen.findByRole('link', { name: /Достоевский Федор/ });
         await userEvent.click(row);
 
         expect(screen.getByTestId('landing')).toHaveTextContent('/author/1');
@@ -166,7 +174,7 @@ describe('AuthorSearch', () => {
         listAuthors.mockResolvedValue({ authors: [], length: 0 });
         renderPage();
 
-        expect(await screen.findByText('noAuthorsFound')).toBeInTheDocument();
+        expect(await screen.findByText('noAuthorsFound:Толстой')).toBeInTheDocument();
     });
 
     it('survives the request failing', async () => {
@@ -174,7 +182,135 @@ describe('AuthorSearch', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         renderPage();
 
-        expect(await screen.findByText('noAuthorsFound')).toBeInTheDocument();
+        expect(await screen.findByText('noAuthorsFound:Толстой')).toBeInTheDocument();
+    });
+
+    it('asks for ten authors a page', async () => {
+        renderPage();
+
+        await waitFor(() => expect(listAuthors).toHaveBeenCalled());
+        expect(listAuthors).toHaveBeenCalledWith(expect.objectContaining({ limit: 10 }));
+    });
+
+    it('offers the same words in the book search from an empty result', async () => {
+        listAuthors.mockResolvedValue({ authors: [], length: 0 });
+        renderPage();
+
+        await userEvent.click(
+            await screen.findByRole('link', { name: 'authorSearch.searchBooks' }),
+        );
+
+        const landing = await screen.findByTestId('landing');
+        expect(new URL(landing.textContent ?? '', 'http://x').searchParams.get('q')).toBe(
+            'Толстой',
+        );
+        expect(landing).toHaveTextContent('type=books');
+        // The panel would otherwise keep answering the next search with authors.
+        expect(searchBarState.clearSelectedSearch).toHaveBeenCalled();
+    });
+
+    it('offers no book search while there are authors', async () => {
+        renderPage();
+
+        await screen.findByText('Достоевский Федор');
+        expect(screen.queryByText('authorSearch.searchBooks')).toBeNull();
+    });
+});
+
+describe('AuthorSearch head line', () => {
+    const answer = (total?: number) => ({
+        authors: [{ id: 1, full_name: 'Толстой Лев', books_count: 700 }],
+        length: 1,
+        total,
+    });
+
+    it('says how many authors were found', async () => {
+        listAuthors.mockResolvedValue(answer(38));
+        renderPage();
+
+        expect(await screen.findByText('authorSearch.total:38')).toBeInTheDocument();
+    });
+
+    // Today's production has no total; the line's place stays held for it.
+    it('keeps the line empty without a total', async () => {
+        listAuthors.mockResolvedValue(answer());
+        renderPage();
+
+        await screen.findByRole('link', { name: /Толстой Лев/ });
+        expect(screen.getByTestId('author-head')).toHaveTextContent('');
+    });
+
+    it('asks for more of the name on a huge result', async () => {
+        listAuthors.mockResolvedValue(answer(201));
+        renderPage();
+
+        expect(await screen.findByText('authorSearch.narrowDown')).toBeInTheDocument();
+    });
+
+    it('leaves a result that can be paged through alone', async () => {
+        listAuthors.mockResolvedValue(answer(200));
+        renderPage();
+
+        await screen.findByText('authorSearch.total:200');
+        expect(screen.queryByText('authorSearch.narrowDown')).toBeNull();
+    });
+});
+
+describe('AuthorSearch loading', () => {
+    const never = () => listAuthors.mockReturnValue(new Promise(() => {}));
+
+    it('draws ten author cards, in the grid the authors land in', async () => {
+        never();
+        renderPage();
+
+        const skeletons = screen.getAllByTestId('author-card-skeleton');
+        expect(skeletons).toHaveLength(10);
+        expect(skeletons[0].parentElement).toHaveAttribute('data-testid', 'author-grid');
+    });
+
+    it('holds the places of the head line and the pager', () => {
+        never();
+        renderPage();
+
+        expect(screen.getByTestId('author-head')).toBeInTheDocument();
+        expect(screen.getByTestId('author-pager-box')).toBeInTheDocument();
+    });
+
+    it('puts the authors in the same grid', async () => {
+        renderPage();
+
+        const row = await screen.findByRole('link', { name: /Достоевский Федор/ });
+        expect(row.closest('[data-testid="author-grid"]')).not.toBeNull();
+    });
+
+    it('states no total of the search before it while loading the next one', async () => {
+        listAuthors.mockResolvedValueOnce({
+            authors: [{ id: 1, full_name: 'Толстой Лев' }],
+            length: 1,
+            total: 38,
+        });
+        const NextSearch: React.FC = () => {
+            const navigate = useNavigate();
+            return (
+                <button type="button" onClick={() => navigate('/search?q=zzz&type=authors')}>
+                    search-again
+                </button>
+            );
+        };
+        render(
+            <MemoryRouter initialEntries={['/search?q=abc&type=authors']}>
+                <Routes>
+                    <Route path="/search" element={<AuthorSearch />} />
+                </Routes>
+                <NextSearch />
+            </MemoryRouter>,
+        );
+        await screen.findByText('authorSearch.total:38');
+
+        never();
+        await userEvent.click(screen.getByRole('button', { name: 'search-again' }));
+
+        expect(screen.queryByText('authorSearch.total:38')).toBeNull();
     });
 });
 
@@ -204,7 +340,7 @@ describe('AuthorSearch zero-hit search', () => {
                 <NextSearch />
             </MemoryRouter>,
         );
-        expect(await screen.findByText('Толстой Лев')).toBeInTheDocument();
+        expect(await screen.findByRole('link', { name: /Толстой Лев/ })).toBeInTheDocument();
         expect(screen.getByTestId('pager')).toHaveTextContent('3');
 
         listAuthors.mockResolvedValue({ authors: null, length: 0 } as unknown as Awaited<
@@ -212,8 +348,8 @@ describe('AuthorSearch zero-hit search', () => {
         >);
         await userEvent.click(screen.getByRole('button', { name: 'search-again' }));
 
-        expect(await screen.findByText('noAuthorsFound')).toBeInTheDocument();
-        await waitFor(() => expect(screen.queryByText('Толстой Лев')).toBeNull());
+        expect(await screen.findByText('noAuthorsFound:zzz')).toBeInTheDocument();
+        await waitFor(() => expect(screen.queryByRole('link', { name: /Толстой Лев/ })).toBeNull());
         expect(screen.getByTestId('pager')).toHaveTextContent('0');
     });
 });
