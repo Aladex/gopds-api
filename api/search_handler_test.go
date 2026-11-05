@@ -38,10 +38,6 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "api: %v\n", err)
 			os.Exit(1)
 		}
-		if err := testdb.ProductionShape(context.Background(), conn); err != nil {
-			fmt.Fprintf(os.Stderr, "api: %v\n", err)
-			os.Exit(1)
-		}
 		searchTestDB = conn
 		database.SetDB(conn)
 	}

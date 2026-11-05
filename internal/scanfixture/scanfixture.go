@@ -99,14 +99,6 @@ func ScratchDB(t testing.TB) *pg.DB {
 		"database_migrations", migrate.AppBaseline()); err != nil {
 		t.Fatalf("migrating the scratch database: %v", err)
 	}
-	// The column the production catalog has and the migration files do not
-	// create (testdb.ProductionShape): models.Genre and
-	// database.UpdateBookTags write it, so without it ProcessBook fails on
-	// every book with a genre. The characterization has to see the schema
-	// production runs on; the missing migration is reported separately.
-	if err = testdb.ProductionShape(context.Background(), scratch); err != nil {
-		t.Fatalf("bringing the scratch database to the production shape: %v", err)
-	}
 
 	previous := database.GetDB()
 	database.SetDB(scratch)

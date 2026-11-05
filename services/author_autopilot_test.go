@@ -970,7 +970,10 @@ func scratchDBBefore62(t *testing.T) (db *pg.DB, migrateRest func()) {
 	entries, err := os.ReadDir(filepath.Join(root, "database_migrations"))
 	require.NoError(t, err)
 	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".sql") || entry.Name() >= "62-" {
+		// Production's catalog had what migration 80 records long before 62,
+		// and the scan below writes it, so that file runs ahead of its turn.
+		catalog := entry.Name() == "80-catalog-production-shape.sql"
+		if !strings.HasSuffix(entry.Name(), ".sql") || (entry.Name() >= "62-" && !catalog) {
 			continue
 		}
 		data, readErr := os.ReadFile(filepath.Join(root, "database_migrations", entry.Name()))
@@ -980,7 +983,6 @@ func scratchDBBefore62(t *testing.T) (db *pg.DB, migrateRest func()) {
 	ctx := context.Background()
 	_, err = migrate.Run(ctx, db, before, "database_migrations", migrate.AppBaseline())
 	require.NoError(t, err)
-	require.NoError(t, testdb.ProductionShape(ctx, db))
 	previous := database.GetDB()
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(previous) })
