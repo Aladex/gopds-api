@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -326,7 +327,8 @@ func TestIdenticalRequestsCollapse(t *testing.T) {
 }
 
 func TestGenerationsAreLimited(t *testing.T) {
-	service, _, _ := diskService(t)
+	service, source, _ := diskService(t)
+	writeCover(t, source, encodeJPEG(t, 480, 640))
 	limit := cap(service.slots)
 	if limit < 1 || limit > 4 {
 		t.Fatalf("%d slots", limit)
@@ -339,5 +341,128 @@ func TestGenerationsAreLimited(t *testing.T) {
 	err := service.generate(ctx, rel, filepath.Join(t.TempDir(), "x.jpg"))
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a generation ran past the limit: %v", err)
+	}
+}
+
+func TestLeftoverTemporaryFilesGoAtStart(t *testing.T) {
+	source, dir := t.TempDir(), t.TempDir()
+	leftover := filepath.Join(dir, tempDir, ".thumb-123")
+	if err := os.MkdirAll(filepath.Dir(leftover), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(leftover, []byte("half"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	kept := filepath.Join(dir, "lib", "book.jpg")
+	if err := os.MkdirAll(filepath.Dir(kept), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(kept, []byte("thumb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	New(source, dir, func() *coverstore.Store { return &coverstore.Store{} })
+
+	if _, err := os.Stat(leftover); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the leftover stayed: %v", err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Fatalf("a thumbnail went with it: %v", err)
+	}
+}
+
+func TestStartWithoutADirectoryWritesNothing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "not-yet")
+	New(t.TempDir(), dir, func() *coverstore.Store { return &coverstore.Store{} })
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("start created %s: %v", dir, err)
+	}
+}
+
+func TestWritingLeavesNoTemporaryFileBeside(t *testing.T) {
+	service, source, dir := diskService(t)
+	writeCover(t, source, encodeJPEG(t, 480, 640))
+	if _, err := service.Path(context.Background(), rel); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, tempDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("%d files left in the temporary directory", len(entries))
+	}
+	strays, err := filepath.Glob(filepath.Join(filepath.Dir(filepath.Join(dir, rel)), ".thumb-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strays) != 0 {
+		t.Fatalf("strays beside the thumbnail: %v", strays)
+	}
+}
+
+func TestClearedDirectoryIsRefilled(t *testing.T) {
+	service, source, dir := diskService(t)
+	writeCover(t, source, encodeJPEG(t, 480, 640))
+	if _, err := service.Path(context.Background(), rel); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	name, err := service.Path(context.Background(), rel)
+	if err != nil {
+		t.Fatalf("a cleared cache failed: %v", err)
+	}
+	if got := decodeSize(t, name); got.X != Width {
+		t.Fatalf("size = %v", got)
+	}
+}
+
+// With thumbnails kept under the posters directory, every thumbnail is also a
+// file under the source directory, and must not become a source of another.
+func TestThumbnailIsNeverASource(t *testing.T) {
+	source := t.TempDir()
+	dir := filepath.Join(source, ".thumbs")
+	service := New(source, dir, func() *coverstore.Store { return &coverstore.Store{} })
+	writeCover(t, source, encodeJPEG(t, 480, 640))
+	if _, err := service.Path(context.Background(), rel); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, again := range []string{"/.thumbs" + rel, "/.thumbs/.thumbs" + rel, "/x/../.thumbs" + rel, "/" + tempDir + "/.thumb-1"} {
+		_, err := service.Path(context.Background(), again)
+		if !errors.Is(err, ErrNoSource) {
+			t.Errorf("%s: err = %v", again, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".thumbs")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a thumbnail of a thumbnail was made: %v", err)
+	}
+}
+
+func TestGenerationFromALocalCoverDoesNotQueueBehindARemoteOne(t *testing.T) {
+	service, server, dir := remoteService(t)
+	server.Put("covers/stuck.jpg", encodeJPEG(t, 480, 480))
+	server.SetStallBodies(true)
+	writeCover(t, service.sourceDir, encodeJPEG(t, 480, 640))
+
+	for range cap(service.slots) {
+		service.remote <- struct{}{}
+	}
+	defer func() {
+		for range cap(service.slots) {
+			<-service.remote
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	name, err := service.Path(ctx, rel)
+	if err != nil {
+		t.Fatalf("a cover on disk waited for the store: %v", err)
+	}
+	if name != filepath.Join(dir, rel) {
+		t.Fatalf("name = %s", name)
 	}
 }

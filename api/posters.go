@@ -89,6 +89,11 @@ func Posters(c *gin.Context) {
 	}
 
 	cover, err := coverstore.Default().Open(c.Request.Context(), postersPath, relativePath)
+	if errors.Is(err, coverstore.ErrUnreadable) {
+		logging.Error("Error reading file:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": messageReadFailed})
+		return
+	}
 	if err != nil {
 		cacheControl := noCoverRevalidate
 		if !errors.Is(err, fs.ErrNotExist) {

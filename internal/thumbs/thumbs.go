@@ -21,12 +21,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"gopds-api/internal/coverstore"
 	"gopds-api/internal/objectstore"
 	"gopds-api/internal/safeio"
 	"gopds-api/internal/safepath"
+	"gopds-api/logging"
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // decodes covers extracted as WebP
@@ -54,6 +56,12 @@ const (
 
 	// generationTimeout bounds one generation, source read included.
 	generationTimeout = 30 * time.Second
+
+	// tempDir is under the thumbnail directory and holds files being written.
+	// One place for them, so that a start can clear what a crash left without
+	// walking hundreds of thousands of thumbnails.
+	tempDir     = ".tmp"
+	tempPattern = ".thumb-*"
 )
 
 // Errors of Path. ErrNoSource and ErrBroken are both "no thumbnail", and the
@@ -69,20 +77,63 @@ var (
 type Service struct {
 	sourceDir string
 	dir       string
-	covers    func() *coverstore.Store
-	slots     chan struct{}
-	group     singleflight.Group
+	// insideSource is dir relative to sourceDir, empty if it is elsewhere.
+	insideSource string
+	covers       func() *coverstore.Store
+	// slots bounds the work of the processor. remote bounds the generations
+	// reading their source from object storage, which can hold them for as
+	// long as the store stalls: covers on disk must not wait behind those.
+	slots  chan struct{}
+	remote chan struct{}
+	group  singleflight.Group
 }
 
 // New builds a service. sourceDir is where the originals are on disk, dir where
 // thumbnails go.
 func New(sourceDir, dir string, covers func() *coverstore.Store) *Service {
-	return &Service{
-		sourceDir: sourceDir,
-		dir:       dir,
-		covers:    covers,
-		slots:     make(chan struct{}, generationSlots()),
+	s := &Service{
+		sourceDir:    sourceDir,
+		dir:          dir,
+		insideSource: nestedIn(sourceDir, dir),
+		covers:       covers,
+		slots:        make(chan struct{}, generationSlots()),
+		remote:       make(chan struct{}, generationSlots()),
 	}
+	s.clearTemporaries()
+	return s
+}
+
+// nestedIn is dir relative to parent, empty when dir is not inside it.
+func nestedIn(parent, dir string) string {
+	rel, err := filepath.Rel(parent, dir)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return rel
+}
+
+// clearTemporaries removes what a crash left mid-write.
+func (s *Service) clearTemporaries() {
+	leftovers, err := filepath.Glob(filepath.Join(s.dir, tempDir, tempPattern))
+	if err != nil {
+		logging.Warnf("thumbs: looking for leftovers: %v", err)
+		return
+	}
+	for _, name := range leftovers {
+		if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logging.Warnf("thumbs: cannot remove %s: %v", name, err)
+		}
+	}
+}
+
+// isThumbnail reports a path that names one of this service's own files
+// rather than a cover: covers are not looked for among them.
+func (s *Service) isThumbnail(rel string) bool {
+	clean := strings.TrimLeft(filepath.Clean(string(filepath.Separator)+rel), string(filepath.Separator))
+	under := func(dir string) bool {
+		return clean == dir || strings.HasPrefix(clean, dir+string(filepath.Separator))
+	}
+	return under(tempDir) || (s.insideSource != "" && under(s.insideSource))
 }
 
 // generationSlots leaves most of the machine to the requests: the first
@@ -98,6 +149,9 @@ func (s *Service) Path(ctx context.Context, rel string) (string, error) {
 	target, err := safepath.Resolve(s.dir, rel)
 	if err != nil {
 		return "", err
+	}
+	if s.isThumbnail(rel) {
+		return "", ErrNoSource
 	}
 	if fresh(target, s.sourceDir, rel) {
 		return target, nil
@@ -132,21 +186,34 @@ func fresh(target, sourceDir, rel string) bool {
 }
 
 func (s *Service) generate(ctx context.Context, rel, target string) error {
-	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
-	case <-ctx.Done():
-		return fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
+	if _, onDisk := coverstore.ModTimeOnDisk(s.sourceDir, rel); !onDisk {
+		select {
+		case s.remote <- struct{}{}:
+			defer func() { <-s.remote }()
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
+		}
 	}
 	data, modified, err := s.readSource(ctx, rel)
 	if err != nil {
 		return err
 	}
-	encoded, err := Scale(data)
+	encoded, err := s.scale(ctx, data)
 	if err != nil {
 		return err
 	}
-	return write(target, encoded, modified)
+	return s.write(target, encoded, modified)
+}
+
+// scale is Scale in one of the processor's slots.
+func (s *Service) scale(ctx context.Context, data []byte) ([]byte, error) {
+	select {
+	case s.slots <- struct{}{}:
+		defer func() { <-s.slots }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
+	}
+	return Scale(data)
 }
 
 func (s *Service) readSource(ctx context.Context, rel string) ([]byte, time.Time, error) {
@@ -208,12 +275,17 @@ func Scale(data []byte) ([]byte, error) {
 
 // write stores a thumbnail atomically, dated no earlier than its source: a
 // cover with a date from the future would otherwise be regenerated forever.
-func write(target string, data []byte, sourceModified time.Time) error {
-	dir := filepath.Dir(target)
-	if err := os.MkdirAll(dir, safeio.DirMode); err != nil {
+// Directories are made on every write because this tree is a cache: anyone may
+// clear it at any time.
+func (s *Service) write(target string, data []byte, sourceModified time.Time) error {
+	temps := filepath.Join(s.dir, tempDir)
+	if err := os.MkdirAll(temps, safeio.DirMode); err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(dir, ".thumb-*")
+	if err := os.MkdirAll(filepath.Dir(target), safeio.DirMode); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(temps, tempPattern)
 	if err != nil {
 		return err
 	}

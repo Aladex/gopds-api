@@ -202,3 +202,31 @@ func TestThumbnailDirectoryCanBeConfigured(t *testing.T) {
 	_, err := os.Stat(filepath.Join(dir, testCoverPath))
 	assert.NoError(t, err)
 }
+
+func TestUnreadableLocalPosterIs500(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads everything")
+	}
+	route, dir := coverRoutes(t)
+	writeTestCover(t, dir, testCover(t))
+	full := filepath.Join(dir, testCoverPath)
+	require.NoError(t, os.Chmod(full, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(full, 0o600) })
+
+	assert.Equal(t, http.StatusInternalServerError, get(route, "/books-posters"+testCoverPath).Code)
+}
+
+func TestUnreadableLocalPosterIs500WithStorageToo(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads everything")
+	}
+	route, dir := coverRoutes(t)
+	server := withRemoteCovers(t)
+	writeTestCover(t, dir, testCover(t))
+	full := filepath.Join(dir, testCoverPath)
+	require.NoError(t, os.Chmod(full, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(full, 0o600) })
+
+	assert.Equal(t, http.StatusInternalServerError, get(route, "/books-posters"+testCoverPath).Code)
+	assert.Zero(t, server.Requests(), "a file that is there is not looked for elsewhere")
+}

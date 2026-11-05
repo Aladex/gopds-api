@@ -41,6 +41,9 @@ var (
 	ErrNotFound = fmt.Errorf("cover not found: %w", fs.ErrNotExist)
 	// ErrUnavailable is a cover object storage could not deliver right now.
 	ErrUnavailable = objectstore.ErrUnavailable
+	// ErrUnreadable is a cover that is on disk and cannot be opened. The disk
+	// has the final word: object storage is not asked.
+	ErrUnreadable = errors.New("cover on disk cannot be read")
 )
 
 // Cover is an open cover. Close it.
@@ -106,6 +109,9 @@ func (s *Store) Open(ctx context.Context, base, rel string) (*Cover, error) {
 		return &Cover{ReadSeeker: file, Size: info.Size(), ModTime: info.ModTime(), Local: true, closer: file}, nil
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
+		if _, statErr := os.Stat(full); statErr == nil {
+			return nil, fmt.Errorf("%w: %w", ErrUnreadable, err)
+		}
 		return nil, err
 	}
 	if s.client == nil {
