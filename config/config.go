@@ -35,6 +35,7 @@ type Config struct {
 	Scanning  ScanningConfig `mapstructure:"scanning" yaml:"scanning"`
 	Email     EmailConfig    `mapstructure:"email" yaml:"email"`
 	Preview   PreviewConfig  `mapstructure:"preview" yaml:"preview"`
+	Storage   StorageConfig  `mapstructure:"storage" yaml:"storage"`
 	LLM       LLMConfig      `mapstructure:"llm" yaml:"llm"`
 
 	AuthorMetadata AuthorMetadataConfig `mapstructure:"author_metadata" yaml:"author_metadata"`
@@ -126,6 +127,7 @@ type AppConfig struct {
 	UsersPath         string   `mapstructure:"users_path" yaml:"users_path"`
 	BookCDNKey        string   `mapstructure:"book_cdn_key" yaml:"book_cdn_key"`
 	PostersPath       string   `mapstructure:"posters_path" yaml:"posters_path"`
+	ThumbsPath        string   `mapstructure:"thumbs_path" yaml:"thumbs_path"`
 	FileBookCDN       string   `mapstructure:"file_book_cdn" yaml:"file_book_cdn"`
 	MobiConversionDir string   `mapstructure:"mobi_conversion_dir" yaml:"mobi_conversion_dir"`
 	AllowedOrigins    []string `mapstructure:"allowed_origins" yaml:"allowed_origins"`
@@ -422,6 +424,9 @@ func Load() (*Config, error) {
 	if err := bindLLMEnvAliases(); err != nil {
 		return nil, fmt.Errorf("error binding environment variables: %w", err)
 	}
+	if err := bindStorageEnvAliases(); err != nil {
+		return nil, fmt.Errorf("error binding environment variables: %w", err)
+	}
 
 	// Read config file
 	if err := viper.ReadInConfig(); err != nil {
@@ -711,6 +716,7 @@ func setDefaults() {
 	viper.SetDefault("app.files_path", "./files/")
 	viper.SetDefault("app.users_path", "./users/")
 	viper.SetDefault("app.posters_path", "./posters/")
+	viper.SetDefault("app.thumbs_path", "")
 	viper.SetDefault("app.mobi_conversion_dir", "./mobi/")
 	viper.SetDefault("app.allowed_origins", []string{})
 
@@ -721,6 +727,8 @@ func setDefaults() {
 	viper.SetDefault(scanningLLMLangDetectionTimeoutKey, "5s")
 	viper.SetDefault("scanning.max_concurrent_files", 1)
 	viper.SetDefault("scanning.batch_size", 50)
+
+	setStorageDefaults()
 }
 
 // validateConfig validates the loaded configuration
@@ -747,6 +755,9 @@ func validateConfig(cfg *Config) error {
 		return err
 	}
 	if err := cfg.Authors.validate(); err != nil {
+		return err
+	}
+	if err := cfg.Storage.validate(); err != nil {
 		return err
 	}
 

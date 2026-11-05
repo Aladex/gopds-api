@@ -43,6 +43,33 @@ redis:
 #   max_nodes: 100000
 #   max_prepared_image_bytes: 50331648 # 48 MiB
 
+# Object storage for archives and covers, over the generic S3 API (Backblaze
+# B2, MinIO and others). Optional and off by default: leave this out and only
+# the local paths above are used. With it, a file on disk still comes first and
+# only a file missing from disk is read from the bucket, so a half-migrated
+# library works. The application only reads the bucket: nothing here uploads or
+# deletes anything, locally or remotely. Filling the bucket is an operator's job.
+# storage:
+#   endpoint: https://s3.eu-central-003.backblazeb2.com
+#   region: eu-central-003
+#   bucket: my-library
+#   path_style: true                 # endpoint/bucket; false for bucket.endpoint
+#   archives_prefix: archives/       # archives/<name>.zip
+#   covers_prefix: covers/           # covers/<path>/<file>.jpg
+#   # Better through the environment: STORAGE_ACCESS_KEY_ID and
+#   # STORAGE_SECRET_ACCESS_KEY, or the AWS_ names.
+#   access_key_id: ""
+#   secret_access_key: ""
+#   # One attempt, and any silence in a response. Keep (retries + 1) times this
+#   # below server.write_timeout, or a dead store drops the connection instead
+#   # of answering 503.
+#   request_timeout: 4s
+#   retries: 1                       # further attempts after a failed one
+#   cache_dir: ./cache/storage       # extracted books, workers' temporary copies
+#   book_cache_gb: 30                # extracted books on disk, LRU; 0 disables
+#   directory_cache_mb: 64           # archive directories in memory
+#   temp_budget_gb: 20               # largest archive a worker may copy to scan
+
 # Embedded author metadata workers (extraction and local normalization of
 # source author credits). Off by default; every limit has a built-in default
 # and must be positive — zero or negative values are refused at startup.
@@ -150,6 +177,8 @@ app:
   files_path: "/files/"
   users_path: "/users/"
   book_cdn_key: "randomBookCdnKey12345"
+  # Small covers made on demand. Empty means .thumbs under posters_path.
+  # thumbs_path: ""
   posters_path: "/posters/"
   file_book_cdn: "https://example.com"
   mobi_conversion_dir: "/mobi/"

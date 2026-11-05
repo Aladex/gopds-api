@@ -131,6 +131,24 @@ See [`config.yaml.example`](config.yaml.example) for the configuration shape.
 - `app.allowed_origins` adds browser origins accepted by CORS and WebSocket
   origin checks.
 
+### Optional: object storage
+
+A library that outgrows its disk can keep archives and covers in any S3-compatible
+store, such as Backblaze B2 or MinIO. Nothing above needs it, and without a
+`storage` section GoPDS uses only the local paths.
+
+With the section (see [`config.yaml.example`](config.yaml.example)), a file on
+disk always comes first, and only a file missing from disk is read from the
+bucket, so a half-migrated library works and removing the section goes back to
+the disk alone. One book costs a few ranged requests, never a whole archive;
+extracted books are kept in a size-limited cache under `storage.cache_dir`.
+Book and cover URLs do not change. Credentials can come from
+`STORAGE_ACCESS_KEY_ID` and `STORAGE_SECRET_ACCESS_KEY`.
+
+GoPDS only reads the bucket. Uploading files and deleting local copies are
+yours to do, and a thumbnail directory under `app.posters_path` (`.thumbs`, or
+`app.thumbs_path`) is a local cache that does not belong in the bucket.
+
 ## Development
 
 Requirements: Go 1.26.5, Node.js 24, Yarn Classic, PostgreSQL, and Redis.

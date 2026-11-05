@@ -53,6 +53,7 @@ func main() {
 // metadata workers and the database pool — also runs on the error paths.
 func run() (code int) {
 	loadConfiguration()
+	initializeStorage(&cfg.Storage, cfg.App.FilesPath)
 
 	db := initializeDatabase()
 
