@@ -145,9 +145,17 @@ extracted books are kept in a size-limited cache under `storage.cache_dir`.
 Book and cover URLs do not change. Credentials can come from
 `STORAGE_ACCESS_KEY_ID` and `STORAGE_SECRET_ACCESS_KEY`.
 
-GoPDS only reads the bucket. Uploading files and deleting local copies are
-yours to do, and a thumbnail directory under `app.posters_path` (`.thumbs`, or
-`app.thumbs_path`) is a local cache that does not belong in the bucket.
+Uploading archives and covers and deleting local copies are yours to do. GoPDS
+deletes nothing, and the one thing it writes to the bucket is thumbnails, under
+`storage.thumbs_prefix` (`thumbs/` unless you change it). Thumbnails are made on
+demand: GoPDS looks on local disk, then in the bucket, then makes one from the
+cover, answers at once and uploads it in the background. A thumbnail in the
+bucket older than its cover is ignored and replaced.
+
+The local thumbnail directory (`.thumbs` under `app.posters_path`, or
+`app.thumbs_path`) is a cache you can clear at any time, and must stay out of any
+sync of your covers to the bucket. For a read-only key set
+`storage.thumbs_upload: false`: thumbnails then stay on local disk only.
 
 ## Development
 

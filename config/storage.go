@@ -18,6 +18,7 @@ const (
 	storageBookReadTimeout  = 9 * time.Second
 	storageMaxActive        = 16
 	storageCacheDir         = "./cache/storage"
+	storageThumbsPrefix     = "thumbs/"
 	storageBookCacheGB      = 30
 	storageDirectoryCacheMB = 64
 	storageTempBudgetGB     = 20
@@ -36,7 +37,8 @@ const (
 // StorageConfig is optional object storage for archives and covers, over the
 // generic S3 API. Leave the section out and the application reads the local
 // disk and nothing else. With it, the disk still comes first: only a file
-// missing from disk is looked for in the bucket.
+// missing from disk is looked for in the bucket. The only thing the application
+// ever writes there is a thumbnail.
 type StorageConfig struct {
 	// Endpoint is the store's base URL.
 	Endpoint string `mapstructure:"endpoint" yaml:"endpoint"`
@@ -46,6 +48,12 @@ type StorageConfig struct {
 	ArchivesPrefix string `mapstructure:"archives_prefix" yaml:"archives_prefix"`
 	// CoversPrefix goes in front of a cover's relative path.
 	CoversPrefix string `mapstructure:"covers_prefix" yaml:"covers_prefix"`
+	// ThumbsPrefix is where thumbnails go in the bucket, and the only place the
+	// application ever writes to it.
+	ThumbsPrefix string `mapstructure:"thumbs_prefix" yaml:"thumbs_prefix"`
+	// ThumbsUpload keeps thumbnails in the bucket. Off, a read-only key is
+	// enough and the local thumbnail is the only copy.
+	ThumbsUpload bool `mapstructure:"thumbs_upload" yaml:"thumbs_upload"`
 	// AccessKeyID and SecretAccessKey are best given through the environment.
 	// json:"-" keeps them out of anything that serializes this section.
 	AccessKeyID     string `mapstructure:"access_key_id" yaml:"access_key_id" json:"-"`
@@ -84,6 +92,8 @@ func setStorageDefaults() {
 	viper.SetDefault("storage.retries", storageRetries)
 	viper.SetDefault("storage.book_read_timeout", storageBookReadTimeout)
 	viper.SetDefault("storage.max_active_requests", storageMaxActive)
+	viper.SetDefault("storage.thumbs_prefix", storageThumbsPrefix)
+	viper.SetDefault("storage.thumbs_upload", true)
 	viper.SetDefault("storage.cache_dir", storageCacheDir)
 	viper.SetDefault("storage.book_cache_gb", storageBookCacheGB)
 	viper.SetDefault("storage.directory_cache_mb", storageDirectoryCacheMB)
@@ -148,5 +158,37 @@ func (c *StorageConfig) validate() error {
 	if c.Retries < 0 {
 		return rangeError("storage.retries", "zero or more")
 	}
+	return c.validateThumbs()
+}
+
+// validateThumbs keeps the one place the application writes clear of the
+// originals: a prefix shared with them could overwrite a cover or an archive.
+func (c *StorageConfig) validateThumbs() error {
+	if !c.ThumbsUpload {
+		return nil
+	}
+	thumbs := KeyPrefix(c.ThumbsPrefix)
+	if thumbs == "" {
+		return errors.New("storage.thumbs_prefix is required with storage.thumbs_upload on")
+	}
+	for _, other := range []struct{ key, value string }{
+		{"storage.archives_prefix", c.ArchivesPrefix},
+		{"storage.covers_prefix", c.CoversPrefix},
+	} {
+		prefix := KeyPrefix(other.value)
+		if strings.HasPrefix(thumbs, prefix) || strings.HasPrefix(prefix, thumbs) {
+			return errors.New("storage.thumbs_prefix overlaps " + other.key +
+				": give thumbnails their own prefix, or set storage.thumbs_upload to false")
+		}
+	}
 	return nil
+}
+
+// KeyPrefix makes a configured prefix a directory, however it was written.
+func KeyPrefix(prefix string) string {
+	prefix = strings.Trim(prefix, "/")
+	if prefix == "" {
+		return ""
+	}
+	return prefix + "/"
 }

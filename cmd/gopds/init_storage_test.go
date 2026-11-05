@@ -31,10 +31,22 @@ func TestStorageSectionConnectsBothStores(t *testing.T) {
 	assert.NotEqual(t, &coverstore.Store{}, coverstore.Default())
 }
 
-func TestKeyPrefix(t *testing.T) {
-	for in, want := range map[string]string{
-		"": "", "/": "", "archives": "archives/", "archives/": "archives/", "/a/b/": "a/b/",
-	} {
-		assert.Equal(t, want, keyPrefix(in), in)
+func TestUploadSwitchDecidesWhereThumbnailsLive(t *testing.T) {
+	previousArchives, previousCovers := archivestore.Default(), coverstore.Default()
+	t.Cleanup(func() {
+		archivestore.SetDefault(previousArchives)
+		coverstore.SetDefault(previousCovers)
+	})
+	section := config.StorageConfig{
+		Endpoint: "https://s3.example.com", Region: "r", Bucket: "b",
+		AccessKeyID: "k", SecretAccessKey: "s", CacheDir: t.TempDir(),
+		DirectoryCacheMB: 1, TempBudgetGB: 1, ThumbsPrefix: "thumbs",
 	}
+
+	initializeStorage(&section, t.TempDir())
+	assert.False(t, coverstore.Default().ThumbsInBucket())
+
+	section.ThumbsUpload = true
+	initializeStorage(&section, t.TempDir())
+	assert.True(t, coverstore.Default().ThumbsInBucket())
 }

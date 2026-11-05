@@ -71,6 +71,54 @@ func TestStorageLimitsAreChecked(t *testing.T) {
 	}
 }
 
+func TestThumbnailPrefixIsCheckedOnlyWithUploadOn(t *testing.T) {
+	c := completeStorage()
+	c.ArchivesPrefix, c.CoversPrefix = "archives/", "covers/"
+	c.ThumbsPrefix = "covers"
+	assert.NoError(t, c.validate(), "a read-only setup does not write")
+
+	c.ThumbsUpload = true
+	for prefix, valid := range map[string]bool{
+		"thumbs":        true,
+		"thumbs/":       true,
+		"/thumbs/":      true,
+		"covers-thumbs": true,
+		"":              false,
+		"/":             false,
+		"covers":        false,
+		"covers/":       false,
+		"covers/thumbs": false,
+		"archives":      false,
+		"archives/x/":   false,
+	} {
+		c.ThumbsPrefix = prefix
+		if valid {
+			assert.NoError(t, c.validate(), prefix)
+		} else {
+			assert.Error(t, c.validate(), prefix)
+		}
+	}
+}
+
+func TestThumbnailPrefixMustNotContainTheOriginals(t *testing.T) {
+	c := completeStorage()
+	c.ThumbsUpload = true
+	c.ArchivesPrefix, c.CoversPrefix = "archives/", "thumbs/covers/"
+	c.ThumbsPrefix = "thumbs/"
+	assert.Error(t, c.validate(), "covers under the thumbnail prefix")
+
+	c.CoversPrefix = ""
+	assert.Error(t, c.validate(), "covers at the root of the bucket")
+}
+
+func TestKeyPrefix(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "", "/": "", "archives": "archives/", "archives/": "archives/", "/a/b/": "a/b/",
+	} {
+		assert.Equal(t, want, KeyPrefix(in), in)
+	}
+}
+
 func TestStorageCredentialsComeFromTheEnvironment(t *testing.T) {
 	const key, secret = "key-from-the-environment", "secret-from-the-environment"
 	for name, env := range map[string][2]string{

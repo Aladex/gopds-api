@@ -3,16 +3,19 @@ package api
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"gopds-api/internal/coverstore"
+	"gopds-api/internal/objectstore"
 	"gopds-api/internal/objectstore/s3test"
 
 	"github.com/gin-gonic/gin"
@@ -229,4 +232,74 @@ func TestUnreadableLocalPosterIs500WithStorageToo(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, get(route, "/books-posters"+testCoverPath).Code)
 	assert.Zero(t, server.Requests(), "a file that is there is not looked for elsewhere")
+}
+
+func withBucketThumbs(t *testing.T) *s3test.Server {
+	t.Helper()
+	server := s3test.New(t)
+	previous := coverstore.Default()
+	coverstore.SetDefault(coverstore.New(server.WriterClient(200*time.Millisecond, "thumbs/"), "covers/").WithThumbs("thumbs/"))
+	t.Cleanup(func() { coverstore.SetDefault(previous) })
+	return server
+}
+
+func TestThumbnailComesFromTheBucketThenFromDisk(t *testing.T) {
+	route, dir := coverRoutes(t)
+	server := withBucketThumbs(t)
+	stored := testCover(t)
+	server.Put("thumbs"+testCoverPath, stored)
+
+	response := get(route, "/books-thumbs"+testCoverPath)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, stored, response.Body.Bytes())
+	assert.FileExists(t, filepath.Join(dir, defaultThumbsDir, testCoverPath))
+
+	server.Reset()
+	assert.Equal(t, http.StatusOK, get(route, "/books-thumbs"+testCoverPath).Code)
+	assert.Zero(t, server.Requests())
+}
+
+func TestThumbnailIsServedWhileItsUploadFails(t *testing.T) {
+	route, dir := coverRoutes(t)
+	server := withBucketThumbs(t)
+	server.SetRefuseWrites(true)
+	writeTestCover(t, dir, testCover(t))
+
+	assert.Equal(t, http.StatusOK, get(route, "/books-thumbs"+testCoverPath).Code)
+	assert.Eventually(t, func() bool { return len(server.Writes()) == 1 }, 2*time.Second, time.Millisecond)
+}
+
+// With the store stuck and every slot taken, what needs no store must not
+// notice.
+func TestLocalCoversServeWhileTheStoreStalls(t *testing.T) {
+	route, dir := coverRoutes(t)
+	writeTestCover(t, dir, testCover(t))
+	require.Equal(t, http.StatusOK, get(route, "/books-thumbs"+testCoverPath).Code)
+
+	server := s3test.New(t)
+	client, err := objectstore.New(&objectstore.Config{
+		Endpoint: server.URL, Region: s3test.Region, Bucket: s3test.Bucket,
+		AccessKeyID: s3test.AccessKey, SecretAccessKey: s3test.SecretKey,
+		PathStyle: true, RequestTimeout: 2 * time.Second, Retries: -1, MaxActive: 2,
+	})
+	require.NoError(t, err)
+	previous := coverstore.Default()
+	coverstore.SetDefault(coverstore.New(client, "covers/"))
+	t.Cleanup(func() { coverstore.SetDefault(previous) })
+	server.SetHang(true)
+	t.Cleanup(func() { server.SetHang(false) })
+
+	var stuck sync.WaitGroup
+	defer stuck.Wait()
+	for i := range 6 {
+		stuck.Go(func() { get(route, fmt.Sprintf("/books-posters/stuck/%d.jpg", i)) })
+	}
+	assert.Eventually(t, func() bool { return server.Active() == 2 }, 2*time.Second, time.Millisecond)
+
+	started := time.Now()
+	assert.Equal(t, http.StatusOK, get(route, "/books-posters"+testCoverPath).Code)
+	assert.Equal(t, http.StatusOK, get(route, "/books-thumbs"+testCoverPath).Code)
+	assert.Less(t, time.Since(started), time.Second, "local files waited behind the stall")
+	assert.Equal(t, 2, server.Peak(), "the slots are the bound")
 }

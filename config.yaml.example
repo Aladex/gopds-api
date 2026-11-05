@@ -47,8 +47,10 @@ redis:
 # B2, MinIO and others). Optional and off by default: leave this out and only
 # the local paths above are used. With it, a file on disk still comes first and
 # only a file missing from disk is read from the bucket, so a half-migrated
-# library works. The application only reads the bucket: nothing here uploads or
-# deletes anything, locally or remotely. Filling the bucket is an operator's job.
+# library works. Filling the bucket is an operator's job, and nothing here ever
+# deletes anything, locally or remotely. The one thing the application writes
+# to the bucket is thumbnails, under thumbs_prefix; thumbs_upload: false turns
+# that off and a read-only key is then enough.
 # storage:
 #   endpoint: https://s3.eu-central-003.backblazeb2.com
 #   region: eu-central-003
@@ -56,6 +58,8 @@ redis:
 #   path_style: true                 # endpoint/bucket; false for bucket.endpoint
 #   archives_prefix: archives/       # archives/<name>.zip
 #   covers_prefix: covers/           # covers/<path>/<file>.jpg
+#   thumbs_prefix: thumbs/           # thumbs/<path>/<file>.jpg, made on demand
+#   thumbs_upload: true              # false: thumbnails stay on local disk only
 #   # Better through the environment: STORAGE_ACCESS_KEY_ID and
 #   # STORAGE_SECRET_ACCESS_KEY, or the AWS_ names.
 #   access_key_id: ""
@@ -65,6 +69,10 @@ redis:
 #   # of answering 503.
 #   request_timeout: 4s
 #   retries: 1                       # further attempts after a failed one
+#   # One whole book, first request to last byte. A store too slow for this is
+#   # a 503. Keep it below server.write_timeout too.
+#   book_read_timeout: 9s
+#   max_active_requests: 16          # requests to the store at once
 #   cache_dir: ./cache/storage       # extracted books, workers' temporary copies
 #   book_cache_gb: 30                # extracted books on disk, LRU; 0 disables
 #   directory_cache_mb: 64           # archive directories in memory

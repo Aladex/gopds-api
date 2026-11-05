@@ -1,8 +1,6 @@
 package main
 
 import (
-	"strings"
-
 	"gopds-api/config"
 	"gopds-api/internal/archivestore"
 	"gopds-api/internal/coverstore"
@@ -28,6 +26,10 @@ func initializeStorage(c *config.StorageConfig, filesPath string) {
 	if retries == 0 {
 		retries = -1
 	}
+	thumbsPrefix := ""
+	if c.ThumbsUpload {
+		thumbsPrefix = config.KeyPrefix(c.ThumbsPrefix)
+	}
 	client, err := objectstore.New(&objectstore.Config{
 		Endpoint:        c.Endpoint,
 		Region:          c.Region,
@@ -38,6 +40,7 @@ func initializeStorage(c *config.StorageConfig, filesPath string) {
 		RequestTimeout:  c.RequestTimeout,
 		Retries:         retries,
 		MaxActive:       c.MaxActiveRequests,
+		WritePrefix:     thumbsPrefix,
 	})
 	if err != nil {
 		logging.Errorf("Failed to set up object storage: %v", err)
@@ -46,7 +49,7 @@ func initializeStorage(c *config.StorageConfig, filesPath string) {
 	archives, err := archivestore.New(&archivestore.Config{
 		Root:                filesPath,
 		Client:              client,
-		Prefix:              keyPrefix(c.ArchivesPrefix),
+		Prefix:              config.KeyPrefix(c.ArchivesPrefix),
 		CacheDir:            c.CacheDir,
 		BookCacheBytes:      c.BookCacheGB * bytesInGB,
 		DirectoryCacheBytes: c.DirectoryCacheMB * bytesInMB,
@@ -58,15 +61,6 @@ func initializeStorage(c *config.StorageConfig, filesPath string) {
 		panic(err)
 	}
 	archivestore.SetDefault(archives)
-	coverstore.SetDefault(coverstore.New(client, keyPrefix(c.CoversPrefix)))
+	coverstore.SetDefault(coverstore.New(client, config.KeyPrefix(c.CoversPrefix)).WithThumbs(thumbsPrefix))
 	logging.Infof("Object storage enabled: bucket %s at %s", c.Bucket, c.Endpoint)
-}
-
-// keyPrefix makes a configured prefix a directory, written either way.
-func keyPrefix(prefix string) string {
-	prefix = strings.Trim(prefix, "/")
-	if prefix == "" {
-		return ""
-	}
-	return prefix + "/"
 }

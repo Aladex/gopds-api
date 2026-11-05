@@ -1,10 +1,19 @@
 // Package thumbs makes small covers on demand.
 //
 // A thumbnail is a JPEG 240 pixels wide, made from the cover the first time it
-// is asked for and kept on local disk from then on. The whole catalog is never
-// walked in advance. The source is read through the cover store, so a
-// thumbnail can be made whether or not the original is on this machine; the
-// thumbnail itself always stays local.
+// is asked for. The whole catalog is never walked in advance. The source is
+// read through the cover store, so a thumbnail can be made whether or not the
+// original is on this machine.
+//
+// On local disk a thumbnail is a cache that may be cleared at any time. Without
+// object storage that disk is the only home it has. With object storage it is
+// looked for on disk, then in the bucket, and only then made, and one that was
+// made is uploaded in the background so that it need not be made again. An
+// upload that fails or is dropped costs nothing but that.
+//
+// A thumbnail in the bucket is good for as long as its object is not older than
+// the cover it was made from, by the date of the cover on disk or, if there is
+// none on disk, in the bucket. An older one is ignored, remade and replaced.
 package thumbs
 
 import (
@@ -22,6 +31,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"gopds-api/internal/coverstore"
@@ -62,6 +72,11 @@ const (
 	// walking hundreds of thousands of thumbnails.
 	tempDir     = ".tmp"
 	tempPattern = ".thumb-*"
+
+	// uploadQueue bounds the thumbnails waiting to go to the bucket. A name is
+	// all that waits, so this costs next to nothing, and what does not fit is
+	// dropped: it stays local until someone clears it.
+	uploadQueue = 1024
 )
 
 // Errors of Path. ErrNoSource and ErrBroken are both "no thumbnail", and the
@@ -86,6 +101,9 @@ type Service struct {
 	slots  chan struct{}
 	remote chan struct{}
 	group  singleflight.Group
+
+	uploads     chan string
+	startUpload sync.Once
 }
 
 // New builds a service. sourceDir is where the originals are on disk, dir where
@@ -98,6 +116,7 @@ func New(sourceDir, dir string, covers func() *coverstore.Store) *Service {
 		covers:       covers,
 		slots:        make(chan struct{}, generationSlots()),
 		remote:       make(chan struct{}, generationSlots()),
+		uploads:      make(chan string, uploadQueue),
 	}
 	s.clearTemporaries()
 	return s
@@ -142,9 +161,10 @@ func generationSlots() int {
 	return max(1, min(runtime.NumCPU()/shareOfCores, maxSlots))
 }
 
-// Path returns the file of the thumbnail at rel, making it if it is missing or
-// older than a cover on disk. An original that exists only in object storage
-// does not change, so a thumbnail of one needs no request to stay valid.
+// Path returns the file of the thumbnail at rel: the one on disk unless it is
+// missing or older than a cover on disk, else the one in the bucket, else a new
+// one. A thumbnail on disk of a cover that is not on disk costs no request and
+// is not checked against the bucket.
 func (s *Service) Path(ctx context.Context, rel string) (string, error) {
 	target, err := safepath.Resolve(s.dir, rel)
 	if err != nil {
@@ -186,7 +206,12 @@ func fresh(target, sourceDir, rel string) bool {
 }
 
 func (s *Service) generate(ctx context.Context, rel, target string) error {
-	if _, onDisk := coverstore.ModTimeOnDisk(s.sourceDir, rel); !onDisk {
+	store := s.covers()
+	original, onDisk := coverstore.ModTimeOnDisk(s.sourceDir, rel)
+	if store.ThumbsInBucket() && s.fromBucket(ctx, store, rel, target, original, onDisk) {
+		return nil
+	}
+	if !onDisk {
 		select {
 		case s.remote <- struct{}{}:
 			defer func() { <-s.remote }()
@@ -202,7 +227,93 @@ func (s *Service) generate(ctx context.Context, rel, target string) error {
 	if err != nil {
 		return err
 	}
-	return s.write(target, encoded, modified)
+	if err := s.write(target, encoded, modified); err != nil {
+		return err
+	}
+	if store.ThumbsInBucket() {
+		s.queueUpload(rel)
+	}
+	return nil
+}
+
+// fromBucket saves the bucket's thumbnail to disk if it has a good one. False
+// means make a new one, which an outage of the bucket should not get in the way
+// of when the cover is on disk.
+func (s *Service) fromBucket(
+	ctx context.Context, store *coverstore.Store, rel, target string, original time.Time, onDisk bool,
+) bool {
+	thumb, err := store.OpenThumb(ctx, rel)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			logging.Warnf("thumbs: reading %s from the bucket: %v", rel, err)
+		}
+		return false
+	}
+	defer func() { _ = thumb.Close() }()
+	data, err := io.ReadAll(thumb)
+	if err != nil {
+		return false
+	}
+	if _, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil {
+		logging.Warnf("thumbs: %s in the bucket is not an image: %v", rel, err)
+		return false
+	}
+	if !onDisk {
+		// A cover that cannot be dated says nothing against the thumbnail.
+		remote, err := store.RemoteModTime(ctx, rel)
+		if err == nil && newerThan(remote, thumb.ModTime) {
+			return false
+		}
+	} else if newerThan(original, thumb.ModTime) {
+		return false
+	}
+	if err := s.write(target, data, original); err != nil {
+		logging.Warnf("thumbs: saving %s: %v", rel, err)
+		return false
+	}
+	return true
+}
+
+// newerThan compares at the second, which is all a Last-Modified header holds:
+// a thumbnail made right after its cover must not count as older than it.
+func newerThan(cover, thumb time.Time) bool {
+	return cover.Truncate(time.Second).After(thumb)
+}
+
+// queueUpload hands a thumbnail to the background uploader, never waiting.
+func (s *Service) queueUpload(rel string) {
+	s.startUpload.Do(func() { go s.uploadLoop() })
+	select {
+	case s.uploads <- rel:
+	default:
+		logging.Warnf("thumbs: upload queue is full, %s stays local", rel)
+	}
+}
+
+// uploadLoop runs for the life of the process. One at a time is enough: this
+// is a page's worth of thumbnails, and nothing is waiting for them.
+func (s *Service) uploadLoop() {
+	for rel := range s.uploads {
+		s.upload(rel)
+	}
+}
+
+// upload sends what is on disk by now, which may be newer than what was queued.
+func (s *Service) upload(rel string) {
+	target, err := safepath.Resolve(s.dir, rel)
+	if err != nil {
+		return
+	}
+	// #nosec G304 -- target comes from safepath.Resolve above, which refuses
+	// anything outside the thumbnail directory.
+	data, err := os.ReadFile(target)
+	if err != nil {
+		logging.Debugf("thumbs: %s is gone before its upload: %v", rel, err)
+		return
+	}
+	if err := s.covers().PutThumb(context.Background(), rel, data); err != nil {
+		logging.Warnf("thumbs: uploading %s: %v", rel, err)
+	}
 }
 
 // scale is Scale in one of the processor's slots.

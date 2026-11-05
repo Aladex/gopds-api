@@ -1,6 +1,7 @@
 // Package coverstore reads book covers wherever they are: the disk first, then
 // object storage when it is configured. Covers are written to disk only, by
-// the scanner and the admin upload; nothing here writes or deletes one.
+// the scanner and the admin upload; nothing here writes or deletes one. The one
+// thing it can write is a thumbnail, under a prefix of its own.
 package coverstore
 
 import (
@@ -33,6 +34,8 @@ const (
 	// missTTL is how long a miss is believed. A cover uploaded to the bucket
 	// meanwhile shows up after this long.
 	missTTL = 10 * time.Minute
+
+	thumbContentType = "image/jpeg"
 )
 
 // Errors a read reports.
@@ -69,6 +72,9 @@ type Store struct {
 	client *objectstore.Client
 	prefix string
 	misses *missCache
+	// thumbPrefix is where thumbnails live in the bucket. Empty keeps them
+	// on local disk alone.
+	thumbPrefix string
 }
 
 var defaultStore atomic.Pointer[Store]
@@ -88,6 +94,54 @@ func SetDefault(s *Store) { defaultStore.Store(s) }
 // New builds a store over a bucket.
 func New(client *objectstore.Client, prefix string) *Store {
 	return &Store{client: client, prefix: prefix, misses: newMissCache(missLimit, missTTL)}
+}
+
+// WithThumbs keeps thumbnails in the bucket under prefix as well. It needs a
+// client allowed to write there.
+func (s *Store) WithThumbs(prefix string) *Store {
+	s.thumbPrefix = prefix
+	return s
+}
+
+// ThumbsInBucket reports whether thumbnails are kept in the bucket.
+func (s *Store) ThumbsInBucket() bool { return s.client != nil && s.thumbPrefix != "" }
+
+// OpenThumb opens the thumbnail of the cover at rel in the bucket. ModTime is
+// the date of the object.
+func (s *Store) OpenThumb(ctx context.Context, rel string) (*Cover, error) {
+	if !s.ThumbsInBucket() {
+		return nil, ErrNotFound
+	}
+	return s.fetch(ctx, s.keyUnder(s.thumbPrefix, rel))
+}
+
+// PutThumb stores the thumbnail of the cover at rel in the bucket.
+func (s *Store) PutThumb(ctx context.Context, rel string, data []byte) error {
+	if !s.ThumbsInBucket() {
+		return nil
+	}
+	key := s.keyUnder(s.thumbPrefix, rel)
+	if err := s.client.Put(ctx, key, data, thumbContentType); err != nil {
+		return err
+	}
+	s.misses.remove(key)
+	return nil
+}
+
+// RemoteModTime is the date of the cover at rel in the bucket.
+func (s *Store) RemoteModTime(ctx context.Context, rel string) (time.Time, error) {
+	if s.client == nil {
+		return time.Time{}, ErrNotFound
+	}
+	key := s.key(rel)
+	if s.misses.has(key) {
+		return time.Time{}, ErrNotFound
+	}
+	remote, err := s.client.Head(ctx, key)
+	if err != nil {
+		return time.Time{}, s.remember(key, err)
+	}
+	return remote.LastModified, nil
 }
 
 // Open opens the cover at rel under base. Without object storage a cover that
@@ -121,7 +175,11 @@ func (s *Store) Open(ctx context.Context, base, rel string) (*Cover, error) {
 }
 
 func (s *Store) openRemote(ctx context.Context, rel string) (*Cover, error) {
-	key := s.key(rel)
+	return s.fetch(ctx, s.key(rel))
+}
+
+// fetch reads one object into memory, remembering a miss.
+func (s *Store) fetch(ctx context.Context, key string) (*Cover, error) {
 	if s.misses.has(key) {
 		return nil, ErrNotFound
 	}
@@ -135,7 +193,7 @@ func (s *Store) openRemote(ctx context.Context, rel string) (*Cover, error) {
 		return nil, err
 	}
 	if len(data) > maxRemoteCover {
-		return nil, fmt.Errorf("cover %s is over %d bytes", rel, maxRemoteCover)
+		return nil, fmt.Errorf("%s is over %d bytes", key, maxRemoteCover)
 	}
 	return &Cover{ReadSeeker: bytes.NewReader(data), Size: int64(len(data)), ModTime: body.LastModified}, nil
 }
@@ -192,8 +250,10 @@ func ModTimeOnDisk(base, rel string) (time.Time, bool) {
 }
 
 // key is the object key of a cover.
-func (s *Store) key(rel string) string {
-	return s.prefix + strings.TrimLeft(filepath.ToSlash(filepath.Clean(rel)), "/")
+func (s *Store) key(rel string) string { return s.keyUnder(s.prefix, rel) }
+
+func (s *Store) keyUnder(prefix, rel string) string {
+	return prefix + strings.TrimLeft(filepath.ToSlash(filepath.Clean(rel)), "/")
 }
 
 // missCache remembers objects the store does not have, bounded in both number
@@ -229,6 +289,16 @@ func (c *missCache) has(key string) bool {
 		return false
 	}
 	return true
+}
+
+// remove forgets a miss that has since stopped being one.
+func (c *missCache) remove(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if element, ok := c.items[key]; ok {
+		c.order.Remove(element)
+		delete(c.items, key)
+	}
 }
 
 func (c *missCache) add(key string) {
