@@ -150,12 +150,27 @@ deletes nothing, and the one thing it writes to the bucket is thumbnails, under
 `storage.thumbs_prefix` (`thumbs/` unless you change it). Thumbnails are made on
 demand: GoPDS looks on local disk, then in the bucket, then makes one from the
 cover, answers at once and uploads it in the background. A thumbnail in the
-bucket older than its cover is ignored and replaced.
+bucket older than its cover is ignored and replaced. With every read of the
+bucket taken, a thumbnail of a cover on disk is made at once rather than
+fetched, even if the bucket has one.
+
+That rule compares dates, not contents, to the second, so it has limits. A cover
+replaced in the same second as its thumbnail was made is not noticed, and neither
+is one hidden by clock skew between this server and the bucket. It also applies
+only while the thumbnail comes from the bucket: a thumbnail already on local disk
+is not checked against a cover that exists only in the bucket, so replacing such
+a cover shows after you clear the local thumbnail directory.
 
 The local thumbnail directory (`.thumbs` under `app.posters_path`, or
 `app.thumbs_path`) is a cache you can clear at any time, and must stay out of any
 sync of your covers to the bucket. For a read-only key set
 `storage.thumbs_upload: false`: thumbnails then stay on local disk only.
+
+The duplicate scan opens each archive once, so that an archive in the bucket is
+fetched once. Its `workers` therefore share out archives, not books, with or
+without a `storage` section: books of one archive are hashed in turn, however
+many workers there are. The result is the same, but a library of a few large
+archives gains less from more workers than it used to.
 
 ## Development
 
