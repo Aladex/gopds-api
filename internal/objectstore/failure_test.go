@@ -35,8 +35,8 @@ func within(t *testing.T, limit time.Duration, call func() error) error {
 	}
 }
 
-func readAll(client *objectstore.Client, ctx context.Context, key string) error {
-	body, err := client.Get(ctx, key, 0, 10, "")
+func readAll(ctx context.Context, client *objectstore.Client) error {
+	body, err := client.Get(ctx, "a", 0, 10, "")
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func TestSilentErrorBodiesRestTheStore(t *testing.T) {
 	client := clientOf(t, server.URL)
 
 	for range 7 {
-		_ = within(t, settled, func() error { return readAll(client, context.Background(), "a") })
+		_ = within(t, settled, func() error { return readAll(context.Background(), client) })
 	}
 
 	if n := calls.Load(); n != 5 {
@@ -102,7 +102,7 @@ func TestStalledBodiesRestTheStore(t *testing.T) {
 	client := clientOf(t, server.URL)
 
 	for range 7 {
-		err := within(t, settled, func() error { return readAll(client, context.Background(), "a") })
+		err := within(t, settled, func() error { return readAll(context.Background(), client) })
 		if !errors.Is(err, objectstore.ErrUnavailable) {
 			t.Fatalf("err = %v", err)
 		}
@@ -120,7 +120,7 @@ func TestTruncatedBodiesRestTheStore(t *testing.T) {
 	client := server.Client(timeout, -1)
 
 	for range 7 {
-		if err := readAll(client, context.Background(), "a"); !errors.Is(err, objectstore.ErrUnavailable) {
+		if err := readAll(context.Background(), client); !errors.Is(err, objectstore.ErrUnavailable) {
 			t.Fatalf("err = %v", err)
 		}
 	}
@@ -154,7 +154,7 @@ func TestHeadersAloneDoNotClearTheCount(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, _ = client.Head(ctx, "missing")
-		_ = within(t, settled, func() error { return readAll(client, ctx, "a") })
+		_ = within(t, settled, func() error { return readAll(ctx, client) })
 	}
 
 	if n := gets.Load(); n != 5 {
@@ -171,17 +171,17 @@ func TestCompletedReadClearsTheCount(t *testing.T) {
 	failFour := func() {
 		server.DropAfter(2)
 		for range 4 {
-			_ = readAll(client, ctx, "a")
+			_ = readAll(ctx, client)
 		}
 		server.DropAfter(0)
 	}
 	failFour()
-	if err := readAll(client, ctx, "a"); err != nil {
+	if err := readAll(ctx, client); err != nil {
 		t.Fatal(err)
 	}
 	failFour()
 
-	if err := readAll(client, ctx, "a"); err != nil {
+	if err := readAll(ctx, client); err != nil {
 		t.Fatalf("a completed read did not clear the count: %v", err)
 	}
 }
@@ -322,7 +322,7 @@ func TestShortRangeIsAFailure(t *testing.T) {
 		_, _ = w.Write([]byte("0123"))
 	}))
 	defer server.Close()
-	err := readAll(clientOf(t, server.URL), context.Background(), "a")
+	err := readAll(context.Background(), clientOf(t, server.URL))
 	if !errors.Is(err, objectstore.ErrUnavailable) {
 		t.Fatalf("err = %v", err)
 	}
@@ -365,7 +365,7 @@ func TestActiveCallsAreBounded(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			failures[i] = readAll(client, context.Background(), "a")
+			failures[i] = readAll(context.Background(), client)
 		}()
 	}
 	_ = within(t, 3*settled, func() error { wg.Wait(); return nil })

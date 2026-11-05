@@ -276,6 +276,11 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.write(w, r, key, payload)
 		return
 	}
+	s.answer(w, r, key)
+}
+
+// answer serves a read, or fails it the way the switches say.
+func (s *Server) answer(w http.ResponseWriter, r *http.Request, key string) {
 	s.mu.Lock()
 	down := s.down || s.failNext > 0
 	if s.failNext > 0 {

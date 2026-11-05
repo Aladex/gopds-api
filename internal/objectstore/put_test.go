@@ -114,7 +114,7 @@ func TestWriteFailuresLeaveTheReadBreakerAlone(t *testing.T) {
 		breakIt(false)
 	}
 
-	if err := readAll(client, ctx, "a"); err != nil {
+	if err := readAll(ctx, client); err != nil {
 		t.Fatalf("failed writes rested the reads: %v", err)
 	}
 }

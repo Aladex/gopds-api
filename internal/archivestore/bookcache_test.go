@@ -381,8 +381,8 @@ func TestReaderOfAnEvictedBookKeepsReading(t *testing.T) {
 	}
 	first := testKey("first")
 	rc := cache.tee(first, 70, io.NopCloser(strings.NewReader(strings.Repeat("a", 70))))
-	if _, err := io.Copy(io.Discard, rc); err != nil {
-		t.Fatal(err)
+	if _, copyErr := io.Copy(io.Discard, rc); copyErr != nil {
+		t.Fatal(copyErr)
 	}
 	_ = rc.Close()
 	reader := cache.open(first)
@@ -393,8 +393,8 @@ func TestReaderOfAnEvictedBookKeepsReading(t *testing.T) {
 
 	for i := range 5 {
 		next := cache.tee(testKey(strconv.Itoa(i)), 70, io.NopCloser(strings.NewReader(strings.Repeat("b", 70))))
-		if _, err := io.Copy(io.Discard, next); err != nil {
-			t.Fatal(err)
+		if _, copyErr := io.Copy(io.Discard, next); copyErr != nil {
+			t.Fatal(copyErr)
 		}
 		_ = next.Close()
 	}

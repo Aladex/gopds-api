@@ -33,7 +33,8 @@ func (c *Client) signPayload(req *http.Request, now time.Time, payloadHash strin
 	stamp := now.UTC().Format(amzDateFormat)
 	req.Header.Set("X-Amz-Date", stamp)
 	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
-	req.Header.Set("Authorization", authorization(&c.cfg, req.Method, req.URL.Host, req.URL.EscapedPath(), req.URL.RawQuery, stamp, payloadHash))
+	req.Header.Set("Authorization",
+		authorization(&c.cfg, req.Method, req.URL.Host, req.URL.EscapedPath(), req.URL.RawQuery, stamp, payloadHash))
 }
 
 // authorization is the header value for one signed request.

@@ -1,6 +1,7 @@
 package archivestore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -96,7 +97,7 @@ func TestLocalArchiveServesDuringAStall(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > testTimeout/2 {
 		t.Errorf("a local book waited %s behind a stalled store", elapsed)
 	}
-	if want := wantBook(t, data, bookName(1)); string(got) != string(want) {
+	if !bytes.Equal(got, wantBook(t, data, bookName(1))) {
 		t.Error("wrong book")
 	}
 	fx.server.SetStallBodies(false)
