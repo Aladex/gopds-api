@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"gopds-api/models"
+
+	"github.com/go-pg/pg/v10"
 )
 
 // These pin the two ways an update could rewrite a column nobody asked it to.
@@ -167,5 +169,42 @@ func TestUpdateBookCanSetAFlagToFalse(t *testing.T) {
 	}
 	if restored := readBook(t, before.ID); !restored.Approved {
 		t.Error("approved was not restored")
+	}
+}
+
+// An admin's edit can hide a book or change its title and cover without
+// touching its author line: the read model's worker hears of the book, and the
+// author summary with it. An edit that changes nothing marks nothing.
+func TestUpdateBookMarksTheBookForTheAuthorSummary(t *testing.T) {
+	requireDatabase(t)
+	var before models.Book
+	if _, err := db.QueryOne(&before, `INSERT INTO opds_catalog_book
+		(filename, path, format, registerdate, docdate, lang, title, annotation)
+		VALUES ('a3.fb2', 'a3.zip', 'fb2', now(), '', 'ru', 'a3', '') RETURNING id`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM opds_catalog_book WHERE id = ?`, before.ID) })
+	marks := func() int {
+		t.Helper()
+		var n int
+		if _, err := db.QueryOne(pg.Scan(&n), `SELECT count(*) FROM book_author_display_dirty WHERE book_id = ?`, before.ID); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM book_author_display_dirty WHERE book_id = ?`, before.ID) })
+	start := marks()
+	if _, err := UpdateBook(models.BookUpdateRequest{ID: before.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := marks(); got != start {
+		t.Fatalf("an edit of nothing marked the book: %d marks, was %d", got, start)
+	}
+	hidden := true
+	if _, err := UpdateBook(models.BookUpdateRequest{ID: before.ID, DuplicateHidden: &hidden}); err != nil {
+		t.Fatal(err)
+	}
+	if got := marks(); got <= start {
+		t.Fatalf("hiding the book did not mark it: %d marks, was %d", got, start)
 	}
 }

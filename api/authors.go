@@ -9,20 +9,58 @@ import (
 	"gopds-api/database"
 	"gopds-api/httputil"
 	"gopds-api/models"
+
+	"github.com/google/uuid"
 )
 
 // AuthorAnswer struct for authors list on search page
 type AuthorAnswer struct {
 	Authors []models.Author `json:"authors"`
 	Length  int             `json:"length"`
+	Total   int             `json:"total"`
 }
 
 // AuthorEntityAnswer is the author search page under the entity identity:
 // the same shape, every author an entity with a UUID ID and, when it has a
-// namesake, a label.
+// namesake, a label, and what the search card says of it. Total is the number
+// of authors found, Length the number of pages.
 type AuthorEntityAnswer struct {
-	Authors []models.AuthorEntity `json:"authors"`
-	Length  int                   `json:"length"`
+	Authors []AuthorEntityCard `json:"authors"`
+	Length  int                `json:"length"`
+	Total   int                `json:"total"`
+}
+
+// AuthorEntityCard is one author of the search page. Genres, works and covers
+// are arrays, empty and never null, and matched_name is empty until there is
+// something to say: the summary fills in behind a live site.
+type AuthorEntityCard struct {
+	models.AuthorEntity
+	Kind        string               `json:"kind"`
+	Genres      []string             `json:"genres"`
+	Works       []string             `json:"works"`
+	Covers      []models.AuthorCover `json:"covers"`
+	MatchedName string               `json:"matched_name"`
+}
+
+// authorEntityCards are the page's authors, in order, with their summaries.
+func authorEntityCards(entities []models.AuthorEntity, summaries map[uuid.UUID]models.AuthorSummary) []AuthorEntityCard {
+	cards := make([]AuthorEntityCard, len(entities))
+	for i := range entities {
+		s := summaries[entities[i].ID]
+		card := AuthorEntityCard{AuthorEntity: entities[i], Kind: s.Kind, Genres: s.Genres, Works: s.Works,
+			Covers: s.Covers, MatchedName: s.MatchedName}
+		if card.Genres == nil {
+			card.Genres = []string{}
+		}
+		if card.Works == nil {
+			card.Works = []string{}
+		}
+		if card.Covers == nil {
+			card.Covers = []models.AuthorCover{}
+		}
+		cards[i] = card
+	}
+	return cards
 }
 
 // pageCount turns a number of authors into the number of pages the search page

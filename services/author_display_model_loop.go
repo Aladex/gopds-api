@@ -12,10 +12,15 @@ import (
 // AuthorDisplayModelConfig bounds the read-model worker: how many marks or
 // books one transaction takes, how long after a finished walk the next one
 // starts, and how long the worker rests when there is nothing to do.
+// SummaryBatch is how many entities of the author summary it takes in each
+// rest, and CoverExists says whether a cover can be served; nil trusts the
+// book's flag.
 type AuthorDisplayModelConfig struct {
-	Batch int
-	Every time.Duration
-	Poll  time.Duration
+	Batch        int
+	Every        time.Duration
+	Poll         time.Duration
+	SummaryBatch int
+	CoverExists  database.CoverExists
 }
 
 // Defaults: a batch rebuilds in tens of milliseconds, a walk over the
@@ -24,6 +29,12 @@ const (
 	defaultAuthorDisplayBatch = 1000
 	defaultAuthorDisplayEvery = 24 * time.Hour
 	defaultAuthorDisplayPoll  = 2 * time.Second
+	// A batch of the summary every poll keeps a walk of the catalog to a few
+	// hours of one small query at a time, on a database that serves readers.
+	defaultAuthorSummaryBatch = 40
+	// authorSummaryStatementTimeout gives up on one entity's statements rather
+	// than hold a batch; the entity is reported and the walk comes back to it.
+	authorSummaryStatementTimeout = "5s"
 )
 
 func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
@@ -36,6 +47,9 @@ func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
 	if c.Poll <= 0 {
 		c.Poll = defaultAuthorDisplayPoll
 	}
+	if c.SummaryBatch <= 0 {
+		c.SummaryBatch = defaultAuthorSummaryBatch
+	}
 	return c
 }
 
@@ -43,7 +57,10 @@ func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
 // (migration 30): it rebuilds the books writers marked, a batch per
 // transaction, and between drains advances the daily walk that rebuilds
 // every book — the first walk is the backfill, later ones count what a write
-// path without a mark left behind.
+// path without a mark left behind. With nothing of that left it advances the
+// author summary by one batch and rests: the summary follows the read model,
+// is never ahead of it, and yields to it. The batch does not count as work,
+// which is what paces it to one a poll.
 type AuthorDisplayModelLoop struct {
 	db  *pg.DB
 	cfg AuthorDisplayModelConfig
@@ -93,7 +110,47 @@ func (l *AuthorDisplayModelLoop) RunOnce(ctx context.Context) (bool, error) {
 			Count: int(step.WalkDiffered),
 		})
 	}
-	return drained.Marks > 0 || step.Ran, nil
+	if drained.Marks > 0 || step.Ran {
+		return true, nil
+	}
+	return false, l.advanceSummary(ctx)
+}
+
+// advanceSummary does one transaction of the author summary: a batch of its
+// marks or, with none, the next step of its walk.
+func (l *AuthorDisplayModelLoop) advanceSummary(ctx context.Context) error {
+	var drained database.AuthorSummaryWork
+	var walked database.AuthorSummaryWalkResult
+	err := l.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '`+authorSummaryStatementTimeout+`'`); err != nil {
+			return err
+		}
+		var err error
+		if drained, err = database.DrainAuthorSummaryMarks(ctx, tx, l.cfg.SummaryBatch, l.cfg.CoverExists); err != nil {
+			return err
+		}
+		if drained.Entities > 0 {
+			return nil
+		}
+		walked, err = database.AuthorSummaryWalkStep(ctx, tx, l.cfg.SummaryBatch, l.cfg.Every, l.cfg.CoverExists)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	for _, skip := range append(drained.Skipped, walked.Skipped...) {
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventSummaryEntitySkipped, Stage: AuthorMetadataStageDisplayModel,
+			EntityID: skip.EntityID, SQLState: skip.SQLState,
+		})
+	}
+	if walked.Finished {
+		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventSummaryWalkFinished, Stage: AuthorMetadataStageDisplayModel,
+			Count: int(walked.Read),
+		})
+	}
+	return nil
 }
 
 // logSkippedAuthorDisplay records each book the model refused, once, by its

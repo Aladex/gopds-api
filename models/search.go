@@ -54,8 +54,10 @@ type AuthorSearchRequest struct {
 // legacy catalog authors; under the entity identity the page holds Entities
 // instead.
 type AuthorSearchPage struct {
-	Authors   []Author
-	Entities  []AuthorEntity
+	Authors  []Author
+	Entities []AuthorEntity
+	// Summaries holds an entry for every one of Entities, built or not.
+	Summaries map[uuid.UUID]AuthorSummary
 	Total     int
 	Limit     int
 	Offset    int

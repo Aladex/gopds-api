@@ -149,13 +149,33 @@ func TestTheEntityAuthorSearchAnswersEntities(t *testing.T) {
 	}}
 	rec := doJSON(t, newEntityTestRouter(search, nil, liveKing), http.MethodGet, "/api/books/authors?author=кинг&limit=10", nil)
 	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
-	assert.JSONEq(t, `{"authors":[{"id":"`+kingID.String()+`","full_name":"Стивен Кинг","label":"Ужасы","books_count":682}],
-		"length":1}`, rec.Body.String())
+	assert.JSONEq(t, `{"authors":[{"id":"`+kingID.String()+`","full_name":"Стивен Кинг","label":"Ужасы","books_count":682,
+		"kind":"","genres":[],"works":[],"covers":[],"matched_name":""}],"length":1,"total":1}`, rec.Body.String())
 
 	empty := &fakeSearch{authorsPage: models.AuthorSearchPage{Total: 0, Limit: 10}}
 	rec = doJSON(t, newEntityTestRouter(empty, nil, liveKing), http.MethodGet, "/api/books/authors?author=zz&limit=10", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, `{"authors":[],"length":0}`, rec.Body.String())
+	assert.JSONEq(t, `{"authors":[],"length":0,"total":0}`, rec.Body.String())
+}
+
+// The whole shape the search card reads: the total beside the number of pages,
+// and every field of a built summary under the existing ones.
+func TestTheEntityAuthorSearchAnswersTheSummary(t *testing.T) {
+	search := &fakeSearch{authorsPage: models.AuthorSearchPage{
+		Entities: []models.AuthorEntity{{ID: kingID, FullName: "Стивен Кинг", BooksCount: 682}},
+		Summaries: map[uuid.UUID]models.AuthorSummary{kingID: {
+			Kind: "person", Genres: []string{"Ужасы"}, Works: []string{"Сияние", "Оно"},
+			Covers:      []models.AuthorCover{{Path: "fb2-1.zip", Filename: "5.fb2", Title: "Сияние"}},
+			MatchedName: "Ричард Бахман",
+		}},
+		Total: 25, Limit: 10,
+	}}
+	rec := doJSON(t, newEntityTestRouter(search, nil, liveKing), http.MethodGet, "/api/books/authors?author=кинг&limit=10", nil)
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+	assert.JSONEq(t, `{"authors":[{"id":"`+kingID.String()+`","full_name":"Стивен Кинг","books_count":682,
+		"kind":"person","genres":["Ужасы"],"works":["Сияние","Оно"],
+		"covers":[{"path":"fb2-1.zip","filename":"5.fb2","title":"Сияние"}],"matched_name":"Ричард Бахман"}],
+		"length":3,"total":25}`, rec.Body.String())
 }
 
 // Every name of a listed line links to its live entities and to no legacy

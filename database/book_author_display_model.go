@@ -196,6 +196,10 @@ var deleteAuthorDisplaySQL = `WITH gone AS (
 	UPDATE author_entity_name n SET books = n.books - e.books
 	FROM entity_names e WHERE n.entity_id = e.entity_id AND n.search_key = e.search_key
 	RETURNING n.entity_id
+), summaries AS (
+	INSERT INTO author_entity_summary_dirty (entity_id)
+	SELECT DISTINCT unnest(entity_ids) FROM gone WHERE entity_ids IS NOT NULL
+	ON CONFLICT (entity_id) DO NOTHING
 )
 SELECT legacy_author_id::text AS id, false AS entity FROM legacy
 UNION ALL
@@ -237,6 +241,10 @@ var insertAuthorDisplaySQL = `WITH added AS (
 	SELECT legacy_author_id, search_key, count(*) FROM added WHERE extends_legacy GROUP BY 1, 2
 	ON CONFLICT (legacy_author_id, search_key) DO UPDATE
 	SET books = book_author_display_name.books + EXCLUDED.books
+), summaries AS (
+	INSERT INTO author_entity_summary_dirty (entity_id)
+	SELECT DISTINCT unnest(entity_ids) FROM added WHERE entity_ids IS NOT NULL
+	ON CONFLICT (entity_id) DO NOTHING
 )
 INSERT INTO author_entity_name (entity_id, search_key, books)
 SELECT entity_id, search_key, count(*) FROM (` + entityNameKeysSQL("added") + `) k GROUP BY 1, 2
@@ -574,7 +582,25 @@ func DrainAuthorDisplayMarks(ctx context.Context, tx pg.DBI, limit int) (AuthorD
 	if err != nil {
 		return AuthorDisplayDrain{}, err
 	}
+	if err := markAuthorSummariesOfBooks(ctx, tx, books); err != nil {
+		return AuthorDisplayDrain{}, err
+	}
 	return AuthorDisplayDrain{Marks: len(marked), Books: len(books), Differed: differed, Skipped: skipped}, nil
+}
+
+// markAuthorSummariesOfBooks marks the entities of drained books whatever the
+// rebuild found: the line can stay as it was while the mark was about the
+// book's title, cover, language or visibility. The daily walk comes without
+// marks, so it does not mark the whole catalog.
+func markAuthorSummariesOfBooks(ctx context.Context, tx pg.DBI, books []int64) error {
+	if len(books) == 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO author_entity_summary_dirty (entity_id)
+		SELECT DISTINCT unnest(entity_ids) FROM book_author_display
+		WHERE book_id = ANY (?::bigint[]) AND entity_ids IS NOT NULL
+		ON CONFLICT (entity_id) DO NOTHING`, pg.Array(books))
+	return err
 }
 
 func distinctIDs(ids []int64) []int64 {

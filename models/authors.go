@@ -79,6 +79,26 @@ type AuthorEntity struct {
 	BooksCount int       `json:"books_count,omitempty"`
 }
 
+// AuthorCover is one cover of an author's pile: what the address of a book's
+// cover is made from, and its title for the image's text.
+type AuthorCover struct {
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+	Title    string `json:"title"`
+}
+
+// AuthorSummary is what the author search says of an entity beside its name.
+// Every field is empty until the summary reaches the entity.
+type AuthorSummary struct {
+	Kind   string
+	Genres []string
+	Works  []string
+	Covers []AuthorCover
+	// MatchedName is the entity's name closest to the query, when that is not
+	// the name it is shown by.
+	MatchedName string
+}
+
 // Title is the entity's name with its namesake label, as a surface that
 // shows plain text writes it.
 func (e *AuthorEntity) Title() string {

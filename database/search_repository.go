@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 
+	"gopds-api/logging"
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
@@ -692,8 +693,42 @@ func (r *PGSearchRepository) searchAuthorEntities(
 		return page, preferContextError(ctx, err)
 	}
 	page.Total, page.QueryHash = found.Total, found.QueryHash
-	page.Entities, err = r.labeled(ctx, found.Hits)
-	return page, preferContextError(ctx, err)
+	if page.Entities, err = r.labeled(ctx, found.Hits); err != nil {
+		return page, preferContextError(ctx, err)
+	}
+	page.Summaries, err = r.summarized(ctx, req.Query, req.Language, found.Hits)
+	return page, err
+}
+
+// summarized is what a page says of its hits beside their names. The hits come
+// first: a summary that cannot be read costs the page its covers and titles,
+// never an author, so only the caller's own cancellation is an error here.
+func (r *PGSearchRepository) summarized(
+	ctx context.Context, query, language string, hits []AuthorEntityHit,
+) (map[uuid.UUID]models.AuthorSummary, error) {
+	ids := make([]uuid.UUID, len(hits))
+	for i := range hits {
+		ids[i] = hits[i].ID
+	}
+	rows, err := authorSummaries(ctx, r.db, query, language, ids)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		logging.Error(err)
+	}
+	out := make(map[uuid.UUID]models.AuthorSummary, len(hits))
+	for i := range hits {
+		s := models.AuthorSummary{Kind: hits[i].Kind}
+		if row, ok := rows[hits[i].ID]; ok {
+			s.Genres, s.Works, s.Covers = row.Genres, row.Works, row.Covers
+			if row.MatchedName != nil {
+				s.MatchedName = *row.MatchedName
+			}
+		}
+		out[hits[i].ID] = s
+	}
+	return out, nil
 }
 
 // labeled is the hits as readers are shown them, in their order, each with

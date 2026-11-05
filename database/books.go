@@ -554,6 +554,12 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 		if _, err = query.Update(); err != nil {
 			return bookToUpdate, err
 		}
+		// The author summary shows the book's title and cover, and only while
+		// it is listed: its entities are due whatever this field was.
+		err = MarkAuthorDisplayDirty(context.Background(), tx, updateReq.ID)
+		if err != nil {
+			return bookToUpdate, err
+		}
 	}
 
 	if updateReq.Authors != nil {

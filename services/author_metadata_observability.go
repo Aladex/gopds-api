@@ -10,6 +10,8 @@ import (
 	"gopds-api/internal/authornorm"
 	"gopds-api/logging"
 	"gopds-api/models"
+
+	"github.com/google/uuid"
 )
 
 // The one log shape of the author metadata pipeline (plan phase 20, contract
@@ -83,6 +85,10 @@ const (
 	AuthorMetadataEventDisplayWalkFinished AuthorMetadataEventName = "author_metadata.display_walk_finished"
 	// A book the read model refused was skipped: its ID and the SQLSTATE.
 	AuthorMetadataEventDisplayBookSkipped AuthorMetadataEventName = "author_metadata.display_book_skipped"
+	// The author summary's walk ended: how many entities it read.
+	AuthorMetadataEventSummaryWalkFinished AuthorMetadataEventName = "author_metadata.summary_walk_finished"
+	// An entity the summary refused was passed: its ID and the SQLSTATE.
+	AuthorMetadataEventSummaryEntitySkipped AuthorMetadataEventName = "author_metadata.summary_entity_skipped"
 	// An eval freeze left an item out (its reason is the status); an eval
 	// run ended because a stage cannot be done with its settings.
 	AuthorMetadataEventLLMEvalItemSkipped AuthorMetadataEventName = "author_metadata.llm_eval_item_skipped"
@@ -192,7 +198,8 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkersDisabled, AuthorMetadataEventWorkersNotStarted,
 		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
 		AuthorMetadataEventAggregatesRefreshFailed, AuthorMetadataEventDisplayWalkFinished,
-		AuthorMetadataEventDisplayBookSkipped,
+		AuthorMetadataEventDisplayBookSkipped, AuthorMetadataEventSummaryWalkFinished,
+		AuthorMetadataEventSummaryEntitySkipped,
 		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed, AuthorMetadataEventLLMAdminNotWired,
 		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
 		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,
@@ -240,6 +247,8 @@ type AuthorMetadataEvent struct {
 	BookID       int64
 	JobID        int64
 	ReviewItemID int64
+	// EntityID is an author entity's ID, typed so no name can pass through it.
+	EntityID uuid.UUID
 	// Fingerprint is a source fingerprint, logged as hex only when it is a
 	// 32-byte digest: an identifier, never text.
 	Fingerprint []byte
@@ -426,6 +435,7 @@ func (e *AuthorMetadataEvent) fields() logging.Fields {
 	put("run_id", e.RunID, e.RunID != 0)
 	put("item_id", e.ItemID, e.ItemID != 0)
 	put("book_id", e.BookID, e.BookID != 0)
+	put("entity_id", e.EntityID.String(), e.EntityID != uuid.Nil)
 	put("job_id", e.JobID, e.JobID != 0)
 	put("review_item_id", e.ReviewItemID, e.ReviewItemID != 0)
 	put("fingerprint", hex.EncodeToString(e.Fingerprint), len(e.Fingerprint) == sha256.Size)

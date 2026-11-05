@@ -3,11 +3,13 @@ package services
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"gopds-api/logging"
 
+	"github.com/google/uuid"
 	logrustest "github.com/sirupsen/logrus/hooks/test" //nolint:depguard // tests assert on the structured log entries
 
 	"github.com/stretchr/testify/assert"
@@ -81,7 +83,7 @@ func TestAuthorDisplayModelLoopRunsUnderTheRunner(t *testing.T) {
 
 func TestAuthorDisplayModelConfigDefaults(t *testing.T) {
 	c := AuthorDisplayModelConfig{}.withDefaults()
-	assert.Equal(t, AuthorDisplayModelConfig{Batch: 1000, Every: 24 * time.Hour, Poll: 2 * time.Second}, c)
+	assert.Equal(t, AuthorDisplayModelConfig{Batch: 1000, Every: 24 * time.Hour, Poll: 2 * time.Second, SummaryBatch: 40}, c)
 }
 
 // A book the model refuses is skipped and logged once, by its ID and nothing
@@ -110,5 +112,59 @@ func TestAuthorDisplayModelLoopLogsAndSkipsARefusedBook(t *testing.T) {
 	skipped := eventsNamed(hook, AuthorMetadataEventDisplayBookSkipped)
 	require.Len(t, skipped, 1)
 	assert.Equal(t, books[0], skipped[0].Data["book_id"])
+	assert.Equal(t, "23514", skipped[0].Data["sqlstate"])
+}
+
+// With the read model idle the worker advances the author summary a batch per
+// rest: the first walk needs no one to start it and comes as a batch that is
+// not reported as work, so the loop rests between batches. An entity the table
+// refuses is logged by ID and stops nothing.
+func TestAuthorDisplayModelLoopFillsTheSummaryWhenIdleAndAtItsOwnPace(t *testing.T) {
+	s := localWorkerDB(t)
+	f := &workerFixture{t: t, db: s}
+	hook := logrustest.NewLocal(logging.GetLogger())
+	bad, good := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, id := range []uuid.UUID{bad, good} {
+		f.exec(`INSERT INTO author_entity (id, kind, display_name, sort_name, search_key) VALUES (?, 'person', 'Имя', 'имя', 'имя')`, id)
+	}
+	f.persistBook(author(tolstoy(t)))
+	entities := []string{bad.String(), good.String()}
+	f.exec(`UPDATE opds_catalog_book SET approved = true`)
+	f.exec(`ALTER TABLE author_entity_summary ADD CONSTRAINT poisoned_entity CHECK (entity_id <> '` + bad.String() + `') NOT VALID`)
+	ctx := context.Background()
+	loop := NewAuthorDisplayModelLoop(s, AuthorDisplayModelConfig{Batch: 10, SummaryBatch: 1, Every: 24 * time.Hour, Poll: time.Hour})
+
+	// The read model first: marks and its walk are work, the summary waits.
+	rested := false
+	for i := 0; i < 20 && !rested; i++ {
+		worked, err := loop.RunOnce(ctx)
+		require.NoError(t, err)
+		if rested = !worked; !rested {
+			assert.Zero(t, f.count(`SELECT walk_read FROM author_entity_summary_walk`), "the summary waits for the read model")
+		}
+	}
+	require.True(t, rested, "a summary batch must not keep the loop from resting")
+	require.Equal(t, 1, f.count(`SELECT count(*) FROM book_author_display WHERE entity_ids IS NULL`))
+	f.exec(`UPDATE book_author_display SET source = 'layer',
+		credit_id = (SELECT min(id) FROM book_contributor_credit), entity_ids = ?::uuid[]`,
+		"{"+strings.Join(entities, ",")+"}")
+	f.exec(`DELETE FROM author_entity_summary_dirty`)
+	f.exec(`UPDATE author_entity_summary_walk SET walk_cursor = NULL, walk_read = 0, walk_skipped = 0, finished_at = NULL`)
+
+	steps := 0
+	for ; steps < 10; steps++ {
+		worked, err := loop.RunOnce(ctx)
+		require.NoError(t, err)
+		assert.False(t, worked, "a summary batch is no reason to skip the rest")
+		if len(eventsNamed(hook, AuthorMetadataEventSummaryWalkFinished)) > 0 {
+			break
+		}
+	}
+	assert.GreaterOrEqual(t, steps, 1, "a batch per pass")
+	assert.Positive(t, f.count(`SELECT count(*) FROM author_entity_summary WHERE entity_id = ?`, good))
+	assert.Zero(t, f.count(`SELECT count(*) FROM author_entity_summary WHERE entity_id = ?`, bad))
+	skipped := eventsNamed(hook, AuthorMetadataEventSummaryEntitySkipped)
+	require.Len(t, skipped, 1)
+	assert.Equal(t, bad.String(), skipped[0].Data["entity_id"])
 	assert.Equal(t, "23514", skipped[0].Data["sqlstate"])
 }

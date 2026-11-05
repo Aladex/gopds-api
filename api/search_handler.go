@@ -306,16 +306,14 @@ func (h *SearchHandler) Authors(c *gin.Context) {
 		return
 	}
 	if h.Entities != nil {
-		if page.Entities == nil {
-			page.Entities = []models.AuthorEntity{}
-		}
-		c.JSON(http.StatusOK, AuthorEntityAnswer{Authors: page.Entities, Length: pageCount(page.Total, page.Limit)})
+		c.JSON(http.StatusOK, AuthorEntityAnswer{Authors: authorEntityCards(page.Entities, page.Summaries),
+			Length: pageCount(page.Total, page.Limit), Total: page.Total})
 		return
 	}
 	if page.Authors == nil {
 		page.Authors = []models.Author{}
 	}
-	c.JSON(http.StatusOK, AuthorAnswer{Authors: page.Authors, Length: pageCount(page.Total, page.Limit)})
+	c.JSON(http.StatusOK, AuthorAnswer{Authors: page.Authors, Length: pageCount(page.Total, page.Limit), Total: page.Total})
 }
 
 // mapSearchError translates the service boundary into HTTP: validation
