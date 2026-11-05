@@ -57,8 +57,9 @@ func readsOf(server *s3test.Server, prefix string) int {
 func TestBucketThumbnailIsSavedAndServed(t *testing.T) {
 	service, server, _, dir := bucketService(t)
 	stored := encodeJPEG(t, 240, 320)
-	server.Put(thumbKey, stored)
+	// The cover goes first: dated after the thumbnail, it would get it remade.
 	server.Put(coverKey, encodeJPEG(t, 480, 640))
+	server.Put(thumbKey, stored)
 
 	name, err := service.Path(context.Background(), rel)
 	if err != nil {
