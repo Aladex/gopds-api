@@ -53,12 +53,13 @@ func DownloadBook(c *gin.Context) {
 	}
 
 	zipPath := viper.GetString("app.files_path") + book.Path
-	if checkErr := archivestore.Default().Check(c.Request.Context(), zipPath); checkErr != nil {
+	readCtx := archivestore.Default().StartRead(c.Request.Context())
+	if checkErr := archivestore.Default().Check(readCtx, zipPath); checkErr != nil {
 		httputil.BookFileError(c, checkErr)
 		return
 	}
 
-	bp := utils.NewBookProcessor(book.FileName, zipPath)
+	bp := utils.NewBookProcessor(book.FileName, zipPath).WithReadContext(readCtx)
 
 	var rc io.ReadCloser
 	contentDisp := "attachment; filename=%s.%s"

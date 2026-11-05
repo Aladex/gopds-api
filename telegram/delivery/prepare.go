@@ -44,13 +44,14 @@ func PrepareFile(ctx context.Context, book *models.Book, format string, limit in
 		return File{}, fmt.Errorf("delivery: files path not configured")
 	}
 	archive := base + book.Path
+	ctx = archivestore.Default().StartRead(ctx)
 	if err := archivestore.Default().Check(ctx, archive); err != nil {
 		if errors.Is(err, archivestore.ErrNotFound) {
 			return File{}, ErrFileMissing
 		}
 		return File{}, err
 	}
-	bp := utils.NewBookProcessor(book.FileName, archive)
+	bp := utils.NewBookProcessor(book.FileName, archive).WithReadContext(ctx)
 
 	// FB2 and ZIP are produced under the limit itself. EPUB and MOBI are
 	// converted first — from the FB2 entry, under the site's own bound — and

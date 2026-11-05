@@ -12,8 +12,11 @@ const (
 	// Two attempts of this and a backoff stay under the example server's write
 	// timeout of ten seconds, so a dead store is an answer, not a dropped
 	// connection.
-	storageRequestTimeout   = 4 * time.Second
-	storageRetries          = 1
+	storageRequestTimeout = 4 * time.Second
+	storageRetries        = 1
+	// A whole cold book, directory included, stays under the same limit.
+	storageBookReadTimeout  = 9 * time.Second
+	storageMaxActive        = 16
 	storageCacheDir         = "./cache/storage"
 	storageBookCacheGB      = 30
 	storageDirectoryCacheMB = 64
@@ -54,6 +57,11 @@ type StorageConfig struct {
 	RequestTimeout time.Duration `mapstructure:"request_timeout" yaml:"request_timeout"`
 	// Retries is how many times a failed request is tried again.
 	Retries int `mapstructure:"retries" yaml:"retries"`
+	// BookReadTimeout bounds reading one book from object storage, from the
+	// first request to the last byte. A conversion comes on top of it.
+	BookReadTimeout time.Duration `mapstructure:"book_read_timeout" yaml:"book_read_timeout"`
+	// MaxActiveRequests bounds the requests to the store in progress at once.
+	MaxActiveRequests int `mapstructure:"max_active_requests" yaml:"max_active_requests"`
 	// CacheDir holds extracted books and the workers' temporary copies.
 	CacheDir string `mapstructure:"cache_dir" yaml:"cache_dir"`
 	// BookCacheGB bounds the extracted books on disk; 0 disables that cache.
@@ -74,6 +82,8 @@ func setStorageDefaults() {
 	viper.SetDefault("storage.path_style", true)
 	viper.SetDefault("storage.request_timeout", storageRequestTimeout)
 	viper.SetDefault("storage.retries", storageRetries)
+	viper.SetDefault("storage.book_read_timeout", storageBookReadTimeout)
+	viper.SetDefault("storage.max_active_requests", storageMaxActive)
 	viper.SetDefault("storage.cache_dir", storageCacheDir)
 	viper.SetDefault("storage.book_cache_gb", storageBookCacheGB)
 	viper.SetDefault("storage.directory_cache_mb", storageDirectoryCacheMB)
@@ -122,6 +132,8 @@ func (c *StorageConfig) validate() error {
 	}
 	limits := []configLimit{
 		{"storage.request_timeout", int64(c.RequestTimeout)},
+		{"storage.book_read_timeout", int64(c.BookReadTimeout)},
+		{"storage.max_active_requests", int64(c.MaxActiveRequests)},
 		{"storage.directory_cache_mb", c.DirectoryCacheMB},
 		{"storage.temp_budget_gb", c.TempBudgetGB},
 	}

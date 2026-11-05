@@ -37,6 +37,7 @@ func initializeStorage(c *config.StorageConfig, filesPath string) {
 		PathStyle:       c.PathStyle,
 		RequestTimeout:  c.RequestTimeout,
 		Retries:         retries,
+		MaxActive:       c.MaxActiveRequests,
 	})
 	if err != nil {
 		logging.Errorf("Failed to set up object storage: %v", err)
@@ -50,6 +51,7 @@ func initializeStorage(c *config.StorageConfig, filesPath string) {
 		BookCacheBytes:      c.BookCacheGB * bytesInGB,
 		DirectoryCacheBytes: c.DirectoryCacheMB * bytesInMB,
 		TempBudgetBytes:     c.TempBudgetGB * bytesInGB,
+		ReadBudget:          c.BookReadTimeout,
 	})
 	if err != nil {
 		logging.Errorf("Failed to set up the archive store: %v", err)

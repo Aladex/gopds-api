@@ -170,6 +170,37 @@ func New(cfg *Config) (*Store, error) {
 	return s, nil
 }
 
+// readDeadline is the context key of the moment a started read runs out.
+type readDeadline struct{}
+
+// StartRead starts the clock on reading one book for one request. What comes
+// back carries the moment the budget runs out, and every call into the store
+// made with it shares that one budget, however many of them a request needs: a
+// check, a directory and the book itself are one wait for the person asking.
+//
+// It is a value and not a context deadline on purpose. A conversion runs on the
+// same context after the read, and the store's budget is none of its business.
+func (s *Store) StartRead(ctx context.Context) context.Context {
+	if s.client == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, readDeadline{}, s.now().Add(s.readBudget))
+}
+
+// bound limits one operation on a remote archive to the budget of the read it
+// belongs to, or to a budget of its own. A file on disk has none: it was never
+// limited, and object storage has no say in it.
+func (s *Store) bound(ctx context.Context, localPath string) (context.Context, context.CancelFunc) {
+	if s.client == nil || onDisk(localPath) {
+		return ctx, func() {}
+	}
+	deadline, started := ctx.Value(readDeadline{}).(time.Time)
+	if !started {
+		deadline = s.now().Add(s.readBudget)
+	}
+	return context.WithDeadline(ctx, deadline)
+}
+
 // Remote reports whether object storage is configured.
 func (s *Store) Remote() bool { return s.client != nil }
 
@@ -226,6 +257,8 @@ func (s *Store) Check(ctx context.Context, localPath string) error {
 	if !ok {
 		return ErrNotFound
 	}
+	ctx, cancel := s.bound(ctx, localPath)
+	defer cancel()
 	_, err := s.directory(ctx, key)
 	return mapError(err)
 }
@@ -340,15 +373,19 @@ func (s *Store) OpenBatch(ctx context.Context, localPath string, entries int) (*
 type Entry struct {
 	store   *Store
 	ctx     context.Context
+	cancel  context.CancelFunc
 	archive *Archive
 	file    *zip.File
 }
 
 // Find opens the archive and finds an entry in it, without reading the entry.
-// The Entry must be closed.
+// The Entry must be closed. A remote entry has the budget of one read, from
+// here until it is closed.
 func (s *Store) Find(ctx context.Context, localPath, name string) (*Entry, error) {
+	ctx, cancel := s.bound(ctx, localPath)
 	archive, err := s.OpenArchive(ctx, localPath)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	file := findFile(archive.Reader, name)
@@ -359,9 +396,10 @@ func (s *Store) Find(ctx context.Context, localPath, name string) (*Entry, error
 	}
 	if file == nil {
 		_ = archive.Close()
+		cancel()
 		return nil, ErrEntryNotFound
 	}
-	return &Entry{store: s, ctx: ctx, archive: archive, file: file}, nil
+	return &Entry{store: s, ctx: ctx, cancel: cancel, archive: archive, file: file}, nil
 }
 
 // findAfterRevalidating asks the store whether a directory is still current
@@ -398,8 +436,11 @@ func (e *Entry) Name() string { return e.file.Name }
 // archive's word, not a measurement: use it to refuse, never to admit.
 func (e *Entry) Size() uint64 { return e.file.UncompressedSize64 }
 
-// Close releases the archive.
-func (e *Entry) Close() error { return e.archive.Close() }
+// Close releases the archive and what is left of the budget.
+func (e *Entry) Close() error {
+	defer e.cancel()
+	return e.archive.Close()
+}
 
 // Open reads the entry: from the disk, from the book cache, or from object
 // storage. The stream is valid until the Entry is closed.

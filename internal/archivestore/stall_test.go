@@ -102,3 +102,93 @@ func TestLocalArchiveServesDuringAStall(t *testing.T) {
 	fx.server.SetStallBodies(false)
 	fx.server.SetSilentErrors(false)
 }
+
+func TestColdBookReadIsBoundedOverall(t *testing.T) {
+	data := buildArchive(t, 5, 64<<10, 23)
+	fx := newFixture(t, &Config{ReadBudget: testBudget}, data)
+	if err := fx.store.Check(context.Background(), fx.path); err != nil {
+		t.Fatal(err)
+	}
+	// Every read succeeds, so nothing short of an overall limit ends this.
+	fx.server.SetDrip(5 * time.Millisecond)
+
+	err := within(t, settleLimit, func() error {
+		_, err := tryBook(context.Background(), fx.store, fx.path, bookName(1))
+		return err
+	})
+
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v", err)
+	}
+	waitForIdle(t, fx.server, settleLimit)
+}
+
+func TestReadStartedEarlierHasOnlyWhatIsLeft(t *testing.T) {
+	data := buildArchive(t, 5, 1000, 24)
+	fx := newFixture(t, &Config{ReadBudget: time.Hour}, data)
+	if err := fx.store.Check(context.Background(), fx.path); err != nil {
+		t.Fatal(err)
+	}
+	fx.store.now = func() time.Time { return time.Now().Add(-time.Hour) }
+	ctx := fx.store.StartRead(context.Background())
+	fx.store.now = time.Now
+	fx.server.Reset()
+
+	_, err := tryBook(ctx, fx.store, fx.path, bookName(1))
+
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("a read past its budget got %v", err)
+	}
+	if n := fx.server.Requests(); n != 0 {
+		t.Fatalf("%d requests past the budget", n)
+	}
+}
+
+// The budget is for the store. A conversion that follows the read keeps all the
+// time it ever had, which a real deadline on the context would take from it.
+func TestStartedReadPutsNoDeadlineOnTheContext(t *testing.T) {
+	fx := newFixture(t, &Config{ReadBudget: time.Millisecond}, buildArchive(t, 1, 10, 25))
+	if _, has := fx.store.StartRead(context.Background()).Deadline(); has {
+		t.Fatal("the context carries a deadline")
+	}
+}
+
+func TestLocalArchiveHasNoBudget(t *testing.T) {
+	data := buildArchive(t, 5, 1000, 26)
+	fx := newFixture(t, &Config{ReadBudget: time.Hour}, data)
+	if err := os.WriteFile(fx.path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fx.store.now = func() time.Time { return time.Now().Add(-time.Hour) }
+	ctx := fx.store.StartRead(context.Background())
+	fx.store.now = time.Now
+
+	got, err := tryBook(ctx, fx.store, fx.path, bookName(1))
+
+	if err != nil || len(got) == 0 {
+		t.Fatalf("a book on disk failed on the store's budget: %d bytes, %v", len(got), err)
+	}
+}
+
+func TestDiskOnlyStoreLeavesTheContextAlone(t *testing.T) {
+	ctx := context.Background()
+	if got := (&Store{}).StartRead(ctx); got != ctx {
+		t.Fatal("a store without object storage touched the context")
+	}
+}
+
+func TestEntryCloseReleasesItsBudget(t *testing.T) {
+	data := buildArchive(t, 5, 1000, 27)
+	fx := newFixture(t, &Config{}, data)
+	entry, err := fx.store.Find(context.Background(), fx.path, bookName(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, has := entry.ctx.Deadline(); !has {
+		t.Fatal("a remote entry has no deadline")
+	}
+	_ = entry.Close()
+	if entry.ctx.Err() == nil {
+		t.Fatal("closing the entry left its context running")
+	}
+}

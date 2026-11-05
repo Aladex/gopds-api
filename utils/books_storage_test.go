@@ -155,3 +155,46 @@ func TestLocalFailuresKeepTheirWords(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, want)
 	}
 }
+
+func TestCallerLeavingStopsARemoteRead(t *testing.T) {
+	reads := map[string]func(*BookProcessor) error{
+		"fb2": func(bp *BookProcessor) error { _, err := bp.FB2(); return err },
+		"zip": func(bp *BookProcessor) error { _, err := bp.Zip("name"); return err },
+		"limited fb2": func(bp *BookProcessor) error {
+			_, err := bp.FB2Limited(1 << 20)
+			return err
+		},
+		"limited zip": func(bp *BookProcessor) error {
+			_, err := bp.ZipLimited("name", 1<<20)
+			return err
+		},
+		"epub": func(bp *BookProcessor) error { _, err := bp.Epub(); return err },
+	}
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			bp, server := remoteProcessor(t, storageBook)
+			gone, leave := context.WithCancel(context.Background())
+			leave()
+			server.Reset()
+
+			err := read(bp.WithReadContext(gone))
+
+			if !errors.Is(err, archivestore.ErrUnavailable) {
+				t.Fatalf("err = %v", err)
+			}
+			if n := server.Requests(); n != 0 {
+				t.Fatalf("%d requests for a caller that left", n)
+			}
+		})
+	}
+}
+
+func TestReadContextDoesNotReachTheConversion(t *testing.T) {
+	bp, _ := remoteProcessor(t, storageBook)
+	ctx := archivestore.Default().StartRead(context.Background())
+	rc, err := bp.WithReadContext(ctx).Epub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = rc.Close()
+}

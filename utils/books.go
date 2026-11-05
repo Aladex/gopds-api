@@ -22,6 +22,8 @@ import (
 type BookProcessor struct {
 	filename string
 	path     string
+	// read is the context of a request this book is read for, if there is one.
+	read context.Context
 }
 
 // ErrBookNotInArchive reports that the archive opened fine but holds no
@@ -35,6 +37,14 @@ func NewBookProcessor(filename, path string) *BookProcessor {
 		filename: filename,
 		path:     path,
 	}
+}
+
+// WithReadContext makes reading the book out of its archive follow ctx, so that
+// a request that ends, or a read that runs out of its budget, stops the read.
+// Only the read: a conversion keeps the context it was given, or none.
+func (bp *BookProcessor) WithReadContext(ctx context.Context) *BookProcessor {
+	bp.read = ctx
+	return bp
 }
 
 func closeResource(rc io.Closer) {
@@ -99,6 +109,9 @@ func (bp *BookProcessor) open(ctx context.Context) (*archivestore.Entry, io.Read
 // find locates the book through the archive store: the file on disk when
 // there is one, object storage otherwise.
 func (bp *BookProcessor) find(ctx context.Context) (*archivestore.Entry, error) {
+	if bp.read != nil {
+		ctx = bp.read
+	}
 	entry, err := archivestore.Default().Find(ctx, bp.path, bp.filename)
 	if errors.Is(err, archivestore.ErrEntryNotFound) {
 		return nil, ErrBookNotInArchive
@@ -137,9 +150,9 @@ func (bp *BookProcessor) EpubContext(ctx context.Context) (io.ReadCloser, error)
 	// Parse FB2 in one pass (both metadata and body structure)
 	// This is ~30-40% faster than parsing metadata and body separately.
 	//
-	// The site's download handlers pass context.Background(): they do not
-	// flow a request context through BookProcessor yet, so a download is
-	// atomic and a closed client pays only for the work done so far.
+	// The site's download handlers pass context.Background() here: only the
+	// read above follows their request, so a conversion is atomic and a closed
+	// client pays only for the work done so far.
 	doc, bookFile, err := converter.ParseFB2Complete(ctx, fb2Content, true)
 	if err != nil {
 		logging.Errorf("Failed to parse FB2 content for %s: %v", bp.filename, err)

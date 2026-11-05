@@ -16,8 +16,8 @@ func completeStorage() StorageConfig {
 	return StorageConfig{
 		Endpoint: "https://s3.example.com", Region: "eu", Bucket: "lib",
 		AccessKeyID: "visible-key", SecretAccessKey: "visible-secret",
-		RequestTimeout: time.Second, CacheDir: "/cache",
-		DirectoryCacheMB: 1, TempBudgetGB: 1,
+		RequestTimeout: time.Second, BookReadTimeout: time.Second, MaxActiveRequests: 1,
+		CacheDir: "/cache", DirectoryCacheMB: 1, TempBudgetGB: 1,
 	}
 }
 
@@ -58,6 +58,8 @@ func TestStorageLimitsAreChecked(t *testing.T) {
 	for name, breakIt := range map[string]func(*StorageConfig){
 		"endpoint":  func(c *StorageConfig) { c.Endpoint = "s3.example.com" },
 		"timeout":   func(c *StorageConfig) { c.RequestTimeout = 0 },
+		"read":      func(c *StorageConfig) { c.BookReadTimeout = 0 },
+		"active":    func(c *StorageConfig) { c.MaxActiveRequests = 0 },
 		"directory": func(c *StorageConfig) { c.DirectoryCacheMB = 0 },
 		"budget":    func(c *StorageConfig) { c.TempBudgetGB = 0 },
 		"cache":     func(c *StorageConfig) { c.BookCacheGB = -1 },
