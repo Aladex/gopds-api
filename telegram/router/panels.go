@@ -3,11 +3,13 @@ package router
 import (
 	"context"
 	"errors"
-	"os"
+	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/internal/coverstore"
 	"gopds-api/internal/posters"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -326,7 +328,7 @@ func (r *Router) withCoverRetry(
 			_ = database.DropTelegramCoverFile(ctx, b.Ref, cover.BookID)
 			data := cover.Data
 			if len(data) == 0 && cover.Path != "" {
-				data = readCover(cover.Path)
+				data = r.readCover(ctx, cover.Path)
 			}
 			if len(data) == 0 {
 				current = current.WithoutPhoto()
@@ -384,7 +386,7 @@ func (r *Router) rememberCover(ctx context.Context, b *Bot, bookID int64, msg *t
 // where to read the bytes should Telegram refuse it, or the bytes to upload;
 // nil without a cover file. A cover Telegram has is not read from disk.
 func (r *Router) cover(ctx context.Context, b *Bot, book *models.Book) *screens.Photo {
-	path := r.coverPath(book)
+	path := r.coverPath(ctx, book)
 	if path == "" {
 		return nil
 	}
@@ -392,7 +394,7 @@ func (r *Router) cover(ctx context.Context, b *Bot, book *models.Book) *screens.
 	if err == nil && fileID != "" {
 		return &screens.Photo{BookID: book.ID, FileID: fileID, Path: path}
 	}
-	data := readCover(path)
+	data := r.readCover(ctx, path)
 	if len(data) == 0 {
 		return nil
 	}
@@ -402,15 +404,17 @@ func (r *Router) cover(ctx context.Context, b *Bot, book *models.Book) *screens.
 // coldCover reports a cover the card would upload: one on disk that this bot
 // has no file_id of.
 func (r *Router) coldCover(ctx context.Context, b *Bot, book *models.Book) bool {
-	if r.coverPath(book) == "" {
+	if r.coverPath(ctx, book) == "" {
 		return false
 	}
 	fileID, err := database.GetTelegramCoverFile(ctx, b.Ref, book.ID)
 	return err != nil || fileID == ""
 }
 
-// coverPath is where a book's cover file is, "" for none fit to send.
-func (r *Router) coverPath(book *models.Book) string {
+// coverPath is where a book's cover file is, "" for none fit to send. The file
+// may be only in object storage: the path is then the one it would have here,
+// and readCover knows the way.
+func (r *Router) coverPath(ctx context.Context, book *models.Book) string {
 	if !book.Cover {
 		return ""
 	}
@@ -418,17 +422,27 @@ func (r *Router) coverPath(book *models.Book) string {
 	if base == "" {
 		return ""
 	}
-	path := posters.FilePath(base, book.Path, book.FileName)
-	info, err := os.Stat(path)
-	if err != nil || info.Size() == 0 || info.Size() > maxCoverBytes {
+	rel := posters.RelativePath(book.Path, book.FileName)
+	size, err := coverstore.Default().Stat(ctx, base, rel)
+	if err != nil || size == 0 || size > maxCoverBytes {
 		return ""
 	}
-	return path
+	return filepath.Join(base, rel)
 }
 
 // readCover reads a cover file; nil when it cannot.
-func readCover(path string) []byte {
-	data, err := os.ReadFile(path) // #nosec G304 -- built from the posters directory and the book's own path
+func (r *Router) readCover(ctx context.Context, path string) []byte {
+	base := r.cfg.PostersPath()
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return nil
+	}
+	cover, err := coverstore.Default().Open(ctx, base, rel)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = cover.Close() }()
+	data, err := io.ReadAll(cover)
 	if err != nil {
 		return nil
 	}

@@ -104,6 +104,7 @@ func setupFileRoutes(group *gin.RouterGroup) {
 // setupDefaultRoutes configures default routes for the application.
 func setupDefaultRoutes(route *gin.Engine, donate []config.DonateMethod) {
 	route.GET("/books-posters/*filepath", api.Posters)
+	route.GET("/books-thumbs/*filepath", api.Thumbs(api.NewThumbs()))
 	route.GET("/api/status", api.StatusCheck)
 	// Public: every value served here is an address meant to be handed out.
 	route.GET("/api/donate", api.DonateMethods(donate))
