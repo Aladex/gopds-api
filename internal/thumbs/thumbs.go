@@ -14,6 +14,13 @@
 // A thumbnail in the bucket is good for as long as its object is not older than
 // the cover it was made from, by the date of the cover on disk or, if there is
 // none on disk, in the bucket. An older one is ignored, remade and replaced.
+//
+// Memory for covers follows the slots, not the queue: a generation holds no
+// bytes until it has a slot, and keeps the slot until its thumbnail is written.
+// Reads of the bucket have slots of their own, so a store that stalls holds up
+// those and not the covers on disk, which do not wait for them at all: with
+// every bucket read taken, a thumbnail is made from its cover on disk even if
+// the bucket has one.
 package thumbs
 
 import (
@@ -95,9 +102,11 @@ type Service struct {
 	// insideSource is dir relative to sourceDir, empty if it is elsewhere.
 	insideSource string
 	covers       func() *coverstore.Store
-	// slots bounds the work of the processor. remote bounds the generations
-	// reading their source from object storage, which can hold them for as
-	// long as the store stalls: covers on disk must not wait behind those.
+	// slots bounds the work of the processor, and with it the covers read from
+	// disk: one is taken before the read. remote bounds what is read from
+	// object storage, thumbnails and covers alike, and is held for as long as
+	// those bytes are in memory. It can be held for as long as the store
+	// stalls, which is why covers on disk do not queue for it.
 	slots  chan struct{}
 	remote chan struct{}
 	group  singleflight.Group
@@ -208,22 +217,70 @@ func fresh(target, sourceDir, rel string) bool {
 func (s *Service) generate(ctx context.Context, rel, target string) error {
 	store := s.covers()
 	original, onDisk := coverstore.ModTimeOnDisk(s.sourceDir, rel)
-	if store.ThumbsInBucket() && s.fromBucket(ctx, store, rel, target, original, onDisk) {
+	if onDisk {
+		return s.generateFromDisk(ctx, store, rel, target, original)
+	}
+	return s.generateFromStore(ctx, store, rel, target)
+}
+
+// generateFromDisk makes a thumbnail of a cover on disk, unless the bucket has
+// one and can hand it over right now.
+func (s *Service) generateFromDisk(
+	ctx context.Context, store *coverstore.Store, rel, target string, original time.Time,
+) error {
+	if store.ThumbsInBucket() && s.fromBucketIfFree(ctx, store, rel, target, original) {
 		return nil
 	}
-	if !onDisk {
-		select {
-		case s.remote <- struct{}{}:
-			defer func() { <-s.remote }()
-		case <-ctx.Done():
-			return fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
-		}
+	leave, err := enter(ctx, s.slots)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	data, modified, err := s.readSource(ctx, rel)
+	if err != nil {
+		return err
+	}
+	return s.finish(store, rel, target, data, modified)
+}
+
+// generateFromStore gets a thumbnail of a cover that is not on disk. It takes
+// the processor's slot only for the last step: a stalled read must not hold one
+// of those, and bytes waiting for one are still counted in remote.
+func (s *Service) generateFromStore(ctx context.Context, store *coverstore.Store, rel, target string) error {
+	leaveRemote, err := enter(ctx, s.remote)
+	if err != nil {
+		return err
+	}
+	defer leaveRemote()
+	if store.ThumbsInBucket() && s.fromBucket(ctx, store, rel, target, time.Time{}, false) {
+		return nil
 	}
 	data, modified, err := s.readSource(ctx, rel)
 	if err != nil {
 		return err
 	}
-	encoded, err := s.scale(ctx, data)
+	leave, err := enter(ctx, s.slots)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	return s.finish(store, rel, target, data, modified)
+}
+
+// enter takes a slot, waiting for one for as long as ctx allows. The function
+// it returns gives the slot back.
+func enter(ctx context.Context, slots chan struct{}) (leave func(), err error) {
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
+	}
+}
+
+// finish turns a cover's bytes into a thumbnail on disk.
+func (s *Service) finish(store *coverstore.Store, rel, target string, data []byte, modified time.Time) error {
+	encoded, err := Scale(data)
 	if err != nil {
 		return err
 	}
@@ -234,6 +291,20 @@ func (s *Service) generate(ctx context.Context, rel, target string) error {
 		s.queueUpload(rel)
 	}
 	return nil
+}
+
+// fromBucketIfFree is fromBucket for a cover on disk, which has something
+// better to do than wait for a read of the bucket.
+func (s *Service) fromBucketIfFree(
+	ctx context.Context, store *coverstore.Store, rel, target string, original time.Time,
+) bool {
+	select {
+	case s.remote <- struct{}{}:
+		defer func() { <-s.remote }()
+		return s.fromBucket(ctx, store, rel, target, original, true)
+	default:
+		return false
+	}
 }
 
 // fromBucket saves the bucket's thumbnail to disk if it has a good one. False
@@ -314,17 +385,6 @@ func (s *Service) upload(rel string) {
 	if err := s.covers().PutThumb(context.Background(), rel, data); err != nil {
 		logging.Warnf("thumbs: uploading %s: %v", rel, err)
 	}
-}
-
-// scale is Scale in one of the processor's slots.
-func (s *Service) scale(ctx context.Context, data []byte) ([]byte, error) {
-	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
-	case <-ctx.Done():
-		return nil, fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
-	}
-	return Scale(data)
 }
 
 func (s *Service) readSource(ctx context.Context, rel string) ([]byte, time.Time, error) {
