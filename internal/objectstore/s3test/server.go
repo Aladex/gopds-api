@@ -1,6 +1,6 @@
-// Package s3test is a fake S3 endpoint for tests: path-style HEAD, ranged GET
-// and ListObjectsV2 over httptest, with request and byte counters and switches
-// for the ways a real store fails.
+// Package s3test is a fake S3 endpoint for tests: path-style HEAD, ranged GET,
+// PUT and ListObjectsV2 over httptest, with request and byte counters and
+// switches for the ways a real store fails.
 //
 // It verifies every request's signature with a Signature V4 of its own, written
 // from the protocol rather than shared with objectstore, so a signing mistake
@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,6 +27,9 @@ import (
 
 	"gopds-api/internal/objectstore"
 )
+
+// forbiddenBody is what a read-only key gets for a PUT.
+const forbiddenBody = "<Error><Code>AccessDenied</Code></Error>"
 
 // Credentials every Server expects.
 const (
@@ -41,6 +45,7 @@ type object struct {
 	data     []byte
 	etag     string
 	modified time.Time
+	kind     string
 }
 
 // Read is one served request.
@@ -64,6 +69,9 @@ type Server struct {
 	ignoreRange bool
 	dropAfter   int64
 	failNext    int
+	refuseWrite bool
+	failWrites  bool
+	hangWrites  bool
 	silentError bool
 	stallBodies bool
 	drip        time.Duration
@@ -99,13 +107,60 @@ func (s *Server) Client(timeout time.Duration, retries int) *objectstore.Client 
 	return client
 }
 
+// WriterClient is a client of this server allowed to write under prefix.
+func (s *Server) WriterClient(timeout time.Duration, prefix string) *objectstore.Client {
+	s.t.Helper()
+	client, err := objectstore.New(&objectstore.Config{
+		Endpoint:        s.URL,
+		Region:          Region,
+		Bucket:          Bucket,
+		AccessKeyID:     AccessKey,
+		SecretAccessKey: SecretKey,
+		PathStyle:       true,
+		RequestTimeout:  timeout,
+		Retries:         -1,
+		WritePrefix:     prefix,
+	})
+	if err != nil {
+		s.t.Fatalf("client: %v", err)
+	}
+	return client
+}
+
 // Put stores or replaces an object.
 func (s *Server) Put(key string, data []byte) {
+	s.PutAt(key, data, time.Now())
+}
+
+// PutAt is Put with the object dated modified.
+func (s *Server) PutAt(key string, data []byte, modified time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// #nosec G401 -- S3's ETag of a simple object is its MD5.
 	sum := md5.Sum(data)
-	s.objects[key] = &object{data: data, etag: hex.EncodeToString(sum[:]), modified: time.Now().Truncate(time.Second)}
+	s.objects[key] = &object{data: data, etag: hex.EncodeToString(sum[:]), modified: modified.Truncate(time.Second)}
+}
+
+// Object returns what the server holds under key, and its Content-Type.
+func (s *Server) Object(key string) (data []byte, kind string, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	obj, ok := s.objects[key]
+	if !ok {
+		return nil, "", false
+	}
+	return obj.data, obj.kind, true
+}
+
+// Writes names the keys written with PUT so far, in order.
+func (s *Server) Writes() []string {
+	var keys []string
+	for _, r := range s.Reads() {
+		if r.Method == http.MethodPut {
+			keys = append(keys, r.Key)
+		}
+	}
+	return keys
 }
 
 // Reads returns the requests served so far.
@@ -148,6 +203,15 @@ func (s *Server) FailNext(n int) { s.set(func() { s.failNext = n }) }
 
 // DropAfter cuts every response body after n bytes; zero turns that off.
 func (s *Server) DropAfter(n int64) { s.set(func() { s.dropAfter = n }) }
+
+// SetRefuseWrites answers every PUT as a read-only key would be answered.
+func (s *Server) SetRefuseWrites(refuse bool) { s.set(func() { s.refuseWrite = refuse }) }
+
+// SetFailWrites answers every PUT with a 503, and leaves every other call alone.
+func (s *Server) SetFailWrites(fail bool) { s.set(func() { s.failWrites = fail }) }
+
+// SetHangWrites makes every PUT wait for the client to give up.
+func (s *Server) SetHangWrites(hang bool) { s.set(func() { s.hangWrites = hang }) }
 
 // SetSilentErrors answers every GET with flushed 503 headers that promise a
 // body, and then says nothing until the client gives up.
@@ -196,7 +260,11 @@ func (s *Server) set(change func()) {
 }
 
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
-	if !verified(r) {
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		return
+	}
+	if !verified(r, payload) {
 		s.t.Errorf("bad signature on %s %s", r.Method, r.URL.String())
 		http.Error(w, "<Error><Code>SignatureDoesNotMatch</Code></Error>", http.StatusForbidden)
 		return
@@ -204,6 +272,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	s.enter()
 	defer s.leave()
 	key := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"+Bucket), "/")
+	if r.Method == http.MethodPut {
+		s.write(w, r, key, payload)
+		return
+	}
 	s.mu.Lock()
 	down := s.down || s.failNext > 0
 	if s.failNext > 0 {
@@ -263,6 +335,26 @@ func (s *Server) withhold(w http.ResponseWriter, r *http.Request, obj *object, d
 		}
 	}
 	<-r.Context().Done()
+}
+
+// write takes a PUT. A write is recorded whether or not it was accepted: the
+// tests care that it was tried.
+func (s *Server) write(w http.ResponseWriter, r *http.Request, key string, payload []byte) {
+	s.record(Read{Method: r.Method, Key: key, Bytes: int64(len(payload))})
+	s.mu.Lock()
+	refuse, fail, hang := s.refuseWrite, s.failWrites, s.hangWrites
+	s.mu.Unlock()
+	switch {
+	case hang:
+		<-r.Context().Done()
+	case refuse:
+		http.Error(w, forbiddenBody, http.StatusForbidden)
+	case fail:
+		w.WriteHeader(http.StatusServiceUnavailable)
+	default:
+		s.Put(key, payload)
+		s.set(func() { s.objects[key].kind = r.Header.Get("Content-Type") })
+	}
 }
 
 func (s *Server) record(read Read) {
@@ -372,14 +464,14 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 
 // verified recomputes a request's signature. Written apart from objectstore on
 // purpose: see the package comment.
-func verified(r *http.Request) bool {
+func verified(r *http.Request, body []byte) bool {
 	stamp := r.Header.Get("X-Amz-Date")
 	if len(stamp) < 8 || r.Header.Get("X-Amz-Content-Sha256") == "" {
 		return false
 	}
 	day := stamp[:8]
-	empty := sha256.Sum256(nil)
-	payload := hex.EncodeToString(empty[:])
+	sum := sha256.Sum256(body)
+	payload := hex.EncodeToString(sum[:])
 	if r.Header.Get("X-Amz-Content-Sha256") != payload {
 		return false
 	}

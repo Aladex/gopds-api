@@ -1,6 +1,6 @@
-// Package objectstore is a small read-only client for the S3 API.
+// Package objectstore is a small client for the S3 API.
 //
-// It knows three calls: HEAD, ranged GET and ListObjectsV2. That is all the
+// It knows four calls: HEAD, ranged GET, ListObjectsV2 and PUT. That is all the
 // application needs from object storage, and it is the reason there is no SDK
 // here. The two usual choices bring their own retry loops, which have to be
 // fought to get the bounded failure a request path needs, and a long tail of
@@ -8,13 +8,17 @@
 // in 19. Signing one GET is about a hundred lines of the standard library,
 // checked against the signature AWS publishes for it.
 //
-// Being read-only is also a guarantee. There is no PUT or DELETE in this
-// package, so nothing that goes through it can change or remove a remote
-// object, whatever a bug elsewhere asks for.
+// Being this small is also a guarantee. There is no DELETE in this package, and
+// PUT writes only under the one prefix a client is given, or nowhere without
+// one. So nothing that goes through it can remove a remote object or change one
+// outside that prefix, whatever a bug elsewhere asks for.
 package objectstore
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -38,6 +42,8 @@ var (
 	ErrUnavailable = errors.New("object storage unavailable")
 	// ErrChanged is an object that is no longer the version asked for.
 	ErrChanged = errors.New("object changed")
+	// ErrWriteRefused is a write this client will not make: no request left it.
+	ErrWriteRefused = errors.New("write outside the allowed prefix")
 )
 
 const (
@@ -104,6 +110,8 @@ type Config struct {
 	RequestTimeout time.Duration
 	// MaxActive bounds the calls in progress at once. Zero means the default.
 	MaxActive int
+	// WritePrefix is the only place Put may write. Empty means nowhere.
+	WritePrefix string
 	// Retries is how many times a failed call is tried again. Negative means
 	// none, zero the default.
 	Retries int
@@ -278,6 +286,58 @@ func parseContentRange(value string) (start, end, total int64, ok bool) {
 		return 0, 0, 0, false
 	}
 	return start, end, total, true
+}
+
+// Put stores data under key, replacing what is there. It makes one attempt
+// within the request timeout and stays out of the breaker's count: a write that
+// fails, as it will for good on a read-only key, says nothing about whether
+// books can be read. Nothing depends on it, so the caller only logs a failure.
+func (c *Client) Put(ctx context.Context, key string, data []byte, contentType string) error {
+	if !c.writable(key) {
+		return fmt.Errorf("%w: %s", ErrWriteRefused, key)
+	}
+	release, err := c.acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.objectURL(key, nil), bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("objectstore: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	sum := sha256.Sum256(data)
+	c.signPayload(req, c.now(), hex.EncodeToString(sum[:]))
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return statusError(key, resp)
+}
+
+// writable reports a key strictly under the write prefix. A dot segment is
+// refused because a gateway may normalize it, and the key would then land
+// somewhere the prefix check never saw.
+func (c *Client) writable(key string) bool {
+	if c.cfg.WritePrefix == "" {
+		return false
+	}
+	rest, found := strings.CutPrefix(key, c.cfg.WritePrefix)
+	if !found || rest == "" {
+		return false
+	}
+	for segment := range strings.SplitSeq(rest, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // listResult is the part of a ListObjectsV2 page used here.

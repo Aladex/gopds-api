@@ -25,23 +25,28 @@ const (
 // header stays outside the signature, as the protocol allows, so that a read
 // ahead can be sized without re-deriving anything.
 func (c *Client) sign(req *http.Request, now time.Time) {
+	c.signPayload(req, now, emptyPayloadHash)
+}
+
+// signPayload signs a request whose body has this SHA-256.
+func (c *Client) signPayload(req *http.Request, now time.Time, payloadHash string) {
 	stamp := now.UTC().Format(amzDateFormat)
 	req.Header.Set("X-Amz-Date", stamp)
-	req.Header.Set("X-Amz-Content-Sha256", emptyPayloadHash)
-	req.Header.Set("Authorization", authorization(&c.cfg, req.Method, req.URL.Host, req.URL.EscapedPath(), req.URL.RawQuery, stamp))
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	req.Header.Set("Authorization", authorization(&c.cfg, req.Method, req.URL.Host, req.URL.EscapedPath(), req.URL.RawQuery, stamp, payloadHash))
 }
 
 // authorization is the header value for one signed request.
-func authorization(cfg *Config, method, host, path, query, stamp string) string {
+func authorization(cfg *Config, method, host, path, query, stamp, payloadHash string) string {
 	day := stamp[:len(amzShortDate)]
 	scope := strings.Join([]string{day, cfg.Region, sigV4Service, sigV4Terminator}, "/")
 	canonical := strings.Join([]string{
 		method,
 		path,
 		query,
-		"host:" + host + "\n" + "x-amz-content-sha256:" + emptyPayloadHash + "\n" + "x-amz-date:" + stamp + "\n",
+		"host:" + host + "\n" + "x-amz-content-sha256:" + payloadHash + "\n" + "x-amz-date:" + stamp + "\n",
 		signedHeaders,
-		emptyPayloadHash,
+		payloadHash,
 	}, "\n")
 	digest := sha256.Sum256([]byte(canonical))
 	toSign := strings.Join([]string{sigV4Algorithm, stamp, scope, hex.EncodeToString(digest[:])}, "\n")
