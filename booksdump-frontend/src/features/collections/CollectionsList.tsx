@@ -5,20 +5,14 @@ import { AlertCircle } from 'lucide-react';
 
 import { Alert, AlertDescription, AlertTitle } from '@/shared/ui/alert';
 
-import { API_URL } from '@/api/config';
+import { thumbURL } from '@/shared/lib/coverUrl';
 import { cn } from '@/shared/lib/utils';
 import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import BookPagination from '@/features/catalogue/BookPagination';
 import { CollectionCoverBook, listPublicCollections, PublicCollectionRow } from '@/api/collections';
 
-// coverPath mirrors Userspace/BooksList: covers live under the
-// books-posters/<sanitized-path>/<sanitized-filename>.jpg URL pattern.
-const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, '');
-
 const coverURL = (book: CollectionCoverBook) =>
-    book.cover && book.path && book.filename
-        ? `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`
-        : null;
+    book.cover && book.path && book.filename ? thumbURL(book) : null;
 
 // hashHue maps a collection name to a stable HSL hue so the empty-state
 // fallback gradient is at least consistent between reloads.
@@ -37,6 +31,26 @@ const gradient = (hue: number, offset: number, saturation: number, from: number,
 
 /** Tall enough for four cover tiles to read as covers rather than as swatches. */
 const MOSAIC_HEIGHT = 220;
+
+/** An empty mosaic tile, in colours of its own for the collection and place. */
+const EmptyTile: React.FC<{ seed: string }> = ({ seed }) => (
+    <div style={{ background: gradient(hashHue(seed), 60, 30, 55, 35) }} />
+);
+
+/** A tile with a cover. One that fails to load becomes an empty tile. */
+const CoverTile: React.FC<{ url: string; seed: string }> = ({ url, seed }) => {
+    const [failed, setFailed] = useState(false);
+    if (failed) return <EmptyTile seed={seed} />;
+    return (
+        <img
+            src={url}
+            alt=""
+            loading="lazy"
+            onError={() => setFailed(true)}
+            className="size-full bg-muted object-cover"
+        />
+    );
+};
 
 const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = ({
     name,
@@ -76,18 +90,9 @@ const CoverMosaic: React.FC<{ name: string; books?: CollectionCoverBook[] }> = (
         >
             {tiles.map((tile, i) =>
                 tile.url ? (
-                    <img
-                        key={i}
-                        src={tile.url}
-                        alt=""
-                        loading="lazy"
-                        className="size-full bg-muted object-cover"
-                    />
+                    <CoverTile key={`${i}:${tile.url}`} url={tile.url} seed={name + i} />
                 ) : (
-                    <div
-                        key={i}
-                        style={{ background: gradient(hashHue(name + i), 60, 30, 55, 35) }}
-                    />
+                    <EmptyTile key={i} seed={name + i} />
                 ),
             )}
         </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
@@ -68,6 +68,36 @@ const adminFieldsMustNotAppear = [
 ];
 
 describe('CollectionsList (public)', () => {
+    it('asks for thumbnails and draws a tile for one that fails', async () => {
+        listPublicCollections.mockResolvedValueOnce({
+            ...samplePage,
+            rows: [
+                {
+                    id: 1,
+                    name: 'Antiutopias',
+                    cover_books: [
+                        { id: 7, path: 'fb2.zip', filename: 'a.fb2', cover: true, title: 'A' },
+                        { id: 8, path: 'fb2.zip', filename: 'b.fb2', cover: true, title: 'B' },
+                    ],
+                },
+            ],
+        });
+        const { container } = renderList();
+
+        await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
+        const [first, second] = Array.from(container.querySelectorAll('img'));
+        expect(first).toHaveAttribute('src', 'http://test/books-thumbs/fb2-zip/a-fb2.jpg');
+        expect(second).toHaveAttribute('src', 'http://test/books-thumbs/fb2-zip/b-fb2.jpg');
+
+        fireEvent.error(first);
+
+        expect(container.querySelectorAll('img')).toHaveLength(1);
+        expect(container.querySelector('img')).toHaveAttribute(
+            'src',
+            'http://test/books-thumbs/fb2-zip/b-fb2.jpg',
+        );
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
         listPublicCollections.mockResolvedValue(samplePage);

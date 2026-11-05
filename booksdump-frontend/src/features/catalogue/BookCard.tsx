@@ -13,11 +13,11 @@ import AuthorByline from '@/features/catalogue/AuthorByline';
 import GenreChips from '@/features/catalogue/GenreChips';
 import BookActions from '@/features/catalogue/BookActions';
 import { isClippedBlock, isClippedLine, useMeasured } from '@/features/catalogue/hooks/useMeasured';
+import { thumbURL } from '@/shared/lib/coverUrl';
 import { cn } from '@/shared/lib/utils';
 import { formatCalendarDay } from '@/shared/lib/formatDate';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
 
-import { API_URL } from '@/api/config';
 import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 
@@ -95,9 +95,6 @@ export interface BookCardProps {
     /** Asks to send the book, or opens the Telegram tab when it cannot be sent. */
     onSendToTelegram?: (book: Book) => void;
 }
-
-/** coverPath mirrors the sanitising the poster route expects. */
-const coverPath = (value: string) => value.replaceAll('.', '-').replace(/^\/+/, '');
 
 /**
  * The type the card's metadata lines are set in: the series line and the
@@ -402,7 +399,7 @@ const BookCard: React.FC<BookCardProps> = ({
     // rail that is no longer beside the text.
     const railClearance = isWide ? Math.max(0, railHeight - titleHeight - CARD_ROW_GAP) : 0;
 
-    const cover = `${API_URL}/books-posters/${coverPath(book.path)}/${coverPath(book.filename)}.jpg`;
+    const cover = thumbURL(book);
 
     return (
         <article
