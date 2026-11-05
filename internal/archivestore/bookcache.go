@@ -24,6 +24,9 @@ const maxCachedShare = 4
 
 const tempSuffix = ".tmp"
 
+// hexPerByte is how many hex digits spell one byte.
+const hexPerByte = 2
+
 // bookCacheKey names one entry of one version of one archive. A replaced
 // archive therefore misses, and its old books age out on their own.
 func bookCacheKey(key, etag, name string) string {
@@ -38,14 +41,21 @@ func bookCacheKey(key, etag, name string) string {
 // which is where it verifies the checksum: a broken download is never served
 // back. The cache is rebuilt from the directory at start, so it survives a
 // restart.
+//
+// The limit covers books still being written as well as finished ones: a book
+// reserves its declared size before its first byte reaches the disk, and a
+// reservation that does not fit means that read goes uncached. Only one reader
+// of a book writes it.
 type bookCache struct {
 	dir   string
 	limit int64
 
-	mu    sync.Mutex
-	total int64
-	order *list.List
-	items map[string]*list.Element
+	mu       sync.Mutex
+	total    int64
+	reserved int64
+	writing  map[string]bool
+	order    *list.List
+	items    map[string]*list.Element
 }
 
 type cachedBook struct {
@@ -57,7 +67,7 @@ func newBookCache(dir string, limit int64) (*bookCache, error) {
 	if err := os.MkdirAll(dir, safeio.DirMode); err != nil {
 		return nil, err
 	}
-	c := &bookCache{dir: dir, limit: limit, order: list.New(), items: map[string]*list.Element{}}
+	c := &bookCache{dir: dir, limit: limit, writing: map[string]bool{}, order: list.New(), items: map[string]*list.Element{}}
 	if err := c.load(); err != nil {
 		return nil, err
 	}
@@ -83,6 +93,9 @@ func (c *bookCache) load() error {
 			removeFile(name)
 			return nil
 		}
+		if !entry.Type().IsRegular() || !c.isBook(name) {
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return nil
@@ -100,6 +113,20 @@ func (c *bookCache) load() error {
 	return nil
 }
 
+// isBook reports a file this cache could have written: a key, under the
+// directory that key belongs in. Anything else is someone else's and is left
+// where it is.
+func (c *bookCache) isBook(name string) bool {
+	key := filepath.Base(name)
+	if len(key) != sha256.Size*hexPerByte || strings.ToLower(key) != key {
+		return false
+	}
+	if _, err := hex.DecodeString(key); err != nil {
+		return false
+	}
+	return name == c.path(key)
+}
+
 func (c *bookCache) path(key string) string {
 	return filepath.Join(c.dir, key[:2], key)
 }
@@ -108,15 +135,56 @@ func (c *bookCache) path(key string) string {
 func (c *bookCache) add(key string, size int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.addLocked(key, size)
+}
+
+func (c *bookCache) addLocked(key string, size int64) {
 	if element, ok := c.items[key]; ok {
 		c.total -= element.Value.(*cachedBook).size
 		c.order.Remove(element)
 	}
 	c.items[key] = c.order.PushFront(&cachedBook{key: key, size: size})
 	c.total += size
-	for c.total > c.limit {
+	for c.total+c.reserved > c.limit && c.order.Len() > 0 {
 		c.evictOldest()
 	}
+}
+
+// reserve claims room for a book about to be written, evicting finished books
+// to make it. False means this read keeps nothing: another reader is writing
+// the same book, or the books in progress leave no room.
+func (c *bookCache) reserve(key string, size int64) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.writing[key] || c.reserved+size > c.limit {
+		return false
+	}
+	for c.total+c.reserved+size > c.limit && c.order.Len() > 0 {
+		c.evictOldest()
+	}
+	c.reserved += size
+	c.writing[key] = true
+	return true
+}
+
+// release gives a reservation back.
+func (c *bookCache) release(key string, size int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.releaseLocked(key, size)
+}
+
+func (c *bookCache) releaseLocked(key string, size int64) {
+	c.reserved -= size
+	delete(c.writing, key)
+}
+
+// commit turns a reservation into a stored book of its real size.
+func (c *bookCache) commit(key string, reservation, size int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.releaseLocked(key, reservation)
+	c.addLocked(key, size)
 }
 
 func (c *bookCache) evictOldest() {
@@ -169,48 +237,53 @@ func (c *bookCache) open(key string) io.ReadCloser {
 }
 
 // tee returns rc with the book being written to the cache as it is read. A
-// book too large to keep, or a cache that cannot be written, leaves the read
-// alone: the cache must never be why a book fails.
+// book too large to keep, one that does not fit its reservation, or a cache
+// that cannot be written leaves the read alone: the cache must never be why a
+// book fails.
 func (c *bookCache) tee(key string, size uint64, rc io.ReadCloser) io.ReadCloser {
 	// #nosec G115 -- the limit comes from the configuration and is positive:
 	// New builds no cache for a limit of zero, and validation refuses less.
 	if c == nil || size == 0 || size > uint64(c.limit/maxCachedShare) {
 		return rc
 	}
+	// #nosec G115 -- checked against the limit just above.
+	reservation := int64(size)
+	if !c.reserve(key, reservation) {
+		return rc
+	}
 	final := c.path(key)
 	if err := os.MkdirAll(filepath.Dir(final), safeio.DirMode); err != nil {
+		c.release(key, reservation)
 		logging.Warnf("archivestore: book cache: %v", err)
 		return rc
 	}
 	temp, err := os.CreateTemp(filepath.Dir(final), key[:8]+"-*"+tempSuffix)
 	if err != nil {
+		c.release(key, reservation)
 		logging.Warnf("archivestore: book cache: %v", err)
 		return rc
 	}
-	return &teeReader{cache: c, key: key, final: final, source: rc, temp: temp}
+	return &teeReader{cache: c, key: key, final: final, source: rc, temp: temp, reservation: reservation}
 }
 
 // teeReader copies a stream into a temporary file, and stores the file if the
-// stream reaches its verified end.
+// stream reaches its verified end. It holds a reservation until it stores the
+// file or gives up on it.
 type teeReader struct {
-	cache   *bookCache
-	key     string
-	final   string
-	source  io.ReadCloser
-	temp    *os.File
-	written int64
+	cache       *bookCache
+	key         string
+	final       string
+	source      io.ReadCloser
+	temp        *os.File
+	reservation int64
+	written     int64
 }
 
 // Read reads the book and keeps a copy.
 func (t *teeReader) Read(p []byte) (int, error) {
 	n, err := t.source.Read(p)
 	if n > 0 && t.temp != nil {
-		if _, werr := t.temp.Write(p[:n]); werr != nil {
-			logging.Warnf("archivestore: book cache: %v", werr)
-			t.abandon()
-		} else {
-			t.written += int64(n)
-		}
+		t.keep(p[:n])
 	}
 	if errors.Is(err, io.EOF) && t.temp != nil {
 		t.store()
@@ -218,19 +291,37 @@ func (t *teeReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// keep writes to the temporary file, giving up on a book that runs past its
+// declared size: the reservation is the budget, and the size was only the
+// archive's word.
+func (t *teeReader) keep(p []byte) {
+	if t.written+int64(len(p)) > t.reservation {
+		t.abandon()
+		return
+	}
+	if _, err := t.temp.Write(p); err != nil {
+		logging.Warnf("archivestore: book cache: %v", err)
+		t.abandon()
+		return
+	}
+	t.written += int64(len(p))
+}
+
 func (t *teeReader) store() {
 	temp := t.temp
 	t.temp = nil
 	if err := temp.Close(); err != nil {
 		removeFile(temp.Name())
+		t.cache.release(t.key, t.reservation)
 		return
 	}
 	if err := os.Rename(temp.Name(), t.final); err != nil {
 		logging.Warnf("archivestore: book cache: %v", err)
 		removeFile(temp.Name())
+		t.cache.release(t.key, t.reservation)
 		return
 	}
-	t.cache.add(t.key, t.written)
+	t.cache.commit(t.key, t.reservation, t.written)
 }
 
 func (t *teeReader) abandon() {
@@ -240,6 +331,7 @@ func (t *teeReader) abandon() {
 	_ = t.temp.Close()
 	removeFile(t.temp.Name())
 	t.temp = nil
+	t.cache.release(t.key, t.reservation)
 }
 
 // Close ends the read. A book not read to its end is not kept.
