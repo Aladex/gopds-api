@@ -192,6 +192,9 @@ func (c *Client) Timeout() time.Duration { return c.timeout }
 // Retries is how many times a failed call is tried again.
 func (c *Client) Retries() int { return c.retries }
 
+// MaxActive is how many calls may be in progress at once.
+func (c *Client) MaxActive() int { return cap(c.active) }
+
 // Head describes one object.
 func (c *Client) Head(ctx context.Context, key string) (Info, error) {
 	resp, finish, err := c.do(ctx, http.MethodHead, key, nil, "")

@@ -68,7 +68,8 @@ type StorageConfig struct {
 	// BookReadTimeout bounds reading one book from object storage, from the
 	// first request to the last byte. A conversion comes on top of it.
 	BookReadTimeout time.Duration `mapstructure:"book_read_timeout" yaml:"book_read_timeout"`
-	// MaxActiveRequests bounds the requests to the store in progress at once.
+	// MaxActiveRequests bounds the requests to the store in progress at once,
+	// and the thumbnails being fetched from it.
 	MaxActiveRequests int `mapstructure:"max_active_requests" yaml:"max_active_requests"`
 	// CacheDir holds extracted books and the workers' temporary copies.
 	CacheDir string `mapstructure:"cache_dir" yaml:"cache_dir"`

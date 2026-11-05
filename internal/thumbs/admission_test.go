@@ -11,9 +11,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-
-	"gopds-api/internal/coverstore"
-	"gopds-api/internal/objectstore/s3test"
 )
 
 // waitingCovers is well past any machine's slots, so that some must wait.
@@ -111,33 +108,6 @@ func TestWaitingGenerationsHaveNotReadTheirCovers(t *testing.T) {
 	}
 }
 
-// A thumbnail in the bucket is bytes in memory like a cover is, and stalls like
-// any other read of the bucket.
-func TestBucketThumbnailFetchesAreBounded(t *testing.T) {
-	server := s3test.New(t)
-	// Longer than the test: a read that timed out would make room for the next
-	// one, and the server would see both for a moment.
-	covers := coverstore.New(server.WriterClient(time.Minute, "thumbs/"), "covers/").WithThumbs("thumbs/")
-	service := New(t.TempDir(), t.TempDir(), func() *coverstore.Store { return covers })
-	server.SetHang(true)
-	defer server.SetHang(false)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	results := generateAll(ctx, service, service.dir)
-	waitFor(t, "every generation accounted for", func() bool {
-		return server.Active()+asleep() == waitingCovers
-	})
-	peak := server.Peak()
-	cancel()
-	for range waitingCovers {
-		<-results
-	}
-	if limit := cap(service.remote); peak != limit {
-		t.Fatalf("%d reads at once, limit %d", peak, limit)
-	}
-}
-
 // A cover from the store is bytes in memory until it is written out, so it
 // stays counted while it waits for the processor.
 func TestCoverFromTheStoreKeepsItsPlaceWhileItWaitsToDecode(t *testing.T) {
@@ -158,24 +128,31 @@ func TestCoverFromTheStoreKeepsItsPlaceWhileItWaitsToDecode(t *testing.T) {
 	}
 }
 
-// With every bucket read taken, a cover on disk is the quicker way: nothing it
-// does may depend on those reads ever finishing.
+// With no bucket read free, a cover on disk is the quicker way: nothing it does
+// may depend on those reads ever finishing.
 func TestCoverOnDiskSkipsABusyBucket(t *testing.T) {
-	service, server, source, dir := bucketService(t)
-	writeCover(t, source, encodeJPEG(t, 480, 640))
-	server.Put(thumbKey, encodeJPEG(t, 240, 100))
-	defer occupy(service.remote)()
+	for name, busy := range map[string]func(*Service) chan struct{}{
+		"thumbnail fetches": func(s *Service) chan struct{} { return s.thumbReads },
+		"cover reads":       func(s *Service) chan struct{} { return s.remote },
+	} {
+		t.Run(name, func(t *testing.T) {
+			service, server, source, dir := bucketService(t)
+			writeCover(t, source, encodeJPEG(t, 480, 640))
+			server.Put(thumbKey, encodeJPEG(t, 240, 100))
+			defer occupy(busy(service))()
 
-	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
-	defer cancel()
-	if _, err := service.Path(ctx, rel); err != nil {
-		t.Fatal(err)
-	}
-	if n := server.Requests(); n != 0 {
-		t.Fatalf("%d requests with every bucket read taken", n)
-	}
-	if got := decodeSize(t, filepath.Join(dir, rel)); got != image.Pt(Width, 320) {
-		t.Fatalf("size = %v", got)
+			ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
+			defer cancel()
+			if _, err := service.Path(ctx, rel); err != nil {
+				t.Fatal(err)
+			}
+			if n := server.Requests(); n != 0 {
+				t.Fatalf("%d requests with the bucket busy", n)
+			}
+			if got := decodeSize(t, filepath.Join(dir, rel)); got != image.Pt(Width, 320) {
+				t.Fatalf("size = %v", got)
+			}
+		})
 	}
 }
 
@@ -190,7 +167,7 @@ func TestWaitingForTheProcessorHoldsNoBucketRead(t *testing.T) {
 
 	results := generateAll(context.Background(), service, dir)
 	waitFor(t, "generations waiting", func() bool { return asleep() == waitingCovers })
-	held := len(service.remote)
+	held := len(service.thumbReads) + len(service.remote)
 	free()
 
 	wantGenerated(t, results)

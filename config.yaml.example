@@ -72,7 +72,9 @@ redis:
 #   # One whole book, first request to last byte. A store too slow for this is
 #   # a 503. Keep it below server.write_timeout too.
 #   book_read_timeout: 9s
-#   max_active_requests: 16          # requests to the store at once
+#   # Requests to the store at once, and thumbnails fetched from it at once,
+#   # at up to 1 MiB each. See "object storage" in the README for the cost.
+#   max_active_requests: 16
 #   cache_dir: ./cache/storage       # extracted books, workers' temporary copies
 #   book_cache_gb: 30                # extracted books on disk, LRU; 0 disables
 #   directory_cache_mb: 64           # archive directories in memory

@@ -18,9 +18,15 @@
 // Memory for covers follows the slots, not the queue: a generation holds no
 // bytes until it has a slot, and keeps the slot until its thumbnail is written.
 // Reads of the bucket have slots of their own, so a store that stalls holds up
-// those and not the covers on disk, which do not wait for them at all: with
-// every bucket read taken, a thumbnail is made from its cover on disk even if
-// the bucket has one.
+// those and not the covers on disk, which do not wait for them at all: a cover
+// on disk that cannot look in the bucket right now gets its thumbnail made, even
+// if the bucket has one. No read of the bucket runs in a processor slot.
+//
+// A thumbnail fetched from the bucket is decoded by nobody and small, so those
+// run as far as the store allows, each bounded by coverstore.MaxThumbnail. With
+// covers kept only in the bucket that is the main path, and how fast a cold page
+// loads is up to storage.max_active_requests. A cover that has to be decoded
+// keeps the small bound.
 package thumbs
 
 import (
@@ -103,13 +109,15 @@ type Service struct {
 	insideSource string
 	covers       func() *coverstore.Store
 	// slots bounds the work of the processor, and with it the covers read from
-	// disk: one is taken before the read. remote bounds what is read from
-	// object storage, thumbnails and covers alike, and is held for as long as
-	// those bytes are in memory. It can be held for as long as the store
-	// stalls, which is why covers on disk do not queue for it.
-	slots  chan struct{}
-	remote chan struct{}
-	group  singleflight.Group
+	// disk: one is taken before the read. remote bounds the covers read from
+	// object storage, and is held for as long as those bytes are in memory.
+	// thumbReads bounds the thumbnails fetched from object storage, until they
+	// are saved. These two can be held for as long as the store stalls, which
+	// is why covers on disk never queue for either.
+	slots      chan struct{}
+	remote     chan struct{}
+	thumbReads chan struct{}
+	group      singleflight.Group
 
 	uploads     chan string
 	startUpload sync.Once
@@ -125,6 +133,7 @@ func New(sourceDir, dir string, covers func() *coverstore.Store) *Service {
 		covers:       covers,
 		slots:        make(chan struct{}, generationSlots()),
 		remote:       make(chan struct{}, generationSlots()),
+		thumbReads:   make(chan struct{}, max(1, covers().MaxActive())),
 		uploads:      make(chan string, uploadQueue),
 	}
 	s.clearTemporaries()
@@ -261,18 +270,22 @@ func (s *Service) makeFromDisk(
 	return false, s.finish(store, rel, target, data, modified)
 }
 
-// generateFromStore gets a thumbnail of a cover that is not on disk. It takes
-// the processor's slot only for the last step: a stalled read must not hold one
-// of those, and bytes waiting for one are still counted in remote.
+// generateFromStore gets a thumbnail of a cover that is not on disk: the one in
+// the bucket if it is good, else one made from the cover. Making one takes the
+// processor's slot only for the last step: a stalled read must not hold one of
+// those, and bytes waiting for one are still counted in remote.
 func (s *Service) generateFromStore(ctx context.Context, store *coverstore.Store, rel, target string) error {
+	if store.ThumbsInBucket() {
+		saved, err := s.fetchThumbnail(ctx, store, rel, target)
+		if saved || err != nil {
+			return err
+		}
+	}
 	leaveRemote, err := enter(ctx, s.remote)
 	if err != nil {
 		return err
 	}
 	defer leaveRemote()
-	if store.ThumbsInBucket() && s.fromBucket(ctx, store, rel, target, time.Time{}, false) {
-		return nil
-	}
 	data, modified, err := s.readSource(ctx, rel)
 	if err != nil {
 		return err
@@ -285,6 +298,20 @@ func (s *Service) generateFromStore(ctx context.Context, store *coverstore.Store
 	return s.finish(store, rel, target, data, modified)
 }
 
+// fetchThumbnail waits for a fetch of its own and saves the bucket's thumbnail
+// of a cover that is not on disk. The fetch ends here, found or not: a generation
+// going on to the cover does not keep it while it waits for the next bound.
+func (s *Service) fetchThumbnail(
+	ctx context.Context, store *coverstore.Store, rel, target string,
+) (saved bool, err error) {
+	leave, err := enter(ctx, s.thumbReads)
+	if err != nil {
+		return false, err
+	}
+	defer leave()
+	return s.fromBucket(ctx, store, rel, target, time.Time{}, false), nil
+}
+
 // enter takes a slot, waiting for one for as long as ctx allows. The function
 // it returns gives the slot back.
 func enter(ctx context.Context, slots chan struct{}) (leave func(), err error) {
@@ -293,6 +320,16 @@ func enter(ctx context.Context, slots chan struct{}) (leave func(), err error) {
 		return func() { <-slots }, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
+	}
+}
+
+// enterIfFree takes a slot only if there is one right now.
+func enterIfFree(slots chan struct{}) (leave func(), free bool) {
+	select {
+	case slots <- struct{}{}:
+		return func() { <-slots }, true
+	default:
+		return nil, false
 	}
 }
 
@@ -312,17 +349,23 @@ func (s *Service) finish(store *coverstore.Store, rel, target string, data []byt
 }
 
 // fromBucketIfFree is fromBucket for a cover on disk, which has something
-// better to do than wait for a read of the bucket.
+// better to do than wait for a read of the bucket. It needs a fetch free, and a
+// slot of remote as well: that small bound is how many covers on disk a stall
+// can keep waiting for one timeout, and the store's capacity is far too many.
 func (s *Service) fromBucketIfFree(
 	ctx context.Context, store *coverstore.Store, rel, target string, original time.Time,
 ) bool {
-	select {
-	case s.remote <- struct{}{}:
-		defer func() { <-s.remote }()
-		return s.fromBucket(ctx, store, rel, target, original, true)
-	default:
+	leaveRemote, free := enterIfFree(s.remote)
+	if !free {
 		return false
 	}
+	defer leaveRemote()
+	leave, free := enterIfFree(s.thumbReads)
+	if !free {
+		return false
+	}
+	defer leave()
+	return s.fromBucket(ctx, store, rel, target, original, true)
 }
 
 // fromBucket saves the bucket's thumbnail to disk if it has a good one. False

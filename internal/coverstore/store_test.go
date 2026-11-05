@@ -80,6 +80,38 @@ func TestRemoteCover(t *testing.T) {
 	}
 }
 
+// One object can hold no more than its limit in memory, whatever it claims to
+// be: the read stops there, it does not fetch the rest to find that out.
+func TestThumbnailStopsAtItsLimit(t *testing.T) {
+	server, _, _ := fixture(t)
+	store := New(server.Client(testTimeout, -1), "covers/").WithThumbs("thumbs/")
+	const key = "thumbs/" + testRel
+
+	server.Put(key, make([]byte, MaxThumbnail))
+	cover, err := store.OpenThumb(context.Background(), testRel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cover.Close()
+
+	// A cut one byte past the limit is a failed read to anything that goes on.
+	server.Put(key, make([]byte, MaxThumbnail+2))
+	server.DropAfter(MaxThumbnail + 1)
+	_, err = store.OpenThumb(context.Background(), testRel)
+	if err == nil || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want the limit", err)
+	}
+	server.DropAfter(0)
+
+	// Covers keep a limit of their own.
+	server.Put(testKey, make([]byte, MaxThumbnail+1))
+	cover, err = store.Open(context.Background(), t.TempDir(), testRel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cover.Close()
+}
+
 func TestMissIsAskedOnce(t *testing.T) {
 	server, store, base := fixture(t)
 	for range 5 {

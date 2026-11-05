@@ -150,9 +150,24 @@ deletes nothing, and the one thing it writes to the bucket is thumbnails, under
 `storage.thumbs_prefix` (`thumbs/` unless you change it). Thumbnails are made on
 demand: GoPDS looks on local disk, then in the bucket, then makes one from the
 cover, answers at once and uploads it in the background. A thumbnail in the
-bucket older than its cover is ignored and replaced. With every read of the
-bucket taken, a thumbnail of a cover on disk is made at once rather than
-fetched, even if the bucket has one.
+bucket older than its cover is ignored and replaced. A cover on disk never waits
+for the bucket: at most half the CPU cores' worth, 4 at most, look there at once,
+and the rest have their thumbnail made straight away, even if the bucket has one.
+
+Once covers live only in the bucket, a cold page depends on these limits:
+
+| What | At once | Each holds in memory | Cost |
+| --- | --- | --- | --- |
+| Thumbnails fetched from the bucket | `storage.max_active_requests`, 16 by default | up to 1 MiB, about twice that for a moment while it is copied | One GET and one HEAD per thumbnail. A cold page can take every request the store allows, and a book read waits for one, for up to `storage.request_timeout` before it fails with 503 |
+| Covers read from the bucket to be decoded | half the CPU cores, at most 4 | up to 32 MiB, plus up to 160 MB once decoded | Thumbnails that are not in the bucket yet come slowly, whatever `max_active_requests` says |
+| Covers on disk being decoded | half the CPU cores, at most 4 | up to 64 MiB, plus up to 160 MB once decoded | Waits for nothing in the bucket |
+
+So raising `max_active_requests` loads a cold page faster at about 2 MiB of
+memory per step, and lets it take more from book reads. Thumbnails take about
+32 MiB at the default, however many are waiting. A thumbnail over 1 MiB counts as no thumbnail: it is
+made again from its cover and replaced. A thumbnail of a very tall, noisy cover
+can come out larger than that every time, which costs a new thumbnail after each
+clearing of the local cache and nothing else.
 
 That rule compares dates, not contents, to the second, so it has limits. A cover
 replaced in the same second as its thumbnail was made is not noticed, and neither

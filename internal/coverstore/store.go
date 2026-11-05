@@ -23,6 +23,11 @@ import (
 	"gopds-api/internal/safepath"
 )
 
+// MaxThumbnail bounds what one thumbnail in the bucket may take in memory, which
+// is what lets many be fetched at once. Ours come to about 18 KB. Anything past
+// this is treated as no thumbnail at all, so it is remade and replaced.
+const MaxThumbnail = 1 << 20
+
 const (
 	// maxRemoteCover bounds what one remote cover may take in memory. The
 	// largest on disk are a few megabytes.
@@ -112,7 +117,7 @@ func (s *Store) OpenThumb(ctx context.Context, rel string) (*Cover, error) {
 	if !s.ThumbsInBucket() {
 		return nil, ErrNotFound
 	}
-	return s.fetch(ctx, s.keyUnder(s.thumbPrefix, rel))
+	return s.fetch(ctx, s.keyUnder(s.thumbPrefix, rel), MaxThumbnail)
 }
 
 // PutThumb stores the thumbnail of the cover at rel in the bucket.
@@ -126,6 +131,15 @@ func (s *Store) PutThumb(ctx context.Context, rel string, data []byte) error {
 	}
 	s.misses.remove(key)
 	return nil
+}
+
+// MaxActive is how many requests the store may have in progress at once, zero
+// when there is no object storage.
+func (s *Store) MaxActive() int {
+	if s.client == nil {
+		return 0
+	}
+	return s.client.MaxActive()
 }
 
 // RemoteModTime is the date of the cover at rel in the bucket.
@@ -183,11 +197,11 @@ func OpenOnDisk(base, rel string) (*Cover, error) {
 }
 
 func (s *Store) openRemote(ctx context.Context, rel string) (*Cover, error) {
-	return s.fetch(ctx, s.key(rel))
+	return s.fetch(ctx, s.key(rel), maxRemoteCover)
 }
 
-// fetch reads one object into memory, remembering a miss.
-func (s *Store) fetch(ctx context.Context, key string) (*Cover, error) {
+// fetch reads one object of at most limit bytes into memory, remembering a miss.
+func (s *Store) fetch(ctx context.Context, key string, limit int64) (*Cover, error) {
 	if s.misses.has(key) {
 		return nil, ErrNotFound
 	}
@@ -196,12 +210,12 @@ func (s *Store) fetch(ctx context.Context, key string) (*Cover, error) {
 		return nil, s.remember(key, err)
 	}
 	defer func() { _ = body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(body, maxRemoteCover+1))
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > maxRemoteCover {
-		return nil, fmt.Errorf("%s is over %d bytes", key, maxRemoteCover)
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%s is over %d bytes", key, limit)
 	}
 	return &Cover{ReadSeeker: bytes.NewReader(data), Size: int64(len(data)), ModTime: body.LastModified}, nil
 }
