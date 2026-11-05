@@ -231,16 +231,34 @@ func (s *Service) generateFromDisk(
 	if store.ThumbsInBucket() && s.fromBucketIfFree(ctx, store, rel, target, original) {
 		return nil
 	}
+	gone, err := s.makeFromDisk(ctx, store, rel, target)
+	if gone {
+		return s.generateFromStore(ctx, store, rel, target)
+	}
+	return err
+}
+
+// makeFromDisk makes a thumbnail from the file on disk, holding the processor's
+// slot from the read to the write. gone reports a file that went away while the
+// generation waited for that slot: what is left is a read of the bucket, which
+// must not run in a processor slot, so this leaves that to the caller.
+func (s *Service) makeFromDisk(
+	ctx context.Context, store *coverstore.Store, rel, target string,
+) (gone bool, err error) {
 	leave, err := enter(ctx, s.slots)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer leave()
-	data, modified, err := s.readSource(ctx, rel)
-	if err != nil {
-		return err
+	cover, err := coverstore.OpenOnDisk(s.sourceDir, rel)
+	if errors.Is(err, coverstore.ErrNotFound) {
+		return true, nil
 	}
-	return s.finish(store, rel, target, data, modified)
+	data, modified, err := readCover(cover, err)
+	if err != nil {
+		return false, err
+	}
+	return false, s.finish(store, rel, target, data, modified)
 }
 
 // generateFromStore gets a thumbnail of a cover that is not on disk. It takes
@@ -389,6 +407,11 @@ func (s *Service) upload(rel string) {
 
 func (s *Service) readSource(ctx context.Context, rel string) ([]byte, time.Time, error) {
 	cover, err := s.covers().Open(ctx, s.sourceDir, rel)
+	return readCover(cover, err)
+}
+
+// readCover reads what opening a cover gave.
+func readCover(cover *coverstore.Cover, err error) ([]byte, time.Time, error) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return nil, time.Time{}, ErrNoSource

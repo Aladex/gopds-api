@@ -147,6 +147,17 @@ func (s *Store) RemoteModTime(ctx context.Context, rel string) (time.Time, error
 // Open opens the cover at rel under base. Without object storage a cover that
 // is not on disk is simply ErrNotFound.
 func (s *Store) Open(ctx context.Context, base, rel string) (*Cover, error) {
+	cover, err := OpenOnDisk(base, rel)
+	if !errors.Is(err, ErrNotFound) || s.client == nil {
+		return cover, err
+	}
+	return s.openRemote(ctx, rel)
+}
+
+// OpenOnDisk opens the cover at rel under base without ever asking object
+// storage: ErrNotFound means it is not on disk. Opening is what decides that;
+// a check made earlier can be out of date by the time it is acted on.
+func OpenOnDisk(base, rel string) (*Cover, error) {
 	full, err := safepath.Resolve(base, rel)
 	if err != nil {
 		return nil, err
@@ -162,16 +173,13 @@ func (s *Store) Open(ctx context.Context, base, rel string) (*Cover, error) {
 		}
 		return &Cover{ReadSeeker: file, Size: info.Size(), ModTime: info.ModTime(), Local: true, closer: file}, nil
 	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		if _, statErr := os.Stat(full); statErr == nil {
-			return nil, fmt.Errorf("%w: %w", ErrUnreadable, err)
-		}
-		return nil, err
-	}
-	if s.client == nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotFound
 	}
-	return s.openRemote(ctx, rel)
+	if _, statErr := os.Stat(full); statErr == nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnreadable, err)
+	}
+	return nil, err
 }
 
 func (s *Store) openRemote(ctx context.Context, rel string) (*Cover, error) {
