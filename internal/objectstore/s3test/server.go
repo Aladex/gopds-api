@@ -412,16 +412,19 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key string, obj *
 	body := obj.data[off : end+1]
 	header.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
+	// A read is recorded before its body goes out: a client holding the body
+	// must find it counted, and a Reset after that must not lose it to a late
+	// count from this handler.
 	if dropAfter > 0 && int64(len(body)) > dropAfter {
+		s.record(Read{Method: r.Method, Key: key, Off: off, Bytes: dropAfter})
 		_, _ = w.Write(body[:dropAfter])
 		// Flushed, or a small cut never leaves the buffer and reads as a refused
 		// connection instead of a body that broke.
 		w.(http.Flusher).Flush()
-		s.record(Read{Method: r.Method, Key: key, Off: off, Bytes: dropAfter})
 		panic(http.ErrAbortHandler)
 	}
-	n, _ := w.Write(body)
-	s.record(Read{Method: r.Method, Key: key, Off: off, Bytes: int64(n)})
+	s.record(Read{Method: r.Method, Key: key, Off: off, Bytes: int64(len(body))})
+	_, _ = w.Write(body)
 }
 
 func parseRange(spec string, size int64) (off, end int64, ok bool) {
