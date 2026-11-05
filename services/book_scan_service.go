@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,23 +136,11 @@ const archiveListTimeout = 30 * time.Second
 
 // GetUnscannedArchives returns list of unscanned archive file paths
 func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
-	// 1. Get list of all ZIP files in archives directory
-	var archiveFiles []string
-	err := filepath.Walk(s.archivesDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".zip") {
-			archiveFiles = append(archiveFiles, path)
-		}
-		return nil
-	})
+	// 1. Get list of all ZIP files: on disk and in object storage
+	archiveFiles, err := s.listArchives()
 	if err != nil {
-		logging.Errorf("Failed to walk archives directory: %v", err)
 		return nil, err
 	}
-
-	archiveFiles = append(archiveFiles, s.remoteOnlyArchives(archiveFiles)...)
 
 	logging.Infof("Found %d ZIP archives in %s", len(archiveFiles), s.archivesDir)
 
@@ -185,6 +174,43 @@ func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
 
 	logging.Infof("Found %d unscanned archives", len(unscannedArchives))
 	return unscannedArchives, nil
+}
+
+// listArchives is every archive there is, on disk and in object storage.
+func (s *BookScanService) listArchives() ([]string, error) {
+	local, err := s.localArchives()
+	if err != nil {
+		logging.Errorf("Failed to walk archives directory: %v", err)
+		return nil, err
+	}
+	return append(local, s.remoteOnlyArchives(local)...), nil
+}
+
+// localArchives walks the archives directory. With object storage configured
+// the directory may well be gone, every archive having moved to the bucket:
+// that is an empty disk, not a failure. Without it, a missing directory is the
+// misconfiguration it always was.
+func (s *BookScanService) localArchives() ([]string, error) {
+	if archivestore.Default().Remote() {
+		if _, err := os.Stat(s.archivesDir); errors.Is(err, fs.ErrNotExist) {
+			logging.Warnf("Archives directory %s does not exist, listing object storage only", s.archivesDir)
+			return nil, nil
+		}
+	}
+	var archives []string
+	err := filepath.Walk(s.archivesDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".zip") {
+			archives = append(archives, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return archives, nil
 }
 
 // remoteOnlyArchives names the archives object storage has and the disk does

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -145,6 +146,34 @@ func TestRemoteListingFailureLeavesTheLocalScanAlone(t *testing.T) {
 	server.SetDown(true)
 	scanner := &BookScanService{archivesDir: root}
 	assert.Empty(t, scanner.remoteOnlyArchives(nil))
+}
+
+func TestAbsentLocalRootStillListsTheBucket(t *testing.T) {
+	server, root := remoteLibrary(t, 1)
+	missing := filepath.Join(root, "moved-away")
+	scanner := &BookScanService{archivesDir: missing}
+	server.Reset()
+
+	listed, err := scanner.listArchives()
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{filepath.Join(missing, remoteArchiveName)}, listed)
+	assert.Equal(t, 1, server.Requests(), "the bucket was asked once")
+}
+
+func TestAbsentLocalRootWithoutStorageIsStillAnError(t *testing.T) {
+	scanner := &BookScanService{archivesDir: filepath.Join(t.TempDir(), "absent")}
+	_, err := scanner.listArchives()
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+func TestUnreadableRootIsNotTakenForAnEmptyDisk(t *testing.T) {
+	_, root := remoteLibrary(t, 1)
+	file := filepath.Join(root, "not-a-directory")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	scanner := &BookScanService{archivesDir: filepath.Join(file, "archives")}
+	_, err := scanner.listArchives()
+	assert.Error(t, err)
 }
 
 func TestLocalInstallationListsNothingRemote(t *testing.T) {
