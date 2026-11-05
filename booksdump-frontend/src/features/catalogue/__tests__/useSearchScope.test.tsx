@@ -5,6 +5,7 @@ import { MemoryRouter, useNavigate } from 'react-router';
 
 import useSearchScope, {
     routeScopeFrom,
+    authorNameFromLocation,
     searchTitleFromLocation,
     unsearchedPathFrom,
 } from '@/features/catalogue/hooks/useSearchScope';
@@ -332,6 +333,29 @@ describe('searchTitleFromLocation', () => {
     it('prefers the book search when both are present', () => {
         // An old link could carry both, and its path held the words.
         expect(searchTitleFromLocation('/search', '?q=%D0%BC%D0%B8%D1%80&title=other')).toBe('мир');
+    });
+});
+
+describe('authorNameFromLocation', () => {
+    it('reads the name out of a search for authors', () => {
+        expect(
+            authorNameFromLocation('/search', '?q=%D0%BA%D0%B8%D0%BD%D0%B3&type=authors&page=2'),
+        ).toBe('кинг');
+    });
+
+    it('finds nothing in a search for books', () => {
+        expect(authorNameFromLocation('/search', '?q=%D0%BA&type=books')).toBe('');
+        expect(authorNameFromLocation('/search', '?q=%D0%BA')).toBe('');
+    });
+
+    it('finds nothing where the search page turns the reader away', () => {
+        // /search with nothing to look for lands on the catalogue.
+        expect(authorNameFromLocation('/search', '?type=authors')).toBe('');
+        expect(authorNameFromLocation('/search', '?q=%20&type=authors')).toBe('');
+    });
+
+    it('finds nothing away from the search address', () => {
+        expect(authorNameFromLocation('/author/42', '?q=%D0%BA&type=authors')).toBe('');
     });
 });
 

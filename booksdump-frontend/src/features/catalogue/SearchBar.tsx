@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { SuggestionScope } from '@/api/autocomplete';
@@ -16,12 +16,13 @@ import { useSearchBar } from '@/context/SearchBarContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
 import useSearchScope, {
+    authorNameFromLocation,
     searchTitleFromLocation,
     unsearchedPathFrom,
 } from '@/features/catalogue/hooks/useSearchScope';
 import type { AutocompleteSuggestion } from '@/api/autocomplete';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
-import { authorPath, searchPath } from '@/features/catalogue/addresses';
+import { authorPath, isAuthorPath, searchPath } from '@/features/catalogue/addresses';
 import { authorTitle } from '@/shared/lib/authorTitle';
 
 /**
@@ -52,13 +53,25 @@ const SearchBar: React.FC = () => {
     // A reload or a pasted link lands on an already filtered list with an
     // empty box, because the query lives in the URL rather than in state.
     // Seed the field from the address so the reader can see — and edit —
-    // what is being searched.
+    // what is being searched. A search among authors brings its mode too, or
+    // the reader's next search would go to the books under a list of authors.
+    const onNameSearch = useRef(false);
     useEffect(() => {
+        const name = authorNameFromLocation(location.pathname, location.search);
         const title = searchTitleFromLocation(location.pathname, location.search);
-        if (title) {
+        if (name) {
+            setSelectedSearch('author');
+            setSearchItem(name);
+        } else if (title) {
             setSearchItem(title);
+        } else if (onNameSearch.current && isAuthorPath(location.pathname)) {
+            // From a list of names into one author. A card empties the box on
+            // its way through, but Forward passes no card, and the name left
+            // there would filter this author's books as a title.
+            setSearchItem('');
         }
-    }, [location.pathname, location.search, setSearchItem]);
+        onNameSearch.current = Boolean(name);
+    }, [location.pathname, location.search, setSearchItem, setSelectedSearch]);
 
     const chooseLanguage = (lang: string) => {
         updateLang(lang);

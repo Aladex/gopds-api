@@ -314,6 +314,101 @@ describe('AuthorSearch loading', () => {
     });
 });
 
+// The pager sits under the grid, so a grid of the wrong height moves it the
+// moment the authors land. What is left of a known total is the height to draw.
+describe('AuthorSearch skeleton on a partial page', () => {
+    const page = (id: number) => ({
+        authors: [{ id, full_name: `Автор ${id}` }],
+        length: 2,
+    });
+    const never = () => listAuthors.mockReturnValue(new Promise(() => {}));
+    const skeletons = () => screen.queryAllByTestId('author-card-skeleton');
+
+    const Go: React.FC<{ to: string }> = ({ to }) => {
+        const navigate = useNavigate();
+        return (
+            <button type="button" onClick={() => navigate(to)}>
+                go
+            </button>
+        );
+    };
+
+    const openAndGo = async (from: string, to: string, total?: number) => {
+        listAuthors.mockResolvedValueOnce({ ...page(1), total });
+        render(
+            <MemoryRouter initialEntries={[from]}>
+                <Routes>
+                    <Route path="/search" element={<AuthorSearch />} />
+                </Routes>
+                <Go to={to} />
+            </MemoryRouter>,
+        );
+        await screen.findByRole('link', { name: /Автор 1/ });
+        never();
+        await userEvent.click(screen.getByRole('button', { name: 'go' }));
+    };
+
+    it('draws only what is left on the last page', async () => {
+        await openAndGo('/search?q=abc&type=authors', '/search?q=abc&type=authors&page=2', 11);
+
+        expect(skeletons()).toHaveLength(1);
+    });
+
+    it('draws a full page while more than a page is left', async () => {
+        await openAndGo('/search?q=abc&type=authors&page=2', '/search?q=abc&type=authors', 11);
+
+        expect(skeletons()).toHaveLength(10);
+    });
+
+    it('draws a full page when exactly a page is left', async () => {
+        await openAndGo('/search?q=abc&type=authors', '/search?q=abc&type=authors&page=2', 20);
+
+        expect(skeletons()).toHaveLength(10);
+    });
+
+    it('does not size a new search by the total of the one before', async () => {
+        await openAndGo('/search?q=abc&type=authors', '/search?q=zzz&type=authors', 3);
+
+        expect(skeletons()).toHaveLength(10);
+    });
+
+    it('draws a full page without a total', async () => {
+        await openAndGo('/search?q=abc&type=authors', '/search?q=abc&type=authors&page=2');
+
+        expect(skeletons()).toHaveLength(10);
+    });
+
+    it('draws a full page past the end of the result', async () => {
+        await openAndGo('/search?q=abc&type=authors', '/search?q=abc&type=authors&page=9', 11);
+
+        expect(skeletons()).toHaveLength(10);
+    });
+
+    it('does not trust a total of another books language', async () => {
+        listAuthors.mockResolvedValueOnce({ ...page(1), total: 11 });
+        const { rerender } = render(
+            <MemoryRouter initialEntries={['/search?q=abc&type=authors&page=2']}>
+                <Routes>
+                    <Route path="/search" element={<AuthorSearch />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+        await screen.findByRole('link', { name: /Автор 1/ });
+
+        never();
+        authState.user = { books_lang: 'en' };
+        rerender(
+            <MemoryRouter initialEntries={['/search?q=abc&type=authors&page=2']}>
+                <Routes>
+                    <Route path="/search" element={<AuthorSearch />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+
+        await waitFor(() => expect(skeletons()).toHaveLength(10));
+    });
+});
+
 // A zero-hit search answers authors: null (a nil Go slice marshals to null).
 // Skipping the state update on that answer would leave the previous search's
 // authors — and its page count — on screen behind the new query.

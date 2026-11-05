@@ -87,10 +87,24 @@ export const routeScopeFrom = (pathname: string): RouteScope | null => {
  */
 export const searchTitleFromLocation = (pathname: string, search: string): string => {
     const params = new URLSearchParams(search);
-    // A name searched for among authors is not a title, and the box has never
-    // shown one on arrival.
+    // A name searched for among authors is not a title: it has a reader of
+    // its own in authorNameFromLocation.
     const query = isSearchPath(pathname) && params.get('type') !== 'authors' && params.get('q');
     return query || (params.get('title') ?? '');
+};
+
+/**
+ * authorNameFromLocation recovers the name from a search among authors, which
+ * also says what mode the panel is in. An address without a name is not a
+ * search: the search page sends it on to the catalogue.
+ */
+export const authorNameFromLocation = (pathname: string, search: string): string => {
+    const params = new URLSearchParams(search);
+    if (!isSearchPath(pathname) || params.get('type') !== 'authors') {
+        return '';
+    }
+    const name = params.get('q') ?? '';
+    return name.trim() ? name : '';
 };
 
 /**

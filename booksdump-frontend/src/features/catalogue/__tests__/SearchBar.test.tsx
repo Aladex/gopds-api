@@ -226,10 +226,17 @@ describe('SearchBar on a cold reload', () => {
         await waitFor(() => expect(searchState.setSearchItem).toHaveBeenCalledWith('дюна'));
     });
 
-    it('seeds nothing from a search for an author by name', () => {
+    it('seeds the field and the mode from a search for an author by name', async () => {
         renderBar(`/search?q=${encodeURIComponent('кинг')}&type=authors`);
 
-        expect(searchState.setSearchItem).not.toHaveBeenCalled();
+        await waitFor(() => expect(searchState.setSearchItem).toHaveBeenCalledWith('кинг'));
+        expect(searchState.setSelectedSearch).toHaveBeenCalledWith('author');
+    });
+
+    it('asks for no clearing control on a search by name', () => {
+        renderBar(`/search?q=${encodeURIComponent('кинг')}&type=authors`);
+
+        expect(screen.queryByRole('button', { name: 'resetSearch' })).toBeNull();
     });
 
     it('seeds nothing on a plain list', () => {

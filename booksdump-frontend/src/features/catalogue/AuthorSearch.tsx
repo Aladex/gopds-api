@@ -22,6 +22,16 @@ const TOO_MANY_AUTHORS = 200;
 const GRID = 'grid grid-cols-1 gap-1.5 card:grid-cols-2 card:gap-2';
 
 /**
+ * How many cards a page will hold, so the skeleton is as tall as the answer and
+ * the pager under it stays put: a last page holds what is left of the total.
+ * With no total, or a page past the end of one, a full page is the best guess.
+ */
+const cardsOnPage = (total: number | undefined, page: number): number => {
+    const left = (total ?? 0) - (page - 1) * PAGE_SIZE;
+    return left > 0 ? Math.min(left, PAGE_SIZE) : PAGE_SIZE;
+};
+
+/**
  * AuthorSearch lists the authors matching a name from the search panel.
  *
  * It is a stop on the way to a book list rather than a destination, and the
@@ -35,7 +45,8 @@ const GRID = 'grid grid-cols-1 gap-1.5 card:grid-cols-2 card:gap-2';
  * list behind the row uses, so the number is what they will actually get.
  *
  * The head line, the grid and the pager keep their places through a load: the
- * skeleton draws the same cards in the same grid.
+ * skeleton draws the same cards in the same grid, as many as are coming when
+ * the total of this search says so.
  */
 const AuthorSearch: React.FC = () => {
     const { t } = useTranslation();
@@ -47,9 +58,13 @@ const AuthorSearch: React.FC = () => {
     const location = useLocation();
     const [totalPages, setTotalPages] = useState(0);
     const [total, setTotal] = useState<number | undefined>();
+    // Which list the total counted: paging keeps it, another search or books
+    // language has a total of its own, still on its way.
+    const [countedList, setCountedList] = useState('');
     const { setSearchItem, clearSelectedSearch } = useSearchBar();
     const { user } = useAuth();
     const { setAuthorName } = useAuthor();
+    const list = `${user?.books_lang ?? ''}:${author}`;
 
     useEffect(() => {
         const fetchAuthors = async () => {
@@ -71,6 +86,7 @@ const AuthorSearch: React.FC = () => {
                     setAuthors(responseData.authors);
                     setTotalPages(responseData.length);
                     setTotal(responseData.total);
+                    setCountedList(list);
                 } else {
                     setAuthors([]);
                     setTotalPages(0);
@@ -88,7 +104,7 @@ const AuthorSearch: React.FC = () => {
         if (author) {
             fetchAuthors().then((r) => r);
         }
-    }, [author, location.search, page, user?.books_lang]);
+    }, [author, list, location.search, page, user?.books_lang]);
 
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
     const handleAuthorClick = (fullName: string) => {
@@ -130,7 +146,9 @@ const AuthorSearch: React.FC = () => {
                 </div>
                 {loading ? (
                     <div data-testid="author-grid" className={GRID}>
-                        {Array.from({ length: PAGE_SIZE }).map((_, index) => (
+                        {Array.from({
+                            length: cardsOnPage(list === countedList ? total : undefined, page),
+                        }).map((_, index) => (
                             <AuthorCardSkeleton key={index} />
                         ))}
                     </div>
