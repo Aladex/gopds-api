@@ -121,7 +121,8 @@ func TestGeneratedThumbnailIsUploaded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "upload", func() bool { _, _, ok := server.Object(thumbKey); return ok })
+	// The fake sets the type a step after it stores the bytes.
+	waitFor(t, "upload", func() bool { _, kind, _ := server.Object(thumbKey); return kind != "" })
 	stored, kind, _ := server.Object(thumbKey)
 	if !bytes.Equal(stored, local) || kind != "image/jpeg" {
 		t.Fatalf("stored %d bytes as %q, local %d", len(stored), kind, len(local))
@@ -134,7 +135,15 @@ func TestClearedLocalThumbnailComesBackFromTheBucket(t *testing.T) {
 	if _, err := service.Path(context.Background(), rel); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "upload", func() bool { _, _, ok := server.Object(thumbKey); return ok })
+	// The object being there is not enough: the store forgets its earlier miss
+	// only when the upload returns, and until then it would not look.
+	waitFor(t, "upload", func() bool {
+		thumb, err := service.covers().OpenThumb(context.Background(), rel)
+		if err != nil {
+			return false
+		}
+		return thumb.Close() == nil
+	})
 
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
@@ -193,27 +202,29 @@ func TestUploadFailureStaysOutOfTheReaderWay(t *testing.T) {
 }
 
 func TestFullQueueDropsAndNeverWaits(t *testing.T) {
-	service, server, source, _ := bucketService(t)
-	server.SetHangWrites(true)
+	service, _, source, _ := bucketService(t)
+	// With no uploader nothing leaves the queue: a stalled upload would time
+	// out in the end, and the next one would make room in it.
+	service.startUpload.Do(func() {})
 	writeCover(t, source, encodeJPEG(t, 480, 640))
 	if _, err := service.Path(context.Background(), rel); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "upload attempt", func() bool { return len(server.Writes()) == 1 })
 
-	started := time.Now()
-	for range 2 * cap(service.uploads) {
-		service.queueUpload(rel)
-	}
-	if elapsed := time.Since(started); elapsed >= bucketTimeout {
-		t.Fatalf("queueing took %s", elapsed)
+	queued := make(chan struct{})
+	go func() {
+		defer close(queued)
+		for range 2 * cap(service.uploads) {
+			service.queueUpload(rel)
+		}
+	}()
+	select {
+	case <-queued:
+	case <-time.After(waitLimit):
+		t.Fatal("queueing waited for room")
 	}
 	if n := len(service.uploads); n != cap(service.uploads) {
 		t.Fatalf("%d waiting, the queue holds %d", n, cap(service.uploads))
-	}
-	server.SetHangWrites(false)
-	for len(service.uploads) > 0 {
-		<-service.uploads
 	}
 }
 

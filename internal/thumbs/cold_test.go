@@ -269,13 +269,13 @@ func TestStallHoldsUpOnlyAFewCoversOnDisk(t *testing.T) {
 			t.Fatalf("%d covers on disk held up by the stall, limit %d", server.Active(), held)
 		}
 	}
-	active := server.Active()
+	// The covers that got through are being uploaded, and Active counts those
+	// requests too, so the stalled reads are told apart once they are over.
+	waitFor(t, "the uploads", func() bool { return len(server.Writes()) == pageCovers-held })
+	waitFor(t, "only the stalled reads", func() bool { return server.Active() == held })
 	cancel()
 	for range held {
 		<-results
-	}
-	if active != held {
-		t.Fatalf("%d reads of the bucket, limit %d", active, held)
 	}
 }
 

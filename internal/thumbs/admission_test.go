@@ -129,7 +129,8 @@ func TestCoverFromTheStoreKeepsItsPlaceWhileItWaitsToDecode(t *testing.T) {
 }
 
 // With no bucket read free, a cover on disk is the quicker way: nothing it does
-// may depend on those reads ever finishing.
+// may depend on those reads ever finishing. The upload of the new thumbnail is
+// no such read and can land at any moment, so every run waits for it.
 func TestCoverOnDiskSkipsABusyBucket(t *testing.T) {
 	for name, busy := range map[string]func(*Service) chan struct{}{
 		"thumbnail fetches": func(s *Service) chan struct{} { return s.thumbReads },
@@ -146,8 +147,11 @@ func TestCoverOnDiskSkipsABusyBucket(t *testing.T) {
 			if _, err := service.Path(ctx, rel); err != nil {
 				t.Fatal(err)
 			}
-			if n := server.Requests(); n != 0 {
-				t.Fatalf("%d requests with the bucket busy", n)
+			waitFor(t, "upload attempt", func() bool { return len(server.Writes()) == 1 })
+			for _, r := range server.Reads() {
+				if r.Method != "PUT" {
+					t.Fatalf("%s %s with the bucket busy", r.Method, r.Key)
+				}
 			}
 			if got := decodeSize(t, filepath.Join(dir, rel)); got != image.Pt(Width, 320) {
 				t.Fatalf("size = %v", got)
