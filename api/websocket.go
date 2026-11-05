@@ -34,21 +34,24 @@ type ConvertedFile struct {
 var epubStore sync.Map // key: int64 (bookID), value: *ConvertedFile
 
 func ConvertBookToMobi(bookID int64) error {
-	book, err := database.GetBook(bookID) // Retrieve the book details from the database
+	book, err := bookByID(bookID) // Retrieve the book details from the database
 	if err != nil {
 		return err
 	}
 	zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
 	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
 
-	if checkErr := archivestore.Default().Check(context.Background(), zipPath); checkErr != nil {
+	// A conversion outlives the connection that asked for it, so there is no
+	// context to follow. The check and the read still share one budget.
+	readCtx := archivestore.Default().StartRead(context.Background())
+	if checkErr := archivestore.Default().Check(readCtx, zipPath); checkErr != nil {
 		if errors.Is(checkErr, archivestore.ErrNotFound) {
 			return fmt.Errorf("book file not found: %s", zipPath)
 		}
 		return checkErr
 	}
 
-	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.
+	bp := utils.NewBookProcessor(book.FileName, zipPath).WithReadContext(readCtx) // Create a new BookProcessor for the book file.
 	var rc io.ReadCloser
 	rc, err = bp.Mobi()
 	if err != nil {

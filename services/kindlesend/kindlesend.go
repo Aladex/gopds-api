@@ -155,23 +155,29 @@ const ContentType = "application/epub+zip"
 // ErrBookFileMissing is a book whose row exists and whose file does not.
 var ErrBookFileMissing = errors.New("book file not found")
 
+// bookByID is the database call behind EPUBOf, replaced in tests.
+var bookByID = database.GetBook
+
 // EPUBOf converts one book to EPUB in memory, refusing one over limit bytes
 // with safeio.ErrTooLarge. It returns the book's row alongside, for the name.
 func EPUBOf(bookID, limit int64) (models.Book, []byte, error) {
-	book, err := database.GetBook(bookID)
+	book, err := bookByID(bookID)
 	if err != nil {
 		return book, nil, err
 	}
 	zipPath := viper.GetString("app.files_path") + book.Path
 
-	if checkErr := archivestore.Default().Check(context.Background(), zipPath); checkErr != nil {
+	// No caller here has a context to follow: a send and a conversion outlive
+	// whoever asked. The check and the read still share one budget.
+	readCtx := archivestore.Default().StartRead(context.Background())
+	if checkErr := archivestore.Default().Check(readCtx, zipPath); checkErr != nil {
 		if errors.Is(checkErr, archivestore.ErrNotFound) {
 			return book, nil, fmt.Errorf("%w: %s", ErrBookFileMissing, zipPath)
 		}
 		return book, nil, checkErr
 	}
 
-	bp := utils.NewBookProcessor(book.FileName, zipPath)
+	bp := utils.NewBookProcessor(book.FileName, zipPath).WithReadContext(readCtx)
 	rc, err := bp.Epub()
 	if err != nil {
 		return book, nil, err

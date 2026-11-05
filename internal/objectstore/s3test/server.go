@@ -75,6 +75,7 @@ type Server struct {
 	silentError bool
 	stallBodies bool
 	drip        time.Duration
+	delay       time.Duration
 	active      int
 	peak        int
 }
@@ -218,6 +219,10 @@ func (s *Server) SetFailWrites(fail bool) { s.set(func() { s.failWrites = fail }
 // SetHangWrites makes every PUT wait for the client to give up.
 func (s *Server) SetHangWrites(hang bool) { s.set(func() { s.hangWrites = hang }) }
 
+// SetDelay makes every read wait this long before it is answered: a healthy
+// store that is simply far away.
+func (s *Server) SetDelay(delay time.Duration) { s.set(func() { s.delay = delay }) }
+
 // SetSilentErrors answers every GET with flushed 503 headers that promise a
 // body, and then says nothing until the client gives up.
 func (s *Server) SetSilentErrors(silent bool) { s.set(func() { s.silentError = silent }) }
@@ -293,8 +298,17 @@ func (s *Server) answer(w http.ResponseWriter, r *http.Request, key string) {
 	}
 	hang, ignoreRange, dropAfter := s.hang, s.ignoreRange, s.dropAfter
 	silentError, stallBodies, drip := s.silentError, s.stallBodies, s.drip
+	delay := s.delay
 	obj := s.objects[key]
 	s.mu.Unlock()
+
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return
+		}
+	}
 
 	isGet := r.Method == http.MethodGet
 	switch {
