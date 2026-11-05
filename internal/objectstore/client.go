@@ -56,6 +56,10 @@ const (
 	breakerThreshold = 5
 	breakerCooldown  = 15 * time.Second
 
+	// defaultMaxActive bounds the calls in progress. It is what keeps a stalled
+	// store from taking a connection and a goroutine per visitor.
+	defaultMaxActive = 16
+
 	// An error body is read for its code only.
 	maxErrorBody = 4 << 10
 	// A page of ListObjectsV2 holds a thousand keys at most.
@@ -98,6 +102,8 @@ type Config struct {
 	// RequestTimeout bounds one attempt up to the response headers, and any
 	// silence inside a response body. Zero means the default.
 	RequestTimeout time.Duration
+	// MaxActive bounds the calls in progress at once. Zero means the default.
+	MaxActive int
 	// Retries is how many times a failed call is tried again. Negative means
 	// none, zero the default.
 	Retries int
@@ -119,6 +125,7 @@ type Client struct {
 	timeout  time.Duration
 	retries  int
 	breaker  breaker
+	active   chan struct{}
 	now      func() time.Time
 }
 
@@ -145,6 +152,10 @@ func New(cfg *Config) (*Client, error) {
 	case retries == 0:
 		retries = defaultRetries
 	}
+	maxActive := cfg.MaxActive
+	if maxActive <= 0 {
+		maxActive = defaultMaxActive
+	}
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: dialTimeout, KeepAlive: keepAlive}).DialContext,
@@ -162,6 +173,7 @@ func New(cfg *Config) (*Client, error) {
 		http:     &http.Client{Transport: transport},
 		timeout:  timeout,
 		retries:  retries,
+		active:   make(chan struct{}, maxActive),
 		now:      time.Now,
 	}, nil
 }
@@ -174,11 +186,11 @@ func (c *Client) Retries() int { return c.retries }
 
 // Head describes one object.
 func (c *Client) Head(ctx context.Context, key string) (Info, error) {
-	resp, cancel, err := c.do(ctx, http.MethodHead, key, nil, "")
+	resp, finish, err := c.do(ctx, http.MethodHead, key, nil, "")
 	if err != nil {
 		return Info{}, err
 	}
-	defer cancel()
+	defer finish()
 	defer func() { _ = resp.Body.Close() }()
 	return infoFrom(key, resp.Header, resp.ContentLength), nil
 }
@@ -186,9 +198,10 @@ func (c *Client) Head(ctx context.Context, key string) (Info, error) {
 // Get opens an object's bytes. A positive length asks for that many bytes from
 // off and is refused unless the store answers with exactly that range, so a
 // store that ignores Range cannot pour a whole archive into a call for one
-// book. A non-empty etag is the version the caller knows: any other version is
-// ErrChanged, before a byte of it is read. A store that sends no ETag cannot
-// be held to one.
+// book. The Body then hands over no more than that range and fails if it ends
+// early. A non-empty etag is the version the caller knows: any other version is
+// ErrChanged, before a byte of it is read. A store that sends no ETag cannot be
+// held to one.
 //
 // The Body must be closed. Silence longer than the request timeout fails its
 // next Read.
@@ -197,62 +210,74 @@ func (c *Client) Get(ctx context.Context, key string, off, length int64, etag st
 	if length > 0 {
 		rangeHeader = "bytes=" + strconv.FormatInt(off, 10) + "-" + strconv.FormatInt(off+length-1, 10)
 	}
-	resp, cancel, err := c.do(ctx, http.MethodGet, key, nil, rangeHeader)
+	resp, finish, err := c.do(ctx, http.MethodGet, key, nil, rangeHeader)
 	if err != nil {
 		return nil, err
 	}
 	info := infoFrom(key, resp.Header, resp.ContentLength)
+	expected := int64(unknownLength)
 	if rangeHeader != "" {
-		info.Size, err = checkRange(resp, off)
+		info.Size, expected, err = checkRange(resp, off, length)
 		if err != nil {
 			_ = resp.Body.Close()
-			cancel()
+			finish()
+			c.breaker.failure(c.now())
 			return nil, err
 		}
 	}
 	if etag != "" && info.ETag != "" && info.ETag != etag {
 		_ = resp.Body.Close()
-		cancel()
+		finish()
 		return nil, fmt.Errorf("%w: %s", ErrChanged, key)
 	}
-	return newBody(resp.Body, cancel, c.timeout, info), nil
+	return c.newBody(ctx, resp.Body, finish, info, expected), nil
 }
 
-// checkRange returns the object's full size from a ranged answer.
-func checkRange(resp *http.Response, off int64) (int64, error) {
+// checkRange takes a ranged answer apart: the object's full size, and how many
+// bytes the body must hold. The store may clip the range at the object's end
+// and nothing else.
+func checkRange(resp *http.Response, off, length int64) (total, expected int64, err error) {
 	if resp.StatusCode != http.StatusPartialContent {
-		return 0, fmt.Errorf("%w: range refused, status %d", ErrUnavailable, resp.StatusCode)
+		return 0, 0, fmt.Errorf("%w: range refused, status %d", ErrUnavailable, resp.StatusCode)
 	}
-	start, total, ok := parseContentRange(resp.Header.Get("Content-Range"))
-	if !ok || start != off {
-		return 0, fmt.Errorf("%w: unexpected Content-Range %q", ErrUnavailable, resp.Header.Get("Content-Range"))
+	header := resp.Header.Get("Content-Range")
+	start, end, total, ok := parseContentRange(header)
+	last := off + length - 1
+	if !ok || start != off || end < start || end >= total || (end != last && (end > last || end != total-1)) {
+		return 0, 0, fmt.Errorf("%w: unexpected Content-Range %q", ErrUnavailable, header)
 	}
-	return total, nil
+	expected = end - start + 1
+	if resp.ContentLength >= 0 && resp.ContentLength != expected {
+		return 0, 0, fmt.Errorf("%w: Content-Length %d for Content-Range %q", ErrUnavailable, resp.ContentLength, header)
+	}
+	return total, expected, nil
 }
 
 // parseContentRange reads "bytes start-end/total".
-func parseContentRange(value string) (start, total int64, ok bool) {
+func parseContentRange(value string) (start, end, total int64, ok bool) {
 	rest, found := strings.CutPrefix(value, "bytes ")
 	if !found {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	span, size, found := strings.Cut(rest, "/")
 	if !found {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	first, _, found := strings.Cut(span, "-")
+	first, last, found := strings.Cut(span, "-")
 	if !found {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	start, err := strconv.ParseInt(first, 10, 64)
-	if err != nil {
-		return 0, 0, false
+	var err error
+	if start, err = strconv.ParseInt(first, 10, 64); err != nil {
+		return 0, 0, 0, false
 	}
-	total, err = strconv.ParseInt(size, 10, 64)
-	if err != nil {
-		return 0, 0, false
+	if end, err = strconv.ParseInt(last, 10, 64); err != nil {
+		return 0, 0, 0, false
 	}
-	return start, total, true
+	if total, err = strconv.ParseInt(size, 10, 64); err != nil {
+		return 0, 0, 0, false
+	}
+	return start, end, total, true
 }
 
 // listResult is the part of a ListObjectsV2 page used here.
@@ -291,11 +316,11 @@ func (c *Client) List(ctx context.Context, prefix string) ([]Info, error) {
 }
 
 func (c *Client) listPage(ctx context.Context, query url.Values) (*listResult, error) {
-	resp, cancel, err := c.do(ctx, http.MethodGet, "", query, "") //nolint:bodyclose // closed through Body below
+	resp, finish, err := c.do(ctx, http.MethodGet, "", query, "") //nolint:bodyclose // closed through Body below
 	if err != nil {
 		return nil, err
 	}
-	body := newBody(resp.Body, cancel, c.timeout, Info{})
+	body := c.newBody(ctx, resp.Body, finish, Info{}, unknownLength)
 	defer func() { _ = body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(body, maxListBody))
 	if err != nil {
@@ -303,13 +328,18 @@ func (c *Client) listPage(ctx context.Context, query url.Values) (*listResult, e
 	}
 	page := &listResult{}
 	if err := xml.Unmarshal(raw, page); err != nil {
+		body.reject()
 		return nil, fmt.Errorf("%w: bad listing: %v", ErrUnavailable, err)
 	}
 	return page, nil
 }
 
 // do runs one call with its retries. On success the caller owns the response
-// and the cancel function, which ends the request.
+// and the finish function, which ends the request and gives back its slot.
+//
+// Only failures are counted here. Headers prove little: a gateway in trouble
+// sends them and then stalls, and a HEAD or a 404 has no body to stall on. What
+// clears the count is a read that completed, which only the Body can see.
 func (c *Client) do(
 	ctx context.Context, method, key string, query url.Values, rangeHeader string,
 ) (*http.Response, context.CancelFunc, error) {
@@ -323,16 +353,16 @@ func (c *Client) do(
 				return nil, nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 			}
 		}
+		release, err := c.acquire(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
 		resp, cancel, err := c.attempt(ctx, method, key, query, rangeHeader)
 		if err == nil {
-			c.breaker.success()
-			return resp, cancel, nil
+			return resp, func() { cancel(); release() }, nil
 		}
+		release()
 		if !retryable(err) {
-			// An answer, however unwelcome, is the store working.
-			if !errors.Is(err, ErrUnavailable) {
-				c.breaker.success()
-			}
 			return nil, nil, err
 		}
 		lastErr = err
@@ -342,6 +372,24 @@ func (c *Client) do(
 	}
 	c.breaker.failure(c.now())
 	return nil, nil, lastErr
+}
+
+// acquire takes a slot for one call. A store this busy is treated as an
+// outage after one timeout, not as a queue: during a stall every waiter would
+// otherwise pay for the calls in front of it. It says nothing of the store's
+// health, so it does not count.
+func (c *Client) acquire(ctx context.Context) (func(), error) {
+	wait := time.NewTimer(c.timeout)
+	defer wait.Stop()
+	select {
+	case c.active <- struct{}{}:
+	case <-wait.C:
+		return nil, fmt.Errorf("%w: %d calls in progress", ErrUnavailable, cap(c.active))
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
+	}
+	var once sync.Once
+	return func() { once.Do(func() { <-c.active }) }, nil
 }
 
 // attempt makes one request and judges its status.
@@ -360,11 +408,13 @@ func (c *Client) attempt(
 	c.sign(req, c.now())
 
 	// The watchdog covers the wait for headers, including the connection
-	// itself; after that the body has its own.
+	// itself; after that a good body has its own. A refusal does not: limiting
+	// its bytes says nothing of how long they take, so the same watchdog runs
+	// on until it has been read.
 	watchdog := time.AfterFunc(c.timeout, cancel)
 	resp, err := c.http.Do(req)
-	watchdog.Stop()
 	if err != nil {
+		watchdog.Stop()
 		timedOut := reqCtx.Err() != nil && ctx.Err() == nil
 		cancel()
 		if timedOut {
@@ -373,9 +423,11 @@ func (c *Client) attempt(
 		return nil, nil, &transientError{fmt.Errorf("%w: %w", ErrUnavailable, err)}
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		watchdog.Stop()
 		return resp, cancel, nil
 	}
 	defer cancel()
+	defer watchdog.Stop()
 	defer func() { _ = resp.Body.Close() }()
 	return nil, nil, statusError(key, resp)
 }
@@ -478,42 +530,90 @@ func (b *breaker) failure(now time.Time) {
 	b.failures++
 	if b.failures >= breakerThreshold {
 		b.until = now.Add(breakerCooldown)
-		// One failure after the rest closes it again; one success resets it.
+		// One failure after the rest closes it again; one completed read
+		// resets it.
 		b.failures = breakerThreshold - 1
 	}
 }
 
-// Body is an open object: its bytes and what the store said about them.
+// Body is an open object: its bytes and what the store said about them. Its
+// outcome is what the breaker learns: a read that failed counts against the
+// store, one that delivered clears the count, and a caller that left says
+// nothing either way.
 type Body struct {
 	Info
+	client   *Client
+	ctx      context.Context
 	body     io.ReadCloser
-	cancel   context.CancelFunc
-	timeout  time.Duration
+	finish   context.CancelFunc
 	watchdog *time.Timer
+	expected int64 // the bytes this body must hold; unknownLength if not known
+	read     int64
+	settled  bool
 }
 
-func newBody(body io.ReadCloser, cancel context.CancelFunc, timeout time.Duration, info Info) *Body {
-	b := &Body{Info: info, body: body, cancel: cancel, timeout: timeout}
-	b.watchdog = time.AfterFunc(timeout, cancel)
+// unknownLength is the expected size of a body without a range.
+const unknownLength = -1
+
+func (c *Client) newBody(ctx context.Context, body io.ReadCloser, finish context.CancelFunc, info Info, expected int64) *Body {
+	b := &Body{Info: info, client: c, ctx: ctx, body: body, finish: finish, expected: expected}
+	b.watchdog = time.AfterFunc(c.timeout, finish)
 	b.watchdog.Stop()
 	return b
 }
 
-// Read reads the body, failing if the store goes silent for the timeout.
+// Read reads the body, failing if the store goes silent for the timeout, sends
+// more than the range it promised, or ends before it. One byte past the range
+// is all it takes to see an oversized answer, and all that is ever consumed.
 func (b *Body) Read(p []byte) (int, error) {
-	b.watchdog.Reset(b.timeout)
+	if b.expected != unknownLength {
+		if room := b.expected - b.read + 1; int64(len(p)) > room {
+			p = p[:room]
+		}
+	}
+	b.watchdog.Reset(b.client.timeout)
 	n, err := b.body.Read(p)
 	b.watchdog.Stop()
+	b.read += int64(n)
+	if b.expected != unknownLength {
+		if over := b.read - b.expected; over > 0 {
+			b.read -= over
+			return n - int(over), b.fail(fmt.Errorf("%w: more than the range of %s", ErrUnavailable, b.Key))
+		}
+		if errors.Is(err, io.EOF) && b.read < b.expected {
+			return n, b.fail(fmt.Errorf("%w: short range from %s", ErrUnavailable, b.Key))
+		}
+	}
 	if err != nil && !errors.Is(err, io.EOF) {
-		err = fmt.Errorf("%w: reading %s: %w", ErrUnavailable, b.Key, err)
+		return n, b.fail(fmt.Errorf("%w: reading %s: %w", ErrUnavailable, b.Key, err))
 	}
 	return n, err
 }
 
-// Close ends the request.
+// fail counts a broken read against the store, unless it broke because the
+// caller left.
+func (b *Body) fail(err error) error {
+	if !b.settled && b.ctx.Err() == nil {
+		b.settled = true
+		b.client.breaker.failure(b.client.now())
+	}
+	return err
+}
+
+// reject is a caller saying that the bytes it got are no good.
+func (b *Body) reject() {
+	_ = b.fail(nil)
+}
+
+// Close ends the request. A body read without a fault proves the store works,
+// even if the caller stopped short of its end: a read ahead usually does.
 func (b *Body) Close() error {
 	b.watchdog.Stop()
 	err := b.body.Close()
-	b.cancel()
+	b.finish()
+	if !b.settled && b.read > 0 && b.ctx.Err() == nil {
+		b.settled = true
+		b.client.breaker.success()
+	}
 	return err
 }

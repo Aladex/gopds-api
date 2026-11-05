@@ -64,6 +64,11 @@ type Server struct {
 	ignoreRange bool
 	dropAfter   int64
 	failNext    int
+	silentError bool
+	stallBodies bool
+	drip        time.Duration
+	active      int
+	peak        int
 }
 
 // New starts a server, closed with the test.
@@ -144,6 +149,46 @@ func (s *Server) FailNext(n int) { s.set(func() { s.failNext = n }) }
 // DropAfter cuts every response body after n bytes; zero turns that off.
 func (s *Server) DropAfter(n int64) { s.set(func() { s.dropAfter = n }) }
 
+// SetSilentErrors answers every GET with flushed 503 headers that promise a
+// body, and then says nothing until the client gives up.
+func (s *Server) SetSilentErrors(silent bool) { s.set(func() { s.silentError = silent }) }
+
+// SetStallBodies answers every GET with good headers and then says nothing
+// until the client gives up.
+func (s *Server) SetStallBodies(stall bool) { s.set(func() { s.stallBodies = stall }) }
+
+// SetDrip sends every GET body a byte at a time at this interval, for as long
+// as the client stays: each read succeeds and the whole never ends. Zero turns
+// that off.
+func (s *Server) SetDrip(interval time.Duration) { s.set(func() { s.drip = interval }) }
+
+// Active counts the requests in progress right now.
+func (s *Server) Active() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active
+}
+
+// Peak is the most requests that were ever in progress at once.
+func (s *Server) Peak() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.peak
+}
+
+func (s *Server) enter() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.active++
+	s.peak = max(s.peak, s.active)
+}
+
+func (s *Server) leave() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.active--
+}
+
 func (s *Server) set(change func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -156,6 +201,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "<Error><Code>SignatureDoesNotMatch</Code></Error>", http.StatusForbidden)
 		return
 	}
+	s.enter()
+	defer s.leave()
 	key := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"+Bucket), "/")
 	s.mu.Lock()
 	down := s.down || s.failNext > 0
@@ -163,11 +210,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.failNext--
 	}
 	hang, ignoreRange, dropAfter := s.hang, s.ignoreRange, s.dropAfter
+	silentError, stallBodies, drip := s.silentError, s.stallBodies, s.drip
 	obj := s.objects[key]
 	s.mu.Unlock()
 
+	isGet := r.Method == http.MethodGet
 	switch {
 	case hang:
+		<-r.Context().Done()
+	case silentError && isGet:
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.(http.Flusher).Flush()
 		<-r.Context().Done()
 	case down:
 		s.record(Read{Method: r.Method, Key: key})
@@ -177,9 +231,38 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	case obj == nil:
 		s.record(Read{Method: r.Method, Key: key})
 		w.WriteHeader(http.StatusNotFound)
+	case (stallBodies || drip > 0) && isGet:
+		s.withhold(w, r, obj, drip)
 	default:
 		s.serve(w, r, key, obj, ignoreRange, dropAfter)
 	}
+}
+
+// withhold sends good headers and then none of the body, or only a trickle.
+func (s *Server) withhold(w http.ResponseWriter, r *http.Request, obj *object, drip time.Duration) {
+	size := int64(len(obj.data))
+	off, end, _ := parseRange(r.Header.Get("Range"), size)
+	w.Header().Set("ETag", `"`+obj.etag+`"`)
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", off, end, size))
+	w.Header().Set("Content-Length", strconv.FormatInt(end-off+1, 10))
+	w.WriteHeader(http.StatusPartialContent)
+	w.(http.Flusher).Flush()
+	if drip == 0 {
+		<-r.Context().Done()
+		return
+	}
+	ticker := time.NewTicker(drip)
+	defer ticker.Stop()
+	for i := off; i < end; i++ {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			_, _ = w.Write(obj.data[i : i+1])
+			w.(http.Flusher).Flush()
+		}
+	}
+	<-r.Context().Done()
 }
 
 func (s *Server) record(read Read) {
@@ -215,6 +298,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key string, obj *
 	w.WriteHeader(status)
 	if dropAfter > 0 && int64(len(body)) > dropAfter {
 		_, _ = w.Write(body[:dropAfter])
+		// Flushed, or a small cut never leaves the buffer and reads as a refused
+		// connection instead of a body that broke.
+		w.(http.Flusher).Flush()
 		s.record(Read{Method: r.Method, Key: key, Off: off, Bytes: dropAfter})
 		panic(http.ErrAbortHandler)
 	}

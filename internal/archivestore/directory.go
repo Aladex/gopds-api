@@ -49,9 +49,11 @@ func (s *Store) directory(ctx context.Context, key string) (*directory, error) {
 		return cached, nil
 	}
 	// The load outlives the caller that started it: the others are waiting on
-	// it too. It stays bounded through the client's own timeouts.
-	loadCtx := context.WithoutCancel(ctx)
+	// it too. The client's timeouts only bound silence, and a store that keeps
+	// dripping is never silent, so the load has a deadline of its own.
 	result := s.loads.DoChan(key, func() (any, error) {
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.readBudget)
+		defer cancel()
 		return s.loadDirectory(loadCtx, key, cached)
 	})
 	select {

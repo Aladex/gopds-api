@@ -60,6 +60,11 @@ const (
 	// request that is answered from the book cache.
 	directoryRevalidate = 15 * time.Minute
 
+	// defaultReadBudget stays under the example server's write timeout of ten
+	// seconds, so a store too slow to deliver is an answer, not a dropped
+	// connection.
+	defaultReadBudget = 9 * time.Second
+
 	// wholeFetchMinEntries is how many entries of one archive make a
 	// temporary copy cheaper than reading them one range at a time.
 	wholeFetchMinEntries = 32
@@ -82,6 +87,9 @@ type Config struct {
 	DirectoryCacheBytes int64
 	// TempBudgetBytes is the largest temporary copy a worker may make.
 	TempBudgetBytes int64
+	// ReadBudget bounds a load of a directory, and one book's read start to
+	// finish. Zero means the default.
+	ReadBudget time.Duration
 }
 
 // Store opens archives. The zero value and New without a client serve from
@@ -93,6 +101,7 @@ type Store struct {
 	prefix     string
 	tempDir    string
 	tempBudget int64
+	readBudget time.Duration
 
 	directories *directoryCache
 	books       *bookCache
@@ -133,6 +142,10 @@ func New(cfg *Config) (*Store, error) {
 		return nil, errors.New("archivestore: a cache directory is required with object storage")
 	}
 	s.prefix = cfg.Prefix
+	s.readBudget = cfg.ReadBudget
+	if s.readBudget <= 0 {
+		s.readBudget = defaultReadBudget
+	}
 	s.tempDir = filepath.Join(cfg.CacheDir, "tmp")
 	s.tempBudget = cfg.TempBudgetBytes
 	if s.tempBudget <= 0 {
