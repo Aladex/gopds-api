@@ -1,11 +1,11 @@
 package api
 
 import (
-	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"net/http"
 	"os"
@@ -16,6 +16,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/internal/archivestore"
 	"gopds-api/llm"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -101,6 +102,12 @@ type ScannedArchivesResponse struct {
 type RescanArchiveRequest struct {
 	Name string `json:"name" binding:"required"`
 }
+
+const (
+	bytesInMB = 1 << 20
+	// archiveSizePrecision rounds a size in megabytes to two decimals.
+	archiveSizePrecision = 100
+)
 
 func getArchivesDir() string {
 	archivesDir := viper.GetString("app.files_path")
@@ -294,33 +301,24 @@ func GetScanErrorFile(c *gin.Context) {
 		return
 	}
 
-	reader, err := zip.OpenReader(archivePath)
+	entry, err := archivestore.Default().Find(c.Request.Context(), archivePath, fileName)
+	if errors.Is(err, archivestore.ErrEntryNotFound) {
+		httputil.NewError(c, http.StatusNotFound, errors.New("file not found in archive"))
+		return
+	}
 	if err != nil {
-		httputil.NewError(c, http.StatusInternalServerError, err)
+		httputil.BookFileError(c, err)
 		return
 	}
 	defer func() {
-		if closeErr := reader.Close(); closeErr != nil {
+		if closeErr := entry.Close(); closeErr != nil {
 			logging.Warnf("Failed to close archive %s: %v", archiveName, closeErr)
 		}
 	}()
 
-	var target *zip.File
-	for _, file := range reader.File {
-		if file.Name == fileName {
-			target = file
-			break
-		}
-	}
-
-	if target == nil {
-		httputil.NewError(c, http.StatusNotFound, errors.New("file not found in archive"))
-		return
-	}
-
-	fileReader, err := target.Open()
+	fileReader, err := entry.Open()
 	if err != nil {
-		httputil.NewError(c, http.StatusInternalServerError, err)
+		httputil.BookFileError(c, err)
 		return
 	}
 	defer func() {
@@ -373,7 +371,7 @@ func GetUnscannedArchives(c *gin.Context) {
 	}
 
 	for _, archivePath := range archives {
-		info, err := os.Stat(archivePath)
+		size, modified, err := archivestore.Default().Stat(c.Request.Context(), archivePath)
 		if err != nil {
 			logging.Warnf("Failed to stat archive %s: %v", archivePath, err)
 			continue
@@ -384,14 +382,14 @@ func GetUnscannedArchives(c *gin.Context) {
 			name = filepath.Base(archivePath)
 		}
 
-		fileCount := countArchiveFiles(archivePath)
-		sizeMB := math.Round((float64(info.Size())/(1024*1024))*100) / 100
+		fileCount := countArchiveFiles(c.Request.Context(), archivePath)
+		sizeMB := math.Round((float64(size)/bytesInMB)*archiveSizePrecision) / archiveSizePrecision
 
 		response.UnscannedArchives = append(response.UnscannedArchives, UnscannedArchiveInfo{
 			Name:        name,
 			SizeMB:      sizeMB,
 			FileCount:   fileCount,
-			CreatedDate: info.ModTime(),
+			CreatedDate: modified,
 		})
 	}
 
@@ -432,12 +430,12 @@ func ScanSpecificArchive(c *gin.Context) {
 		return
 	}
 
-	if _, err := os.Stat(archivePath); err != nil {
-		if os.IsNotExist(err) {
+	if _, _, err := archivestore.Default().Stat(c.Request.Context(), archivePath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
 			httputil.NewError(c, http.StatusNotFound, errors.New("archive not found"))
 			return
 		}
-		httputil.NewError(c, http.StatusInternalServerError, err)
+		httputil.BookFileError(c, err)
 		return
 	}
 
@@ -936,8 +934,8 @@ func archiveNameFromPath(archivesDir, archivePath string) string {
 	return name
 }
 
-func countArchiveFiles(archivePath string) int {
-	zipReader, err := zip.OpenReader(archivePath)
+func countArchiveFiles(ctx context.Context, archivePath string) int {
+	zipReader, err := archivestore.Default().OpenArchive(ctx, archivePath)
 	if err != nil {
 		logging.Warnf("Failed to open archive %s for counting: %v", archivePath, err)
 		return 0

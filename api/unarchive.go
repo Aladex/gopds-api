@@ -13,6 +13,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/internal/archivestore"
 	"gopds-api/logging"
 	"gopds-api/utils"
 
@@ -63,8 +64,8 @@ func GetBookFile(c *gin.Context) {
 		return
 	}
 	zipPath := viper.GetString("app.files_path") + book.Path
-	if !utils.FileExists(zipPath) {
-		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found"))
+	if checkErr := archivestore.Default().Check(c.Request.Context(), zipPath); checkErr != nil {
+		httputil.BookFileError(c, checkErr)
 		return
 	}
 
@@ -83,7 +84,7 @@ func GetBookFile(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		httputil.NewError(c, http.StatusInternalServerError, err)
+		httputil.BookFileError(c, err)
 		return
 	}
 	defer rc.Close()
@@ -92,7 +93,7 @@ func GetBookFile(c *gin.Context) {
 	_, err = io.Copy(&buf, rc)
 	if err != nil {
 		logging.Errorf("failed to buffer file: %v", err)
-		httputil.NewError(c, http.StatusInternalServerError, err)
+		httputil.BookFileError(c, err)
 		return
 	}
 
@@ -163,8 +164,8 @@ func HeadBookFile(c *gin.Context) {
 		return
 	}
 	zipPath := viper.GetString("app.files_path") + book.Path
-	if !utils.FileExists(zipPath) {
-		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found"))
+	if checkErr := archivestore.Default().Check(c.Request.Context(), zipPath); checkErr != nil {
+		httputil.BookFileError(c, checkErr)
 		return
 	}
 

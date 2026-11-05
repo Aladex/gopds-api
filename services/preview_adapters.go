@@ -11,7 +11,6 @@ package services
 // path) is the preview pipeline's contract, not the wrapped packages'.
 
 import (
-	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -22,6 +21,7 @@ import (
 
 	"gopds-api/config"
 	"gopds-api/database"
+	"gopds-api/internal/archivestore"
 	"gopds-api/logging"
 	"gopds-api/models"
 )
@@ -119,38 +119,35 @@ func (l *ZipArchiveLoader) Load(ctx context.Context, archivePath, fileName strin
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	r, err := zip.OpenReader(filepath.Join(l.filesPath, archivePath))
+	entry, err := archivestore.Default().Find(ctx, filepath.Join(l.filesPath, archivePath), fileName)
+	if errors.Is(err, archivestore.ErrEntryNotFound) {
+		return nil, fmt.Errorf("%w: %s in %s", ErrArchiveFileNotFound, fileName, archivePath)
+	}
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
-		if cerr := r.Close(); cerr != nil {
+		if cerr := entry.Close(); cerr != nil {
 			logging.Errorf("preview: failed to close archive %s: %v", archivePath, cerr)
 		}
 	}()
 
-	for _, f := range r.File {
-		if f.Name != fileName {
-			continue
-		}
-		if maxBytes > 0 && f.UncompressedSize64 > uint64(maxBytes) {
-			return nil, fmt.Errorf("%w: %s in %s declares %d bytes, cap is %d",
-				ErrFB2TooLarge, fileName, archivePath, f.UncompressedSize64, maxBytes)
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return nil, err
-		}
-		data, rerr := boundedRead(ctx, rc, maxBytes)
-		if cerr := rc.Close(); cerr != nil {
-			logging.Errorf("preview: failed to close book reader: %v", cerr)
-		}
-		if rerr != nil {
-			return nil, fmt.Errorf("preview: read %s in %s: %w", fileName, archivePath, rerr)
-		}
-		return data, nil
+	if maxBytes > 0 && entry.Size() > uint64(maxBytes) {
+		return nil, fmt.Errorf("%w: %s in %s declares %d bytes, cap is %d",
+			ErrFB2TooLarge, fileName, archivePath, entry.Size(), maxBytes)
 	}
-	return nil, fmt.Errorf("%w: %s in %s", ErrArchiveFileNotFound, fileName, archivePath)
+	rc, err := entry.Open()
+	if err != nil {
+		return nil, err
+	}
+	data, rerr := boundedRead(ctx, rc, maxBytes)
+	if cerr := rc.Close(); cerr != nil {
+		logging.Errorf("preview: failed to close book reader: %v", cerr)
+	}
+	if rerr != nil {
+		return nil, fmt.Errorf("preview: read %s in %s: %w", fileName, archivePath, rerr)
+	}
+	return data, nil
 }
 
 // boundedRead is the package-level indirection over readBounded, on the same

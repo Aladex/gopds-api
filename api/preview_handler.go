@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"gopds-api/httputil"
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/converter"
 	"gopds-api/internal/parser"
 	"gopds-api/models"
@@ -327,6 +328,9 @@ func classifyPreviewError(err error) previewRefusal {
 	// thirty seconds rather than sixty.
 	case errors.Is(err, context.DeadlineExceeded):
 		return previewRefusal{status: http.StatusServiceUnavailable, reason: "the preview took too long to build", retryAfter: "30"}
+
+	case errors.Is(err, archivestore.ErrUnavailable):
+		return previewRefusal{status: http.StatusServiceUnavailable, reason: "the book storage is unavailable", retryAfter: "30"}
 
 	case errors.Is(err, services.ErrCacheUnavailable):
 		return previewRefusal{status: http.StatusServiceUnavailable, reason: "preview storage is unavailable", retryAfter: "60"}

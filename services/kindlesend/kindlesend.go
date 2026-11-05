@@ -5,6 +5,7 @@
 package kindlesend
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/email"
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -162,8 +164,11 @@ func EPUBOf(bookID, limit int64) (models.Book, []byte, error) {
 	}
 	zipPath := viper.GetString("app.files_path") + book.Path
 
-	if !utils.FileExists(zipPath) {
-		return book, nil, fmt.Errorf("%w: %s", ErrBookFileMissing, zipPath)
+	if checkErr := archivestore.Default().Check(context.Background(), zipPath); checkErr != nil {
+		if errors.Is(checkErr, archivestore.ErrNotFound) {
+			return book, nil, fmt.Errorf("%w: %s", ErrBookFileMissing, zipPath)
+		}
+		return book, nil, checkErr
 	}
 
 	bp := utils.NewBookProcessor(book.FileName, zipPath)

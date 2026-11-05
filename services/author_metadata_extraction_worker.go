@@ -1,7 +1,6 @@
 package services
 
 import (
-	"archive/zip"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/authornorm"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/safepath"
@@ -109,8 +109,12 @@ type ZipArchiveSource struct{}
 
 // Open opens the zip file; a file that is not a readable zip is a systemic
 // archive failure, reported as an ordinary error for the caller to classify.
-func (ZipArchiveSource) Open(_ context.Context, path string) (ArchiveReader, error) {
-	r, err := zip.OpenReader(path)
+//
+// An archive only in object storage is read by ranges rather than copied: this
+// worker claims a few dozen books at a time, so one archive is opened again and
+// again, and the volume probe opens archives only to see that they open.
+func (ZipArchiveSource) Open(ctx context.Context, path string) (ArchiveReader, error) {
+	r, err := archivestore.Default().OpenArchive(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +122,7 @@ func (ZipArchiveSource) Open(_ context.Context, path string) (ArchiveReader, err
 }
 
 type zipArchiveReader struct {
-	r *zip.ReadCloser
+	r *archivestore.Archive
 }
 
 func (z *zipArchiveReader) Close() error { return z.r.Close() }
@@ -126,7 +130,7 @@ func (z *zipArchiveReader) Close() error { return z.r.Close() }
 func (z *zipArchiveReader) OpenEntry(name string) (io.ReadCloser, error) {
 	for _, f := range z.r.File {
 		if f.Name == name {
-			return f.Open()
+			return z.r.OpenFile(f)
 		}
 	}
 	return nil, ErrArchiveEntryGone

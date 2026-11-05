@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/models"
@@ -56,6 +57,7 @@ type HideResult struct {
 
 const (
 	batchSize      = 50        // Send WebSocket updates every N books
+	jobsPerWorker  = 2         // Archives queued ahead of each worker
 	hashBufferSize = 64 * 1024 // 64KB buffer for hashing
 )
 
@@ -118,60 +120,84 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 		logging.Warnf("Failed to update total_books: %v", err)
 	}
 
-	processedBooks := 0
 	var errorCount int64 = 0
 
 	totalBooksInt64 := int64(totalBooks)
 	progressCount := int64(0)
-	jobs := make(chan models.Book, workers*2)
+	jobs := make(chan archiveBooks, workers*jobsPerWorker)
 	var wg sync.WaitGroup
 
+	hashBook := func(archive *archivestore.Archive, book *models.Book, filePath string) {
+		hash, hashErr := bookMD5(archive, book.FileName)
+		if hashErr != nil {
+			logging.Warnf("Failed to compute MD5 for book ID %d (%s/%s): %v", book.ID, filePath, book.FileName, hashErr)
+			atomic.AddInt64(&errorCount, 1)
+			return
+		}
+		_, updateErr := db.Model(&models.Book{}).
+			Set("md5 = ?", hash).
+			Set("registerdate = registerdate"). // Preserve registerdate
+			Where("id = ?", book.ID).
+			Update()
+		if updateErr != nil {
+			logging.Errorf("Failed to update MD5 for book ID %d: %v", book.ID, updateErr)
+			atomic.AddInt64(&errorCount, 1)
+		}
+	}
+
+	countBook := func() {
+		current := atomic.AddInt64(&progressCount, 1)
+		if current%batchSize != 0 && current != totalBooksInt64 {
+			return
+		}
+		processed := int(current)
+		if progressErr := updateJobProgress(db, jobID, processed, 0); progressErr != nil {
+			logging.Warnf("Failed to update job progress: %v", progressErr)
+		}
+		if wsConn != nil {
+			_ = wsConn.SendMessage(DuplicateScanProgressType, DuplicateScanProgress{
+				JobID:           jobID,
+				Status:          "running",
+				ProcessedBooks:  processed,
+				TotalBooks:      totalBooks,
+				DuplicatesFound: 0,
+			})
+		}
+	}
+
+	// An archive is opened once for its books, so that one only in object
+	// storage is fetched once. A failed open is that archive's books failing,
+	// each counted and logged, and the job goes on.
 	worker := func() {
 		defer wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case book, ok := <-jobs:
+			case group, ok := <-jobs:
 				if !ok {
 					return
 				}
-
-				if book.MD5 == "" {
-					filePath := filepath.Join(filesPath, book.Path)
-					hash, hashErr := computeBookMD5(filePath, book.FileName)
-					if hashErr != nil {
-						logging.Warnf("Failed to compute MD5 for book ID %d (%s/%s): %v", book.ID, filePath, book.FileName, hashErr)
+				filePath := filepath.Join(filesPath, group.path)
+				archive, openErr := group.open(ctx, filePath)
+				for i := range group.books {
+					book := &group.books[i]
+					if ctx.Err() != nil {
+						break
+					}
+					switch {
+					case book.MD5 != "":
+					case openErr != nil:
+						logging.Warnf("Failed to compute MD5 for book ID %d (%s/%s): %v", book.ID, filePath, book.FileName, openErr)
 						atomic.AddInt64(&errorCount, 1)
-					} else {
-						_, err = db.Model(&models.Book{}).
-							Set("md5 = ?", hash).
-							Set("registerdate = registerdate"). // Preserve registerdate
-							Where("id = ?", book.ID).
-							Update()
-						if err != nil {
-							logging.Errorf("Failed to update MD5 for book ID %d: %v", book.ID, err)
-							atomic.AddInt64(&errorCount, 1)
-						}
+					default:
+						hashBook(archive, book, filePath)
 					}
+					countBook()
 				}
-
-				current := atomic.AddInt64(&progressCount, 1)
-				if current%batchSize == 0 || current == totalBooksInt64 {
-					processedBooks = int(current)
-					err = updateJobProgress(db, jobID, processedBooks, 0)
-					if err != nil {
-						logging.Warnf("Failed to update job progress: %v", err)
-					}
-
-					if wsConn != nil {
-						_ = wsConn.SendMessage(DuplicateScanProgressType, DuplicateScanProgress{
-							JobID:           jobID,
-							Status:          "running",
-							ProcessedBooks:  processedBooks,
-							TotalBooks:      totalBooks,
-							DuplicatesFound: 0,
-						})
+				if archive != nil {
+					if closeErr := archive.Close(); closeErr != nil {
+						logging.Warnf("Failed to close archive %s: %v", filePath, closeErr)
 					}
 				}
 			}
@@ -183,19 +209,19 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 		go worker()
 	}
 
-	for _, book := range books {
+	for _, group := range groupBooksByArchive(books) {
 		select {
 		case <-ctx.Done():
 			close(jobs)
 			wg.Wait()
 			logging.Warn("Scan cancelled by context")
 			return updateJobError(db, jobID, "scan_cancelled")
-		case jobs <- book:
+		case jobs <- group:
 		}
 	}
 	close(jobs)
 	wg.Wait()
-	processedBooks = int(atomic.LoadInt64(&progressCount))
+	processedBooks := int(atomic.LoadInt64(&progressCount))
 
 	// Calculate duplicates count after scanning is complete
 	duplicatesFound := 0
@@ -240,23 +266,69 @@ func ScanDuplicates(ctx context.Context, db *pg.DB, jobID int64, wsConn WebSocke
 	return nil
 }
 
+// archiveBooks is the books of one archive.
+type archiveBooks struct {
+	path  string
+	books []models.Book
+}
+
+// groupBooksByArchive splits books by archive, keeping the order of first
+// appearance.
+func groupBooksByArchive(books []models.Book) []archiveBooks {
+	index := make(map[string]int)
+	var groups []archiveBooks
+	for b := range books {
+		path := books[b].Path
+		i, seen := index[path]
+		if !seen {
+			i = len(groups)
+			index[path] = i
+			groups = append(groups, archiveBooks{path: path})
+		}
+		groups[i].books = append(groups[i].books, books[b])
+	}
+	return groups
+}
+
+// open opens the archive for the books that still need hashing; nil when none
+// does, which spares a scan that has nothing to do here from touching it.
+func (g archiveBooks) open(ctx context.Context, filePath string) (*archivestore.Archive, error) {
+	missing := 0
+	for i := range g.books {
+		if g.books[i].MD5 == "" {
+			missing++
+		}
+	}
+	if missing == 0 {
+		return nil, nil
+	}
+	return archivestore.Default().OpenBatch(ctx, filePath, missing)
+}
+
 // computeBookMD5 computes MD5 hash of a book file stored inside a zip archive.
 func computeBookMD5(zipPath string, filename string) (string, error) {
 	if filename == "" {
 		return "", errors.New("missing filename")
 	}
-	reader, err := zip.OpenReader(zipPath)
+	archive, err := archivestore.Default().OpenArchive(context.Background(), zipPath)
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		if closeErr := reader.Close(); closeErr != nil {
+		if closeErr := archive.Close(); closeErr != nil {
 			logging.Warnf("Failed to close zip %s: %v", zipPath, closeErr)
 		}
 	}()
+	return bookMD5(archive, filename)
+}
 
+// bookMD5 hashes one book of an open archive.
+func bookMD5(archive *archivestore.Archive, filename string) (string, error) {
+	if filename == "" {
+		return "", errors.New("missing filename")
+	}
 	var target *zip.File
-	for _, f := range reader.File {
+	for _, f := range archive.File {
 		if f.Name == filename {
 			target = f
 			break
@@ -266,13 +338,13 @@ func computeBookMD5(zipPath string, filename string) (string, error) {
 		return "", errors.New("book not found in archive")
 	}
 
-	rc, err := target.Open()
+	rc, err := archive.OpenFile(target)
 	if err != nil {
 		return "", err
 	}
 	defer func() {
 		if closeErr := rc.Close(); closeErr != nil {
-			logging.Warnf("Failed to close book stream %s/%s: %v", zipPath, filename, closeErr)
+			logging.Warnf("Failed to close book stream %s: %v", filename, closeErr)
 		}
 	}()
 
@@ -282,8 +354,7 @@ func computeBookMD5(zipPath string, filename string) (string, error) {
 
 	// Bounded like every other read out of an archive: hashing a bomb costs
 	// time rather than disk, but it costs it on the scan worker.
-	_, err = safeio.CopyBuffer(hash, rc, buffer, safeio.MaxBookBytes)
-	if err != nil {
+	if _, err := safeio.CopyBuffer(hash, rc, buffer, safeio.MaxBookBytes); err != nil {
 		return "", err
 	}
 

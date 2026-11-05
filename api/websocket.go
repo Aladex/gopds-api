@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
 	"gopds-api/services/kindlesend"
@@ -38,8 +41,11 @@ func ConvertBookToMobi(bookID int64) error {
 	zipPath := viper.GetString("app.files_path") + book.Path // Construct the path to the book file.
 	mobiConversionDir := viper.GetString("app.mobi_conversion_dir")
 
-	if !utils.FileExists(zipPath) {
-		return fmt.Errorf("book file not found: %s", zipPath)
+	if checkErr := archivestore.Default().Check(context.Background(), zipPath); checkErr != nil {
+		if errors.Is(checkErr, archivestore.ErrNotFound) {
+			return fmt.Errorf("book file not found: %s", zipPath)
+		}
+		return checkErr
 	}
 
 	bp := utils.NewBookProcessor(book.FileName, zipPath) // Create a new BookProcessor for the book file.

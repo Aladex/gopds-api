@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -9,7 +10,10 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"gopds-api/internal/archivestore"
+	"gopds-api/internal/objectstore/s3test"
 	"gopds-api/models"
 
 	"github.com/spf13/viper"
@@ -99,4 +103,54 @@ func TestAConversionStopsWithItsContext(t *testing.T) {
 	cancel()
 	_, err := PrepareFile(ctx, book, FormatEPUB, 50<<20)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// remoteBook is a book whose archive exists only in object storage.
+func remoteBook(t *testing.T) (*models.Book, *s3test.Server) {
+	t.Helper()
+	var archive bytes.Buffer
+	z := zip.NewWriter(&archive)
+	w, err := z.Create("book.fb2")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("<FictionBook/>"))
+	require.NoError(t, err)
+	require.NoError(t, z.Close())
+
+	server := s3test.New(t)
+	server.Put("archives/book.zip", archive.Bytes())
+	dir := t.TempDir() + "/"
+	store, err := archivestore.New(&archivestore.Config{
+		Root: dir, Client: server.Client(200*time.Millisecond, -1),
+		Prefix: "archives/", CacheDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+	previousStore := archivestore.Default()
+	archivestore.SetDefault(store)
+	old := viper.GetString("app.files_path")
+	viper.Set("app.files_path", dir)
+	t.Cleanup(func() {
+		archivestore.SetDefault(previousStore)
+		viper.Set("app.files_path", old)
+	})
+	return &models.Book{ID: 1, Path: "book.zip", FileName: "book.fb2", Title: "T"}, server
+}
+
+func TestPrepareFileFromObjectStorage(t *testing.T) {
+	book, _ := remoteBook(t)
+	file, err := PrepareFile(context.Background(), book, FormatFB2, 1<<20)
+	require.NoError(t, err)
+	assert.Equal(t, "<FictionBook/>", string(file.Data))
+}
+
+func TestPrepareFileSaysWhatWentWrong(t *testing.T) {
+	book, server := remoteBook(t)
+	missing := *book
+	missing.Path = "absent.zip"
+	_, err := PrepareFile(context.Background(), &missing, FormatFB2, 1<<20)
+	assert.ErrorIs(t, err, ErrFileMissing)
+
+	server.SetDown(true)
+	_, err = PrepareFile(context.Background(), book, FormatFB2, 1<<20)
+	assert.ErrorIs(t, err, archivestore.ErrUnavailable)
+	assert.NotErrorIs(t, err, ErrFileMissing)
 }

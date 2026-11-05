@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/safeio"
 	"gopds-api/models"
 	"gopds-api/utils"
@@ -43,8 +44,11 @@ func PrepareFile(ctx context.Context, book *models.Book, format string, limit in
 		return File{}, fmt.Errorf("delivery: files path not configured")
 	}
 	archive := base + book.Path
-	if !utils.FileExists(archive) {
-		return File{}, ErrFileMissing
+	if err := archivestore.Default().Check(ctx, archive); err != nil {
+		if errors.Is(err, archivestore.ErrNotFound) {
+			return File{}, ErrFileMissing
+		}
+		return File{}, err
 	}
 	bp := utils.NewBookProcessor(book.FileName, archive)
 

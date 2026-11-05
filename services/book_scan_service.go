@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
 	"gopds-api/internal/safeio"
@@ -129,6 +130,9 @@ func (s *BookScanService) PublishScanCompleted(report *ScanReport) {
 	}
 }
 
+// archiveListTimeout bounds asking object storage which archives it has.
+const archiveListTimeout = 30 * time.Second
+
 // GetUnscannedArchives returns list of unscanned archive file paths
 func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
 	// 1. Get list of all ZIP files in archives directory
@@ -146,6 +150,8 @@ func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
 		logging.Errorf("Failed to walk archives directory: %v", err)
 		return nil, err
 	}
+
+	archiveFiles = append(archiveFiles, s.remoteOnlyArchives(archiveFiles)...)
 
 	logging.Infof("Found %d ZIP archives in %s", len(archiveFiles), s.archivesDir)
 
@@ -179,6 +185,32 @@ func (s *BookScanService) GetUnscannedArchives() ([]string, error) {
 
 	logging.Infof("Found %d unscanned archives", len(unscannedArchives))
 	return unscannedArchives, nil
+}
+
+// remoteOnlyArchives names the archives object storage has and the disk does
+// not, as the paths they would have on disk. An archive moved off the disk
+// stays an archive. A store that cannot answer is no reason to stop scanning
+// what did arrive on disk.
+func (s *BookScanService) remoteOnlyArchives(local []string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), archiveListTimeout)
+	defer cancel()
+	names, err := archivestore.Default().List(ctx)
+	if err != nil {
+		logging.Warnf("Failed to list archives in object storage: %v", err)
+		return nil
+	}
+	known := make(map[string]bool, len(local))
+	for _, path := range local {
+		known[path] = true
+	}
+	var remote []string
+	for _, name := range names {
+		path := filepath.Join(s.archivesDir, filepath.FromSlash(name))
+		if !known[path] {
+			remote = append(remote, path)
+		}
+	}
+	return remote
 }
 
 // BeginScanJob resets the per-job publication state: a fresh scan job must
@@ -219,7 +251,7 @@ func (s *BookScanService) ScanArchive(archivePath string) (*ArchiveReport, error
 	}
 
 	// Open ZIP archive
-	zipReader, err := zip.OpenReader(archivePath)
+	zipReader, err := archivestore.Default().OpenWhole(context.Background(), archivePath)
 	if err != nil {
 		logging.Errorf("Failed to open archive %s: %v", archiveName, err)
 		report.Errors = append(report.Errors, ScanError{

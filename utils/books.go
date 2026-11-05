@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/converter"
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
@@ -28,11 +29,6 @@ type BookProcessor struct {
 // entry" from "archive unreadable" (the preview pipeline maps them to
 // different answers) can match on it instead of on a message string.
 var ErrBookNotInArchive = errors.New("book not found")
-
-func FileExists(path string) bool {
-	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
-}
 
 func NewBookProcessor(filename, path string) *BookProcessor {
 	return &BookProcessor{
@@ -73,35 +69,51 @@ func removeTmpFile(path string) {
 // assembled began with the book's own filename — it would have tried to
 // execute the book.
 func (bp *BookProcessor) process() (io.ReadCloser, error) {
-	r, err := zip.OpenReader(bp.path)
+	entry, rc, err := bp.open(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	defer closeResource(r)
+	defer closeResource(entry)
+	// Closed here rather than deferred with the entry, so that the order is
+	// plain: the stream ends before the archive under it does.
+	content, err := bp.readWithoutConversion(rc)
+	closeResource(rc)
+	return content, err
+}
 
-	for _, f := range r.File {
-		if f.Name != bp.filename {
-			continue
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return nil, err
-		}
-
-		// Closed here rather than deferred: a defer inside the loop would
-		// only run when the whole function returns, and the entry is read in
-		// full before that happens anyway.
-		content, err := bp.readWithoutConversion(rc)
-		closeResource(rc)
-		return content, err
+// open finds the book in its archive and opens it. Close the stream, then the
+// entry. A book the archive does not have is ErrBookNotInArchive.
+func (bp *BookProcessor) open(ctx context.Context) (*archivestore.Entry, io.ReadCloser, error) {
+	entry, err := bp.find(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil, ErrBookNotInArchive
+	rc, err := entry.Open()
+	if err != nil {
+		closeResource(entry)
+		return nil, nil, err
+	}
+	return entry, rc, nil
+}
+
+// find locates the book through the archive store: the file on disk when
+// there is one, object storage otherwise.
+func (bp *BookProcessor) find(ctx context.Context) (*archivestore.Entry, error) {
+	entry, err := archivestore.Default().Find(ctx, bp.path, bp.filename)
+	if errors.Is(err, archivestore.ErrEntryNotFound) {
+		return nil, ErrBookNotInArchive
+	}
+	return entry, err
 }
 
 func (bp *BookProcessor) readWithoutConversion(rc io.ReadCloser) (io.ReadCloser, error) {
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(rc); err != nil {
+		// A store that went away is worth naming: the caller answers it
+		// differently from a broken archive.
+		if errors.Is(err, archivestore.ErrUnavailable) {
+			return nil, err
+		}
 		return nil, errors.New("failed to read book")
 	}
 	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
@@ -116,7 +128,7 @@ func (bp *BookProcessor) Epub() (io.ReadCloser, error) {
 // EpubContext is Epub with the parse bound to ctx: a canceled or expired
 // context stops it.
 func (bp *BookProcessor) EpubContext(ctx context.Context) (io.ReadCloser, error) {
-	fb2Content, err := bp.extractFB2()
+	fb2Content, err := bp.extractFB2(ctx)
 	if err != nil {
 		logging.Errorf("Failed to extract FB2 from archive %s: %v", bp.path, err)
 		return nil, fmt.Errorf("failed to extract FB2: %w", err)
@@ -239,15 +251,11 @@ func (bp *BookProcessor) FB2() (io.ReadCloser, error) {
 // read through the limit, so an oversized book costs at most about limit
 // bytes of memory and fails with safeio.ErrTooLarge.
 func (bp *BookProcessor) FB2Limited(limit int64) ([]byte, error) {
-	r, err := zip.OpenReader(bp.path)
+	entry, rc, err := bp.open(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	defer closeResource(r)
-	rc, err := bp.openEntry(&r.Reader)
-	if err != nil {
-		return nil, err
-	}
+	defer closeResource(entry)
 	defer closeResource(rc)
 	return safeio.ReadAll(rc, limit)
 }
@@ -256,15 +264,11 @@ func (bp *BookProcessor) FB2Limited(limit int64) ([]byte, error) {
 // the archive is written into a buffer that refuses to grow past limit, and
 // fails with safeio.ErrTooLarge.
 func (bp *BookProcessor) ZipLimited(df string, limit int64) ([]byte, error) {
-	r, err := zip.OpenReader(bp.path)
+	entry, rc, err := bp.open(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	defer closeResource(r)
-	rc, err := bp.openEntry(&r.Reader)
-	if err != nil {
-		return nil, err
-	}
+	defer closeResource(entry)
 	defer closeResource(rc)
 	out := &cappedBuffer{limit: limit}
 	w := zip.NewWriter(out)
@@ -281,16 +285,6 @@ func (bp *BookProcessor) ZipLimited(df string, limit int64) ([]byte, error) {
 	return out.buf.Bytes(), nil
 }
 
-// openEntry opens the book's entry in its archive.
-func (bp *BookProcessor) openEntry(r *zip.Reader) (io.ReadCloser, error) {
-	for _, f := range r.File {
-		if f.Name == bp.filename {
-			return f.Open()
-		}
-	}
-	return nil, ErrBookNotInArchive
-}
-
 // cappedBuffer is a buffer that fails a write which would take it past limit.
 type cappedBuffer struct {
 	buf   bytes.Buffer
@@ -305,61 +299,46 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func (bp *BookProcessor) Zip(df string) (io.ReadCloser, error) {
+	entry, rc, err := bp.open(context.Background())
+	if errors.Is(err, ErrBookNotInArchive) {
+		return nil, errors.New("book is not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(entry)
+	defer closeResource(rc)
+
 	buf := new(bytes.Buffer)
 	w := zip.NewWriter(buf)
-	r, err := zip.OpenReader(bp.path)
+	zf, err := w.Create(df + ".fb2")
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range r.File {
-		if f.Name == bp.filename {
-			zf, err := w.Create(df + ".fb2")
-			if err != nil {
-				return nil, err
-			}
-			rc, err := f.Open()
-			if err != nil {
-				return nil, err
-			}
-			_, err = safeio.Copy(zf, rc, safeio.MaxBookBytes)
-			if err != nil {
-				return nil, err
-			}
-			err = w.Close()
-			if err != nil {
-				return nil, err
-			}
-			zipAnswer := io.NopCloser(bytes.NewReader(buf.Bytes()))
-
-			return zipAnswer, nil
-		}
+	if _, err := safeio.Copy(zf, rc, safeio.MaxBookBytes); err != nil {
+		return nil, err
 	}
-
-	return nil, errors.New("book is not found")
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
 
-func (bp *BookProcessor) extractFB2() ([]byte, error) {
-	reader, err := zip.OpenReader(bp.path)
+func (bp *BookProcessor) extractFB2(ctx context.Context) ([]byte, error) {
+	entry, err := bp.find(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer closeResource(reader)
-
-	for _, file := range reader.File {
-		if file.Name != bp.filename {
-			continue
-		}
-		if !strings.HasSuffix(strings.ToLower(file.Name), ".fb2") {
-			return nil, fmt.Errorf("file is not fb2: %s", file.Name)
-		}
-		rc, err := file.Open()
-		if err != nil {
-			return nil, err
-		}
-		defer closeResource(rc)
-		return safeio.ReadAll(rc, safeio.MaxBookBytes)
+	defer closeResource(entry)
+	if !strings.HasSuffix(strings.ToLower(entry.Name()), ".fb2") {
+		return nil, fmt.Errorf("file is not fb2: %s", entry.Name())
 	}
-	return nil, errors.New("book not found")
+	rc, err := entry.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer closeResource(rc)
+	return safeio.ReadAll(rc, safeio.MaxBookBytes)
 }
 
 // findKindlegen searches for kindlegen binary in common locations.

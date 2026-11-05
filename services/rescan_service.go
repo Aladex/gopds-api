@@ -1,7 +1,6 @@
 package services
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"gopds-api/database"
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
 	"gopds-api/internal/safeio"
@@ -285,29 +285,21 @@ func (s *RescanService) RejectRescan(bookID int64) (*models.RescanApprovalRespon
 
 func (s *RescanService) extractFB2FromArchive(archivePath, fileName string) ([]byte, error) {
 	// First, try to open as ZIP archive
-	zr, err := zip.OpenReader(archivePath)
+	entry, err := archivestore.Default().Find(context.Background(), archivePath, fileName)
 	if err == nil {
-		// Successfully opened as ZIP, try to find the file inside
-		defer zr.Close()
-
-		for _, file := range zr.File {
-			if file.Name == fileName {
-				rc, err := file.Open()
-				if err != nil {
-					return nil, err
-				}
-				defer rc.Close()
-
-				// Read file content
-				content, err := safeio.ReadAll(rc, safeio.MaxBookBytes)
-				if err != nil {
-					return nil, err
-				}
-
-				return content, nil
-			}
+		defer entry.Close()
+		rc, openErr := entry.Open()
+		if openErr != nil {
+			return nil, openErr
 		}
+		defer rc.Close()
+		return safeio.ReadAll(rc, safeio.MaxBookBytes)
+	}
+	if errors.Is(err, archivestore.ErrEntryNotFound) {
 		return nil, fmt.Errorf("file not found in archive: %s", fileName)
+	}
+	if errors.Is(err, archivestore.ErrUnavailable) {
+		return nil, err
 	}
 
 	// If not a valid ZIP, try to read as direct FB2 file

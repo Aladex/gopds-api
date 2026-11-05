@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gopds-api/database"
+	"gopds-api/internal/archivestore"
 	"gopds-api/internal/parser"
 	"gopds-api/internal/posters"
 	"gopds-api/internal/safeio"
@@ -224,7 +225,7 @@ func (s *FixScanService) groupByArchive(books []models.Book) []archiveGroup {
 
 func (s *FixScanService) processArchiveGroup(ctx context.Context, group archiveGroup, addError func(FixScanError)) {
 	// Open ZIP once for all books in this archive
-	zr, err := zip.OpenReader(group.archivePath)
+	zr, err := archivestore.Default().OpenBatch(ctx, group.archivePath, len(group.books))
 	if err != nil {
 		// Log error for all books in this group
 		for _, book := range group.books {

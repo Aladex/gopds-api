@@ -10,6 +10,7 @@ import (
 
 	"gopds-api/database"
 	"gopds-api/httputil"
+	"gopds-api/internal/archivestore"
 	"gopds-api/logging"
 	"gopds-api/utils"
 
@@ -52,8 +53,8 @@ func DownloadBook(c *gin.Context) {
 	}
 
 	zipPath := viper.GetString("app.files_path") + book.Path
-	if !utils.FileExists(zipPath) {
-		httputil.NewError(c, http.StatusNotFound, errors.New("book file not found"))
+	if checkErr := archivestore.Default().Check(c.Request.Context(), zipPath); checkErr != nil {
+		httputil.BookFileError(c, checkErr)
 		return
 	}
 
@@ -77,7 +78,7 @@ func DownloadBook(c *gin.Context) {
 	}
 
 	if err != nil {
-		httputil.NewError(c, http.StatusInternalServerError, err)
+		httputil.BookFileError(c, err)
 		return
 	}
 
