@@ -225,24 +225,29 @@ func TestBadListingCountsAgainstTheStore(t *testing.T) {
 }
 
 func TestContentRangeIsCheckedWhole(t *testing.T) {
-	for name, header := range map[string]string{
-		"another start":    "bytes 3-6/100",
-		"another end":      "bytes 2-9/100",
-		"shorter":          "bytes 2-4/100",
-		"longer":           "bytes 2-6/100",
-		"end before start": "bytes 2-1/100",
-		"end past total":   "bytes 2-5/4",
-		"no total":         "bytes 2-5/*",
-		"no end":           "bytes 2-/100",
-		"not bytes":        "items 2-5/100",
-		"garbage":          "bytes a-b/c",
-		"absent":           "",
+	// Each body is as long as its header says, so that the header alone gives
+	// the answer away, and not a Content-Length that does not match it.
+	for name, answer := range map[string]struct {
+		header string
+		body   int
+	}{
+		"another start":    {"bytes 3-6/100", 4},
+		"another end":      {"bytes 2-9/100", 8},
+		"shorter":          {"bytes 2-4/100", 3},
+		"longer":           {"bytes 2-6/100", 5},
+		"end before start": {"bytes 2-1/100", 4},
+		"end past total":   {"bytes 2-5/4", 4},
+		"no total":         {"bytes 2-5/*", 4},
+		"no end":           {"bytes 2-/100", 4},
+		"not bytes":        {"items 2-5/100", 4},
+		"garbage":          {"bytes a-b/c", 4},
+		"absent":           {"", 4},
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Range", header)
+				w.Header().Set("Content-Range", answer.header)
 				w.WriteHeader(http.StatusPartialContent)
-				_, _ = w.Write([]byte("2345"))
+				_, _ = w.Write(make([]byte, answer.body))
 			}))
 			defer server.Close()
 			_, err := clientOf(t, server.URL).Get(context.Background(), "a", 2, 4, "")

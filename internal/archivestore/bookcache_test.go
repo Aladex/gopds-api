@@ -454,7 +454,11 @@ func TestStrangeFilesInTheCacheAreIgnored(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, misplaced), []byte(strings.Repeat("s", 500)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(goodFile, filepath.Join(dir, good[:2], testKey("link"))); err != nil {
+	link := testKey("link")
+	if err := os.MkdirAll(filepath.Join(dir, link[:2]), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(goodFile, filepath.Join(dir, link[:2], link)); err != nil {
 		t.Fatal(err)
 	}
 

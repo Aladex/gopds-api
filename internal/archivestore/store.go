@@ -187,11 +187,11 @@ func (s *Store) StartRead(ctx context.Context) context.Context {
 	return context.WithValue(ctx, readDeadline{}, s.now().Add(s.readBudget))
 }
 
-// bound limits one operation on a remote archive to the budget of the read it
-// belongs to, or to a budget of its own. A file on disk has none: it was never
-// limited, and object storage has no say in it.
-func (s *Store) bound(ctx context.Context, localPath string) (context.Context, context.CancelFunc) {
-	if s.client == nil || onDisk(localPath) {
+// bound limits one operation to the budget of the read it belongs to, or to a
+// budget of its own. Only a remote archive can feel it: a file on disk is read
+// without looking at the context, as it always was.
+func (s *Store) bound(ctx context.Context) (context.Context, context.CancelFunc) {
+	if s.client == nil {
 		return ctx, func() {}
 	}
 	deadline, started := ctx.Value(readDeadline{}).(time.Time)
@@ -257,7 +257,7 @@ func (s *Store) Check(ctx context.Context, localPath string) error {
 	if !ok {
 		return ErrNotFound
 	}
-	ctx, cancel := s.bound(ctx, localPath)
+	ctx, cancel := s.bound(ctx)
 	defer cancel()
 	_, err := s.directory(ctx, key)
 	return mapError(err)
@@ -382,7 +382,7 @@ type Entry struct {
 // The Entry must be closed. A remote entry has the budget of one read, from
 // here until it is closed.
 func (s *Store) Find(ctx context.Context, localPath, name string) (*Entry, error) {
-	ctx, cancel := s.bound(ctx, localPath)
+	ctx, cancel := s.bound(ctx)
 	archive, err := s.OpenArchive(ctx, localPath)
 	if err != nil {
 		cancel()

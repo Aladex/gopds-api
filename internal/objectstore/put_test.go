@@ -3,6 +3,8 @@ package objectstore_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -133,6 +135,25 @@ func TestWriteGoesThroughWhileReadsRest(t *testing.T) {
 	}
 	if err := client.Put(ctx, "thumbs/a.jpg", []byte("x"), jpegType); err != nil {
 		t.Fatalf("a write has nothing to do with the read breaker: %v", err)
+	}
+}
+
+func TestWriteRefusedInSilenceIsBounded(t *testing.T) {
+	server := httptest.NewServer(silent(http.StatusServiceUnavailable))
+	defer server.Close()
+	client, err := objectstore.New(&objectstore.Config{
+		Endpoint: server.URL, Region: s3test.Region, Bucket: s3test.Bucket,
+		AccessKeyID: s3test.AccessKey, SecretAccessKey: s3test.SecretKey,
+		PathStyle: true, RequestTimeout: timeout, WritePrefix: thumbsPrefix,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = within(t, settled, func() error {
+		return client.Put(context.Background(), "thumbs/a.jpg", []byte("x"), jpegType)
+	})
+	if !errors.Is(err, objectstore.ErrUnavailable) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
