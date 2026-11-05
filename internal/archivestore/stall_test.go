@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"gopds-api/internal/objectstore/s3test"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -71,6 +73,73 @@ func TestDirectoryLoadOutlivesNoOneForever(t *testing.T) {
 			}
 			waitForIdle(t, fx.server, settleLimit)
 		})
+	}
+}
+
+// A caller that has already left has nobody to load for. Waiting on the key
+// is what makes this exact: a load is registered before directory returns, so
+// a Do on the key either joins it until it ends or runs after it has ended.
+func TestCallerAlreadyGoneStartsNoLoad(t *testing.T) {
+	for name, prepare := range map[string]func(*fixture, string) error{
+		"first open": func(*fixture, string) error { return nil },
+		"stale directory": func(fx *fixture, key string) error {
+			if err := fx.store.Check(context.Background(), fx.path); err != nil {
+				return err
+			}
+			fx.store.directories.expire(key)
+			return nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := newFixture(t, &Config{ReadBudget: testBudget}, buildArchive(t, 5, 1000, 25))
+			key, _ := fx.store.key(fx.path)
+			if err := prepare(fx, key); err != nil {
+				t.Fatal(err)
+			}
+			fx.server.Reset()
+			gone, leave := context.WithCancel(context.Background())
+			leave()
+
+			if err := fx.store.Check(gone, fx.path); !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("err = %v", err)
+			}
+
+			_, _, _ = fx.store.loads.Do(key, func() (any, error) { return nil, nil })
+			if n := fx.server.Requests(); n != 0 {
+				t.Fatalf("%d requests for a caller that left", n)
+			}
+		})
+	}
+}
+
+// The load is held open through the group itself, so that it is running when
+// the caller arrives with nothing to poll for.
+func TestCallerAlreadyGoneLeavesARunningLoadAlone(t *testing.T) {
+	fx := newFixture(t, &Config{ReadBudget: testBudget}, buildArchive(t, 5, 1000, 26))
+	key, _ := fx.store.key(fx.path)
+	release := make(chan struct{})
+	running := fx.store.loads.DoChan(key, func() (any, error) {
+		<-release
+		return fx.store.loadDirectory(context.Background(), key, nil)
+	})
+	gone, leave := context.WithCancel(context.Background())
+	leave()
+
+	if err := fx.store.Check(gone, fx.path); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v", err)
+	}
+
+	waiting := fx.store.loads.DoChan(key, func() (any, error) {
+		return nil, errors.New("the running load was dropped")
+	})
+	close(release)
+	for name, result := range map[string]<-chan singleflight.Result{"the load": running, "its waiter": waiting} {
+		if done := <-result; done.Err != nil {
+			t.Errorf("%s: %v", name, done.Err)
+		}
+	}
+	if n := fx.server.Requests(); n != 2 {
+		t.Errorf("%d requests, want the HEAD and the tail of one load", n)
 	}
 }
 

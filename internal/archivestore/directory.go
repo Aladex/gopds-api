@@ -52,6 +52,10 @@ func (s *Store) directory(ctx context.Context, key string) (*directory, error) {
 	if cached != nil && s.now().Sub(cached.checked) < directoryRevalidate {
 		return cached, nil
 	}
+	// A load outlives its caller, so a caller already gone must not start one.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
 	// The load outlives the caller that started it: the others are waiting on
 	// it too. The client's timeouts only bound silence, and a store that keeps
 	// dripping is never silent, so the load has a deadline of its own.
