@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-pg/pg/v10"
 
+	"gopds-api/internal/archivestore"
 	"gopds-api/models"
 )
 
@@ -429,5 +430,31 @@ func TestZipArchiveLoader_CancelDuringReadStopsWithinOnePortion(t *testing.T) {
 	if pulled > maxExpected {
 		t.Errorf("read %d bytes after cancellation, want at most %d (two portions) — "+
 			"the loader must stop within one portion of I/O once ctx is canceled", pulled, maxExpected)
+	}
+}
+
+// A book that came with a replaced archive, asked for while the store is down.
+// The preview answers "come back later" for storage and "this book has no
+// file" for a missing entry, so the loader must not call this the second.
+func TestZipArchiveLoader_OutageIsNotAMissingFile(t *testing.T) {
+	server, root := remoteLibrary(t, 1)
+	loader := NewZipArchiveLoader(root)
+	if _, err := loader.Load(context.Background(), remoteArchiveName, "0.fb2", 1<<20); err != nil {
+		t.Fatal(err)
+	}
+
+	server.Put("archives/"+remoteArchiveName, remoteZip(t, 2))
+	server.SetDown(true)
+	_, err := loader.Load(context.Background(), remoteArchiveName, "1.fb2", 1<<20)
+	if !errors.Is(err, archivestore.ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+	if errors.Is(err, ErrArchiveFileNotFound) {
+		t.Fatalf("err = %v: the outage became a missing file", err)
+	}
+
+	server.SetDown(false)
+	if _, err := loader.Load(context.Background(), remoteArchiveName, "1.fb2", 1<<20); err != nil {
+		t.Fatalf("after the outage: %v", err)
 	}
 }

@@ -25,6 +25,9 @@ var bookTypes = map[string]string{
 	"mobi": "application/x-mobipocket-ebook",
 }
 
+// bookByID is the database call behind DownloadBook, replaced in tests.
+var bookByID = database.GetBook
+
 // DownloadBook returns a book file
 func DownloadBook(c *gin.Context) {
 	bookID, err := strconv.ParseInt(c.Param("id"), 10, 0)
@@ -36,7 +39,7 @@ func DownloadBook(c *gin.Context) {
 	format := c.Param("format")
 	userID := c.GetInt64("user_id")
 
-	book, err := database.GetBook(bookID)
+	book, err := bookByID(bookID)
 	if err != nil {
 		httputil.NewError(c, http.StatusNotFound, err)
 		return

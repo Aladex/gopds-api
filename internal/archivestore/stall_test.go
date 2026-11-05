@@ -193,3 +193,88 @@ func TestEntryCloseReleasesItsBudget(t *testing.T) {
 		t.Fatal("closing the entry left its context running")
 	}
 }
+
+// replacedDuringAnOutage caches the directory of a one-book archive, replaces
+// the object with one of three books and takes the store down, which is how a
+// book can be in the catalog and in the bucket yet not in what is known here.
+func replacedDuringAnOutage(t *testing.T) (fx *fixture, after []byte) {
+	t.Helper()
+	fx = newFixture(t, &Config{}, buildArchive(t, 1, 100, 41))
+	fx.store.client = fx.server.Client(testTimeout, -1)
+	readBook(t, fx.store, fx.path, bookName(0))
+	after = buildArchive(t, 3, 100, 42)
+	fx.server.Put(testPrefix+testArchive, after)
+	fx.server.SetDown(true)
+	return fx, after
+}
+
+func TestNewBookIsNotMissingWhileTheStoreCannotSay(t *testing.T) {
+	fx, after := replacedDuringAnOutage(t)
+
+	_, err := fx.store.Find(context.Background(), fx.path, bookName(2))
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+	if errors.Is(err, ErrEntryNotFound) {
+		t.Fatalf("err = %v: an outage proved a book absent", err)
+	}
+
+	fx.server.SetDown(false)
+	got := readBook(t, fx.store, fx.path, bookName(2))
+	if !bytes.Equal(got, wantBook(t, after, bookName(2))) {
+		t.Fatal("wrong book after the outage")
+	}
+}
+
+// A stale directory is still good for what it does list.
+func TestStaleDirectoryStillFindsWhatItKnows(t *testing.T) {
+	fx, _ := replacedDuringAnOutage(t)
+	if _, err := fx.store.Find(context.Background(), fx.path, bookName(2)); err == nil {
+		t.Fatal("found a book the directory does not list")
+	}
+
+	entry, err := fx.store.Find(context.Background(), fx.path, bookName(0))
+	if err != nil {
+		t.Fatalf("a known book during the outage: %v", err)
+	}
+	_ = entry.Close()
+}
+
+// The same outage over an archive that has not changed: nothing here tells the
+// two apart, so neither may be called a missing book.
+func TestAbsentEntryNeedsAStoreThatAnswered(t *testing.T) {
+	fx := newFixture(t, &Config{}, buildArchive(t, 1, 100, 43))
+	fx.store.client = fx.server.Client(testTimeout, -1)
+	readBook(t, fx.store, fx.path, bookName(0))
+
+	fx.server.SetDown(true)
+	if _, err := fx.store.Find(context.Background(), fx.path, "absent.fb2"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("store down: %v", err)
+	}
+	fx.server.SetDown(false)
+	if _, err := fx.store.Find(context.Background(), fx.path, "absent.fb2"); !errors.Is(err, ErrEntryNotFound) {
+		t.Fatalf("store back: %v", err)
+	}
+}
+
+func TestStallDuringTheRefreshIsNotAMissingBook(t *testing.T) {
+	fx, _ := replacedDuringAnOutage(t)
+	fx.server.SetDown(false)
+	fx.server.SetHang(true)
+	defer fx.server.SetHang(false)
+
+	if _, err := fx.store.Find(context.Background(), fx.path, bookName(2)); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestArchiveGoneDuringTheRefreshIsAMissingArchive(t *testing.T) {
+	fx := newFixture(t, &Config{}, buildArchive(t, 1, 100, 44))
+	readBook(t, fx.store, fx.path, bookName(0))
+	fx.server.Delete(testPrefix + testArchive)
+
+	_, err := fx.store.Find(context.Background(), fx.path, bookName(2))
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}

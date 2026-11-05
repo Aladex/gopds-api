@@ -141,6 +141,11 @@ func (s *Server) PutAt(key string, data []byte, modified time.Time) {
 	s.objects[key] = &object{data: data, etag: hex.EncodeToString(sum[:]), modified: modified.Truncate(time.Second)}
 }
 
+// Delete removes an object.
+func (s *Server) Delete(key string) {
+	s.set(func() { delete(s.objects, key) })
+}
+
 // Object returns what the server holds under key, and its Content-Type.
 func (s *Server) Object(key string) (data []byte, kind string, ok bool) {
 	s.mu.Lock()

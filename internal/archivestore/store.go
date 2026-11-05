@@ -392,7 +392,12 @@ func (s *Store) Find(ctx context.Context, localPath, name string) (*Entry, error
 	if file == nil && archive.ranged != nil {
 		// A cached directory may predate this book, and no ranged read will
 		// ever catch that, because there is nothing to read.
-		archive, file = s.findAfterRevalidating(ctx, archive, name)
+		archive, file, err = s.findAfterRevalidating(ctx, archive, name)
+	}
+	if err != nil {
+		_ = archive.Close()
+		cancel()
+		return nil, err
 	}
 	if file == nil {
 		_ = archive.Close()
@@ -403,21 +408,28 @@ func (s *Store) Find(ctx context.Context, localPath, name string) (*Entry, error
 }
 
 // findAfterRevalidating asks the store whether a directory is still current
-// and looks again in the one it gets. A failure leaves the original archive:
-// the book is then simply not in the directory that is known.
-func (s *Store) findAfterRevalidating(ctx context.Context, archive *Archive, name string) (*Archive, *zip.File) {
+// and looks again in the one it gets. No file and no error is a book the store
+// itself has said is absent. A store that could not say is an error: the
+// archive may have changed, and the directory known here cannot tell.
+func (s *Store) findAfterRevalidating(ctx context.Context, archive *Archive, name string) (*Archive, *zip.File, error) {
 	key := archive.ranged.key
 	s.directories.expire(key)
 	dir, err := s.directory(ctx, key)
-	if err != nil || dir.info.ETag == archive.ranged.dir.info.ETag {
-		return archive, nil
+	if err != nil {
+		return archive, nil, mapError(err)
+	}
+	if dir.unverified != nil {
+		return archive, nil, dir.unverified
+	}
+	if dir.info.ETag == archive.ranged.dir.info.ETag {
+		return archive, nil, nil
 	}
 	fresh, err := s.remoteArchive(ctx, key, dir)
 	if err != nil {
-		return archive, nil
+		return archive, nil, err
 	}
 	_ = archive.Close()
-	return fresh, findFile(fresh.Reader, name)
+	return fresh, findFile(fresh.Reader, name), nil
 }
 
 func findFile(r *zip.Reader, name string) *zip.File {

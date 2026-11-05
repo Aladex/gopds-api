@@ -21,6 +21,10 @@ import (
 	"github.com/spf13/viper"
 )
 
+// bookByID is the database call behind a book's download and conversion,
+// replaced in tests.
+var bookByID = database.GetBook
+
 var bookTypes = map[string]string{
 	"fb2":  "application/fb2+xml",
 	"zip":  "application/zip",
@@ -58,7 +62,7 @@ func GetBookFile(c *gin.Context) {
 		return
 	}
 
-	book, err := database.GetBook(bookID)
+	book, err := bookByID(bookID)
 	if err != nil {
 		httputil.NewError(c, http.StatusNotFound, err)
 		return

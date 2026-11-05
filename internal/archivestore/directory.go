@@ -37,6 +37,10 @@ type directory struct {
 	tail       []byte
 	tailOffset int64
 	checked    time.Time
+	// unverified is why this copy could not be checked against the store. It
+	// is good for the entries it lists; one it lacks proves nothing. Only the
+	// copy handed to the callers of that load has it, never the cached one.
+	unverified error
 }
 
 func (d *directory) weight() int64 { return int64(len(d.tail)) }
@@ -74,7 +78,9 @@ func (s *Store) loadDirectory(ctx context.Context, key string, cached *directory
 			// An outage is no reason to forget a directory that was good a
 			// moment ago: every ranged read still checks the version.
 			logging.Warnf("archivestore: revalidating %s: %v", key, err)
-			return cached, nil
+			stale := *cached
+			stale.unverified = err
+			return &stale, nil
 		}
 		return nil, err
 	}
