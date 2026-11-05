@@ -36,7 +36,7 @@ func paddedArchive(t *testing.T) []byte {
 func TestMobiConversionSharesOneBudgetWithItsCheck(t *testing.T) {
 	const delay = 150 * time.Millisecond
 	entry := "0.fb2"
-	server := bucketLibrary(t, archivestore.Config{ReadBudget: delay * 5 / 2}, &entry)
+	server := bucketLibrary(t, delay*5/2, &entry)
 	server.Put("archives/"+bucketArchive, paddedArchive(t))
 	server.SetDelay(delay)
 

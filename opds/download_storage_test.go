@@ -3,6 +3,7 @@ package opds
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,7 +42,7 @@ func download(t *testing.T) *httptest.ResponseRecorder {
 	router := gin.New()
 	router.GET("/download/:id/:format", DownloadBook)
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/download/1/fb2", http.NoBody)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/download/1/fb2", http.NoBody)
 	router.ServeHTTP(response, request)
 	return response
 }

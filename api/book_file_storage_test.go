@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,14 +39,15 @@ func archiveOf(t *testing.T, n int) []byte {
 }
 
 // bucketLibrary installs a store over a fake bucket and makes every book row
-// point at its archive, under the name in entry.
-func bucketLibrary(t *testing.T, cfg archivestore.Config, entry *string) *s3test.Server {
+// point at its archive, under the name in entry. A zero budget is the default.
+func bucketLibrary(t *testing.T, budget time.Duration, entry *string) *s3test.Server {
 	t.Helper()
 	server := s3test.New(t)
 	root := t.TempDir() + "/"
-	cfg.Root, cfg.Prefix, cfg.CacheDir = root, "archives/", t.TempDir()
-	cfg.Client = server.Client(time.Second, -1)
-	store, err := archivestore.New(&cfg)
+	store, err := archivestore.New(&archivestore.Config{
+		Root: root, Prefix: "archives/", CacheDir: t.TempDir(),
+		Client: server.Client(time.Second, -1), ReadBudget: budget,
+	})
 	require.NoError(t, err)
 	previous := archivestore.Default()
 	archivestore.SetDefault(store)
@@ -68,7 +70,7 @@ func getBookFile(t *testing.T) *httptest.ResponseRecorder {
 	router := gin.New()
 	router.GET("/files/:format/:id", GetBookFile)
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/files/fb2/1", http.NoBody)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/files/fb2/1", http.NoBody)
 	router.ServeHTTP(response, request)
 	return response
 }
@@ -77,7 +79,7 @@ func getBookFile(t *testing.T) *httptest.ResponseRecorder {
 // the directory known here lacks it, and that proves nothing.
 func TestNewBookDuringAnOutageIs503(t *testing.T) {
 	entry := "0.fb2"
-	server := bucketLibrary(t, archivestore.Config{}, &entry)
+	server := bucketLibrary(t, 0, &entry)
 	server.Put("archives/"+bucketArchive, archiveOf(t, 1))
 	require.Equal(t, http.StatusOK, getBookFile(t).Code)
 
