@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import * as booksApi from '@/api/books';
 import { authorTitle } from '@/shared/lib/authorTitle';
 import { useAuthor } from '@/context/AuthorContext';
+import { authorPath, isSearchPath } from '@/features/catalogue/addresses';
 import { useSearchBar } from '@/context/SearchBarContext';
 
 export type SearchScopeKind = 'author' | 'series' | 'genre' | 'collection' | 'favorites';
@@ -47,8 +48,8 @@ interface RouteScope {
 const SCOPED_ROUTES: Array<{ match: RegExp; build: (id: string) => RouteScope }> = [
     {
         // A legacy author's number, or an author entity's UUID.
-        match: /^\/books\/find\/author\/(\d+|[0-9a-fA-F]{8}-[0-9a-fA-F-]{27})(?:\/|$)/,
-        build: (id) => ({ kind: 'author', id, firstPagePath: `/books/find/author/${id}/1` }),
+        match: /^\/author\/(\d+|[0-9a-fA-F]{8}-[0-9a-fA-F-]{27})(?:\/|$)/,
+        build: (id) => ({ kind: 'author', id, firstPagePath: authorPath(id) }),
     },
     {
         match: /^\/books\/find\/category\/(\d+)(?:\/|$)/,
@@ -80,38 +81,28 @@ export const routeScopeFrom = (pathname: string): RouteScope | null => {
 
 /**
  * searchTitleFromLocation recovers the visible query from where a search put
- * it: the segment of a title route, or the title parameter a scoped search
+ * it: the words of a book search, or the title parameter a scoped search
  * writes next to its filters. A cold reload seeds the input from this rather
  * than showing a blank field over a filtered list.
  */
 export const searchTitleFromLocation = (pathname: string, search: string): string => {
-    const segments = pathname.split('/');
-    // ['', 'books', 'find', 'title', <query>, <page>]
-    if (
-        segments[1] === 'books' &&
-        segments[2] === 'find' &&
-        segments[3] === 'title' &&
-        segments[4]
-    ) {
-        try {
-            return decodeURIComponent(segments[4]);
-        } catch {
-            return segments[4];
-        }
-    }
-    return new URLSearchParams(search).get('title') ?? '';
+    const params = new URLSearchParams(search);
+    // A name searched for among authors is not a title, and the box has never
+    // shown one on arrival.
+    const query = isSearchPath(pathname) && params.get('type') !== 'authors' && params.get('q');
+    return query || (params.get('title') ?? '');
 };
 
 /**
  * unsearchedPathFrom says where "clear the search" lands: the same list the
  * reader is looking at, without the query.
  *
- * A search leaves the reader somewhere they cannot leave. The global one puts
- * the words in the path — /books/find/title/война/1 — and there is no version
- * of that route without them, so the way back is the plain catalogue. A scoped
+ * A search leaves the reader somewhere they cannot leave. The global one is
+ * its words — /search?q=война&type=books — and there is no version of that
+ * address without them, so the way back is the plain catalogue. A scoped
  * one keeps its list and hangs the query off it, so dropping the query is
  * enough and the reader stays where they were. Searching for an author by name
- * is its own route and returns to the catalogue too.
+ * has no list of its own to go back to, and returns to the catalogue too.
  *
  * Returns an empty string when nothing is being searched, which is how the
  * caller knows not to offer the control at all.

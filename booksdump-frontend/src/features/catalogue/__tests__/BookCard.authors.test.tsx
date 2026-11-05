@@ -82,8 +82,8 @@ describe('the authors of a book', () => {
         renderCard({});
 
         expect(linkTargets()).toEqual([
-            ['Петров Иван', '/books/find/author/7/1'],
-            ['Сидорова Анна', '/books/find/author/8/1'],
+            ['Петров Иван', '/author/7'],
+            ['Сидорова Анна', '/author/8'],
         ]);
     });
 
@@ -96,8 +96,8 @@ describe('the authors of a book', () => {
         });
 
         expect(linkTargets()).toEqual([
-            ['Анна Сидорова', '/books/find/author/8/1'],
-            ['Иван Петрович Петров', '/books/find/author/7/1'],
+            ['Анна Сидорова', '/author/8'],
+            ['Иван Петрович Петров', '/author/7'],
         ]);
         expect(screen.queryByText('Петров Иван')).toBeNull();
     });
@@ -107,7 +107,7 @@ describe('the authors of a book', () => {
             authors_display: [{ name: 'Иван Петров', legacy_author_id: 7 }, { name: 'Мастер' }],
         });
 
-        expect(linkTargets()).toEqual([['Иван Петров', '/books/find/author/7/1']]);
+        expect(linkTargets()).toEqual([['Иван Петров', '/author/7']]);
         const plain = authorsRow().getByText('Мастер');
         expect(plain.closest('a')).toBeNull();
         // A comma stands between every two names, linked or not.
@@ -154,7 +154,7 @@ describe('the authors of a book under the entity identity', () => {
             ],
         });
 
-        expect(linkTargets()).toEqual([['С. Кинг', `/books/find/author/${king}/1`]]);
+        expect(linkTargets()).toEqual([['С. Кинг', `/author/${king}`]]);
         fireEvent.click(authorsRow().getByRole('link'));
         expect(setAuthorName).toHaveBeenCalledWith('Стивен Кинг · Ужасы');
         expect(authorsRow().getByText('Мастер').closest('a')).toBeNull();
@@ -197,8 +197,8 @@ describe('the authors of a book under the entity identity', () => {
         );
         const items = await screen.findAllByRole('menuitem');
         expect(items.map((item) => [item.textContent, item.getAttribute('href')])).toEqual([
-            ['Аркадий Стругацкий', `/books/find/author/${arkady}/1`],
-            ['Борис Стругацкий', `/books/find/author/${boris}/1`],
+            ['Аркадий Стругацкий', `/author/${arkady}`],
+            ['Борис Стругацкий', `/author/${boris}`],
         ]);
         await userEvent.click(items[1]);
         expect(setAuthorName).toHaveBeenCalledWith('Борис Стругацкий');
@@ -218,6 +218,6 @@ describe('a book whose entity line names no one', () => {
         expect(screen.queryByTestId('book-byline')).toBeNull();
         expect(
             screen.queryAllByRole('link').map((link) => link.getAttribute('href')),
-        ).not.toContain('/books/find/author/177615/1');
+        ).not.toContain('/author/177615');
     });
 });

@@ -185,7 +185,7 @@ describe('the values on the card', () => {
 
         expect(screen.getByRole('link', { name: 'Аркадий Стругацкий' })).toHaveAttribute(
             'href',
-            '/books/find/author/1/1',
+            '/author/1',
         );
         expect(screen.getByRole('link', { name: 'Мир Полудня' })).toHaveAttribute(
             'href',

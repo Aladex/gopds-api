@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	assets "gopds-api"
+	"gopds-api/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,6 +30,11 @@ var clientRoutes = []string{
 	"/books/find/genre/42/1",
 	"/books/find/title/dune/1",
 	"/authors/herbert/1",
+	"/search",
+	"/search?q=a%2Fb%3F%25%2B&type=authors&page=2",
+	"/author/42",
+	"/author/42?title=dune&page=3",
+	"/author/01a168d0-a113-741a-b69d-53b91f3c7eb9",
 	"/collections",
 	"/collections/page/1",
 	"/collections/7/page/1",
@@ -84,6 +90,38 @@ func TestSPAFallbackServesIndexForClientRoutes(t *testing.T) {
 			}
 			if rec.Body.Len() == 0 {
 				t.Fatal("empty body")
+			}
+		})
+	}
+}
+
+// TestRealRouterLeavesAddressesToSPA runs the search and author addresses, old
+// and new, through the real route table: the fallback only answers what no
+// registered route claimed.
+func TestRealRouterLeavesAddressesToSPA(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	setupRoutes(engine, nil, nil, nil, config.AuthorsConfig{})
+
+	for _, target := range []string{
+		"/search?q=a%2Fb%3F%25%2B&type=books",
+		"/author/42?page=3",
+		"/author/01a168d0-a113-741a-b69d-53b91f3c7eb9",
+		"/books/find/title/a%2Fb/1",
+		"/books/find/author/42/1",
+		"/authors/herbert/1",
+	} {
+		t.Run(target, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, target, http.NoBody)
+			req.Header.Set("Accept", "text/html")
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET %s = %d, want 200", target, rec.Code)
+			}
+			if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+				t.Fatalf("GET %s Content-Type = %q, want text/html", target, got)
 			}
 		})
 	}

@@ -162,7 +162,7 @@ describe('BooksList query building', () => {
     });
 
     it('filters by author on the author route', async () => {
-        renderAt('/books/find/author/42/1', '/books/find/author/:id/:page');
+        renderAt('/author/42', '/author/:id');
 
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
         expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ author: '42' }));
@@ -183,10 +183,7 @@ describe('BooksList query building', () => {
     });
 
     it('decodes the title from the url', async () => {
-        renderAt(
-            `/books/find/title/${encodeURIComponent('дюна')}/1`,
-            '/books/find/title/:title/:page',
-        );
+        renderAt(`/search?q=${encodeURIComponent('дюна')}&type=books`, '/search');
 
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
         expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ title: 'дюна' }));
@@ -205,10 +202,7 @@ describe('BooksList query building', () => {
 // the same API query.
 describe('BooksList scoped search', () => {
     it('filters an author list by the query in the URL', async () => {
-        renderAt(
-            `/books/find/author/42/1?title=${encodeURIComponent('война')}`,
-            '/books/find/author/:id/:page',
-        );
+        renderAt(`/author/42?title=${encodeURIComponent('война')}`, '/author/:id');
 
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
         expect(listBooks).toHaveBeenCalledWith(
@@ -262,10 +256,7 @@ describe('BooksList scoped search', () => {
     });
 
     it('pins an exact book when the URL carries one', async () => {
-        renderAt(
-            `/books/find/author/42/1?title=${encodeURIComponent('х')}&book_id=555`,
-            '/books/find/author/:id/:page',
-        );
+        renderAt(`/author/42?title=${encodeURIComponent('х')}&book_id=555`, '/author/:id');
 
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
         expect(listBooks).toHaveBeenCalledWith(
@@ -277,10 +268,7 @@ describe('BooksList scoped search', () => {
         // The context may still hold the author whose list the reader came
         // from; a broad title search is broad, and must not inherit it.
         authorState.authorId = '42';
-        renderAt(
-            `/books/find/title/${encodeURIComponent('дюна')}/1?book_id=555`,
-            '/books/find/title/:title/:page',
-        );
+        renderAt(`/search?q=${encodeURIComponent('дюна')}&type=books&book_id=555`, '/search');
 
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
         const query = listBooks.mock.calls[0][0];
@@ -305,11 +293,9 @@ describe('BooksList language change', () => {
             return null;
         };
         const tree = () => (
-            <MemoryRouter
-                initialEntries={[`/books/find/author/42/7?title=${encodeURIComponent('х')}`]}
-            >
+            <MemoryRouter initialEntries={[`/author/42?title=${encodeURIComponent('х')}&page=7`]}>
                 <Routes>
-                    <Route path="/books/find/author/:id/:page" element={<BooksList />} />
+                    <Route path="/author/:id" element={<BooksList />} />
                     <Route path="*" element={<BooksList />} />
                 </Routes>
                 <UrlProbe />
@@ -327,8 +313,87 @@ describe('BooksList language change', () => {
 
         // Used to drop the reader onto the global first page, losing both the
         // author and the query the deep page belonged to.
+        await waitFor(() => expect(currentUrl).toBe(`/author/42?title=${encodeURIComponent('х')}`));
+    });
+});
+
+// The two addresses that page in the query have no number in the path, so the
+// first page is the absence of a parameter rather than a '1' to compare with.
+describe('BooksList on an address that pages in the query', () => {
+    afterEach(() => {
+        authState.user.books_lang = 'ru';
+    });
+
+    it('asks for the page the query names', async () => {
+        renderAt('/author/42?page=3', '/author/:id');
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(
+            expect.objectContaining({ author: '42', offset: 20 }),
+        );
+    });
+
+    it('takes a page the query does not name for the first', async () => {
+        renderAt('/author/42', '/author/:id');
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ offset: 0 }));
+    });
+
+    it.each(['0', '-2', 'abc', '2x', ''])('takes page=%s for the first', async (page) => {
+        renderAt(`/author/42?page=${page}`, '/author/:id');
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ offset: 0 }));
+    });
+
+    it('searches for the words of a book search', async () => {
+        const query = 'а/б?в%г+д';
+        renderAt(`/search?q=${encodeURIComponent(query)}&type=books&page=2`, '/search');
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        const asked = listBooks.mock.calls[0][0];
+        expect(asked).toEqual(expect.objectContaining({ title: query, offset: 10 }));
+        expect(asked.author).toBeUndefined();
+    });
+
+    it('pages through the list it is on, its filters with it', async () => {
+        listBooks.mockResolvedValue({ books: [makeBook()], length: 9 });
+        renderAt('/author/42?title=x&page=3', '/author/:id');
+
+        await screen.findByText('Заклятые в любви');
+        const pages = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+        expect(pages).toContain('/author/42?title=x&page=4');
+        expect(pages).toContain('/author/42?title=x');
+    });
+
+    it('filters by the author in an entity address, its id untouched', async () => {
+        const id = '01a168d0-a113-741a-b69d-53b91f3c7eb9';
+        renderAt(`/author/${id}`, '/author/:id');
+
+        await waitFor(() => expect(listBooks).toHaveBeenCalled());
+        expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ author: id }));
+    });
+
+    it('loads the first page when the language changes, instead of going round', async () => {
+        // A page with no number used to compare unequal to '1' for ever, so
+        // the language reset would keep redirecting to where it already was.
+        authState.user.books_lang = 'ru';
+        const tree = () => (
+            <MemoryRouter initialEntries={['/author/42']}>
+                <Routes>
+                    <Route path="/author/:id" element={<BooksList />} />
+                </Routes>
+            </MemoryRouter>
+        );
+        const view = render(tree());
+        await waitFor(() => expect(listBooks).toHaveBeenCalledTimes(1));
+
+        authState.user.books_lang = 'en';
+        view.rerender(tree());
+
         await waitFor(() =>
-            expect(currentUrl).toBe(`/books/find/author/42/1?title=${encodeURIComponent('х')}`),
+            expect(listBooks).toHaveBeenLastCalledWith(expect.objectContaining({ lang: 'en' })),
         );
     });
 });

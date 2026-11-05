@@ -233,7 +233,7 @@ describe('fitSiblingCount on a desktop column', () => {
 describe('pageBaseUrl', () => {
     it('drops the page number so siblings can be built from it', () => {
         expect(pageBaseUrl('/books/page/1')).toBe('/books/page');
-        expect(pageBaseUrl('/books/find/author/42/7')).toBe('/books/find/author/42');
+        expect(pageBaseUrl('/books/find/category/42/7')).toBe('/books/find/category/42');
     });
 
     it('leaves a route that does not end in a page number alone', () => {
@@ -241,28 +241,64 @@ describe('pageBaseUrl', () => {
     });
 
     it('keeps an id that is not the page number', () => {
-        // The author id is numeric too; only the final segment is a page.
-        expect(pageBaseUrl('/books/find/author/42')).toBe('/books/find/author');
+        // The series id is numeric too; only the final segment is a page.
+        expect(pageBaseUrl('/books/find/category/42')).toBe('/books/find/category');
     });
 });
 
 describe('pageHref', () => {
     it('replaces only the page number', () => {
         expect(pageHref('/books/page/5', 7)).toBe('/books/page/7');
-        expect(pageHref('/books/find/author/42/3', 4)).toBe('/books/find/author/42/4');
+        expect(pageHref('/books/find/category/42/3', 4)).toBe('/books/find/category/42/4');
     });
 
     it('carries the search over to the sibling page', () => {
         // The query string holds the search that filtered the list; dropping
         // it on page 2 would silently widen the results.
-        expect(pageHref('/books/find/author/42/3?title=%D1%85&book_id=5', 2)).toBe(
-            '/books/find/author/42/2?title=%D1%85&book_id=5',
+        expect(pageHref('/books/find/category/42/3?title=%D1%85&book_id=5', 2)).toBe(
+            '/books/find/category/42/2?title=%D1%85&book_id=5',
         );
     });
 
     it('keeps the search on a scoped favourites list', () => {
         expect(pageHref('/books/favorite/2?title=%D1%85', 1)).toBe(
             '/books/favorite/1?title=%D1%85',
+        );
+    });
+});
+
+describe('pageHref on the addresses that page in the query', () => {
+    it('puts a later page in the query', () => {
+        expect(pageHref('/author/42', 3)).toBe('/author/42?page=3');
+        expect(pageHref('/search?q=%D0%BA&type=authors', 2)).toBe(
+            '/search?q=%D0%BA&type=authors&page=2',
+        );
+    });
+
+    it('moves the page and keeps the rest of the query', () => {
+        expect(pageHref('/author/42?title=%D1%85&page=3&book_id=5', 4)).toBe(
+            '/author/42?title=%D1%85&page=4&book_id=5',
+        );
+    });
+
+    it('writes no page for the first one', () => {
+        expect(pageHref('/author/42?page=3', 1)).toBe('/author/42');
+        expect(pageHref('/search?q=x&type=books&page=2', 1)).toBe('/search?q=x&type=books');
+    });
+
+    it('keeps a query made of punctuation readable on the next page', () => {
+        const query = 'а/б?в%г+д';
+        const href = pageHref(`/search?q=${encodeURIComponent(query)}&type=books`, 2);
+
+        expect(new URLSearchParams(href.split('?')[1]).get('q')).toBe(query);
+    });
+
+    it('leaves the lists that page in the path as they are', () => {
+        expect(pageHref('/books/find/genre/4/2?sort=author', 3)).toBe(
+            '/books/find/genre/4/3?sort=author',
+        );
+        expect(pageHref('/admin/book-scanning/authors/3', 2)).toBe(
+            '/admin/book-scanning/authors/2',
         );
     });
 });

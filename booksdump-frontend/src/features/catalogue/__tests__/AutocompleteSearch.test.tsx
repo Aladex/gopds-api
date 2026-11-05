@@ -95,7 +95,7 @@ describe('AutocompleteSearch', () => {
     });
 
     it('stays shut over a page it was seeded onto', async () => {
-        // Landing on /books/find/title/война/1 seeds the field from the route.
+        // Landing on /search?q=война&type=books seeds the field from the route.
         // The picker used to spring open across the results underneath it.
         const { input } = setup({ value: 'война' });
 

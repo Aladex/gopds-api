@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useNavigate } from 'react-router';
 
 import useSearchScope, {
+    routeScopeFrom,
     searchTitleFromLocation,
     unsearchedPathFrom,
 } from '@/features/catalogue/hooks/useSearchScope';
@@ -72,7 +73,7 @@ describe('useSearchScope', () => {
 
     it('does not offer a scope on the authors index', () => {
         // Searching authors by name is a library-wide search by definition.
-        const { result } = renderAt('/authors/Пришвин/1');
+        const { result } = renderAt(`/search?q=${encodeURIComponent('Пришвин')}&type=authors`);
 
         expect(result.current.kind).toBeNull();
     });
@@ -84,12 +85,24 @@ describe('useSearchScope', () => {
     });
 
     it("scopes an author's book list to that author", () => {
-        const { result } = renderAt('/books/find/author/42/3');
+        const { result } = renderAt('/author/42?page=3');
 
         expect(result.current.kind).toBe('author');
         expect(result.current.id).toBe('42');
         expect(result.current.active).toBe(true);
-        expect(result.current.firstPagePath).toBe('/books/find/author/42/1');
+        expect(result.current.firstPagePath).toBe('/author/42');
+    });
+
+    it('offers no scope on a search for books', () => {
+        const { result } = renderAt(`/search?q=${encodeURIComponent('война')}&type=books`);
+
+        expect(result.current.kind).toBeNull();
+    });
+
+    it('takes no id for an author from a path that only starts like one', () => {
+        // The admin's review screen, and the old author search.
+        expect(routeScopeFrom('/admin/book-scanning/authors/12')).toBeNull();
+        expect(routeScopeFrom('/authors/42/1')).toBeNull();
     });
 
     it('scopes a series list to that series', () => {
@@ -151,14 +164,14 @@ describe('useSearchScope', () => {
             scope = useSearchScope();
             const navigate = useNavigate();
             return (
-                <button type="button" onClick={() => navigate('/books/find/author/7/1')}>
+                <button type="button" onClick={() => navigate('/author/7')}>
                     other
                 </button>
             );
         };
 
         render(
-            <MemoryRouter initialEntries={['/books/find/author/42/1']}>
+            <MemoryRouter initialEntries={['/author/42']}>
                 <Probe />
             </MemoryRouter>,
         );
@@ -202,7 +215,7 @@ describe('useSearchScope', () => {
     it('names the author from the cache without asking the server', () => {
         authorState.authorId = '42';
         authorState.authorName = 'Пришвин Михаил';
-        const { result } = renderAt('/books/find/author/42/1');
+        const { result } = renderAt('/author/42');
 
         expect(result.current.label).toBe('searchWithinAuthor');
         expect(getAuthor).not.toHaveBeenCalled();
@@ -213,7 +226,7 @@ describe('useSearchScope', () => {
         // cache is simply not this scope's business.
         authorState.authorId = '7';
         authorState.authorName = 'Кто-то другой';
-        const { result } = renderAt('/books/find/author/42/1');
+        const { result } = renderAt('/author/42');
 
         expect(result.current.label).toBe('searchWithinThisAuthor');
     });
@@ -221,7 +234,7 @@ describe('useSearchScope', () => {
     it('looks the name up on a cold arrival, as a pasted URL does', async () => {
         authorState.authorId = '42';
 
-        renderAt('/books/find/author/42/1');
+        renderAt('/author/42');
 
         await waitFor(() => expect(getAuthor).toHaveBeenCalledWith('42'));
         await waitFor(() =>
@@ -234,11 +247,11 @@ describe('useSearchScope', () => {
         authorState.authorId = id;
         getAuthor.mockResolvedValue({ id, full_name: 'Стивен Кинг', label: 'Ужасы' });
 
-        const { result } = renderAt(`/books/find/author/${id}/1`);
+        const { result } = renderAt(`/author/${id}`);
 
         expect(result.current.kind).toBe('author');
         expect(result.current.id).toBe(id);
-        expect(result.current.firstPagePath).toBe(`/books/find/author/${id}/1`);
+        expect(result.current.firstPagePath).toBe(`/author/${id}`);
         await waitFor(() => expect(getAuthor).toHaveBeenCalledWith(id));
         await waitFor(() =>
             expect(authorState.setAuthorName).toHaveBeenCalledWith('Стивен Кинг · Ужасы'),
@@ -249,7 +262,7 @@ describe('useSearchScope', () => {
         authorState.authorId = '42';
         getAuthor.mockRejectedValue(new Error('nope'));
 
-        const { result } = renderAt('/books/find/author/42/1');
+        const { result } = renderAt('/author/42');
 
         await waitFor(() => expect(getAuthor).toHaveBeenCalled());
         expect(result.current.active).toBe(true);
@@ -283,16 +296,30 @@ describe('the chip names the list it confines the search to', () => {
 });
 
 describe('searchTitleFromLocation', () => {
-    it('reads the query out of a title route', () => {
+    it('reads the query out of a book search', () => {
         expect(
-            searchTitleFromLocation('/books/find/title/%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0/3', ''),
+            searchTitleFromLocation(
+                '/search',
+                '?q=%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0&type=books&page=3',
+            ),
         ).toBe('война');
+    });
+
+    it('reads a query that is mostly punctuation back whole', () => {
+        const query = 'а/б?в%г+д';
+        const search = `?q=${encodeURIComponent(query)}&type=books`;
+
+        expect(searchTitleFromLocation('/search', search)).toBe(query);
+    });
+
+    it('does not take a name searched for as a title', () => {
+        expect(searchTitleFromLocation('/search', '?q=%D0%BA&type=authors')).toBe('');
     });
 
     it('reads the query out of the search params on a scoped route', () => {
         expect(
             searchTitleFromLocation(
-                '/books/find/author/42/1',
+                '/author/42',
                 '?title=%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0&book_id=5',
             ),
         ).toBe('война');
@@ -302,12 +329,9 @@ describe('searchTitleFromLocation', () => {
         expect(searchTitleFromLocation('/books/page/1', '')).toBe('');
     });
 
-    it('prefers the route segment when both are present', () => {
-        // A book suggestion keeps the broad title route and pins the book by
-        // id — the route carries the words, the param only the pointer.
-        expect(
-            searchTitleFromLocation('/books/find/title/%D0%BC%D0%B8%D1%80/1', '?title=other'),
-        ).toBe('мир');
+    it('prefers the book search when both are present', () => {
+        // An old link could carry both, and its path held the words.
+        expect(searchTitleFromLocation('/search', '?q=%D0%BC%D0%B8%D1%80&title=other')).toBe('мир');
     });
 });
 
@@ -317,9 +341,9 @@ describe('unsearchedPathFrom', () => {
     it('sends a global title search back to the catalogue', () => {
         // /books/1 is not a route — the catalogue is /books/page/1, which is
         // where the header's own link goes.
-        expect(unsearchedPathFrom('/books/find/title/%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0/2', '')).toBe(
-            '/books/page/1',
-        );
+        expect(
+            unsearchedPathFrom('/search', '?q=%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0&type=books&page=2'),
+        ).toBe('/books/page/1');
     });
 
     it('keeps a scoped search on its own list, without the query', () => {
@@ -329,15 +353,16 @@ describe('unsearchedPathFrom', () => {
         expect(unsearchedPathFrom('/books/find/genre/12/3', '?title=x')).toBe(
             '/books/find/genre/12/1',
         );
-        expect(unsearchedPathFrom('/books/find/author/42/2', '?title=x')).toBe(
-            '/books/find/author/42/1',
-        );
+        expect(unsearchedPathFrom('/author/42', '?title=x&page=2')).toBe('/author/42');
         expect(unsearchedPathFrom('/books/favorite/2', '?title=x')).toBe('/books/favorite/1');
     });
 
     it('offers nothing when nothing is being searched', () => {
         expect(unsearchedPathFrom('/books/page/1', '')).toBe('');
         expect(unsearchedPathFrom('/books/find/genre/12/1', '')).toBe('');
+        expect(unsearchedPathFrom('/author/42', '?page=2')).toBe('');
+        // The search panel has never offered to clear a search by name.
+        expect(unsearchedPathFrom('/search', '?q=%D0%BA&type=authors')).toBe('');
         // A pinned book is navigation, not a search: there is no query to drop.
         expect(unsearchedPathFrom('/books/find/genre/12/1', '?book_id=5')).toBe('');
     });

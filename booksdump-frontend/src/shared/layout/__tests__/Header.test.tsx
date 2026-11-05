@@ -92,7 +92,7 @@ describe('Header navigation', () => {
     // A route outside every section leaves nothing to mark, and the bar has to
     // be able to say so rather than sit under whichever link came first.
     it('marks nothing on a route belonging to no section', async () => {
-        const { container } = renderHeader('/authors/tolkien/1');
+        const { container } = renderHeader('/search?q=tolkien&type=authors');
 
         await waitFor(() => expect(screen.getByRole('navigation')).toBeInTheDocument());
         expect(screen.queryByRole('link', { current: 'page' })).not.toBeInTheDocument();

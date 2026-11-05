@@ -24,7 +24,7 @@ describe('activeNavItem', () => {
     it('reports nothing outside the sections', () => {
         // Filtered lists live off the paged books route and highlight nothing,
         // which is the behaviour the old header had.
-        expect(activeNavItem(items, '/books/find/author/42/1')).toBeNull();
+        expect(activeNavItem(items, '/author/42')).toBeNull();
         expect(activeNavItem(items, '/login')).toBeNull();
     });
 

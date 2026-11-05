@@ -3,7 +3,7 @@ import { Route } from 'react-router';
 import PrivateRoute from '@/app/PrivateRoute';
 import BooksList from '@/features/catalogue/BooksList';
 import TitleSetter from '@/app/TitleSetter';
-import AuthorSearch from '@/features/catalogue/AuthorSearch';
+import SearchPage from '@/app/routes/SearchPage';
 import OpdsInfo from '@/features/opds/OpdsInfo';
 import LayoutWithSearchBar from '@/app/LayoutWithSearchBar';
 import CollectionsList from '@/features/collections/CollectionsList';
@@ -44,7 +44,7 @@ const privateRoutes = (
                 }
             />
             <Route
-                path="/books/find/author/:id/:page"
+                path="/author/:id"
                 element={
                     <TitleSetter titleKey="routeByAuthor.books">
                         <BooksList />
@@ -67,22 +67,7 @@ const privateRoutes = (
                     </TitleSetter>
                 }
             />
-            <Route
-                path="/books/find/title/:title/:page"
-                element={
-                    <TitleSetter titleKey="routeByBookName.books">
-                        <BooksList />
-                    </TitleSetter>
-                }
-            />
-            <Route
-                path="/authors/:author/:page"
-                element={
-                    <TitleSetter titleKey="routeByAuthorName.books">
-                        <AuthorSearch />
-                    </TitleSetter>
-                }
-            />
+            <Route path="/search" element={<SearchPage />} />
             <Route
                 path="/collections"
                 element={

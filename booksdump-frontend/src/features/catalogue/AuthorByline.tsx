@@ -14,6 +14,7 @@ import {
     DropdownMenuTrigger,
 } from '@/shared/ui/dropdown-menu';
 import ListSheet, { LIST_SHEET_ROW_CLASS } from '@/shared/components/ListSheet';
+import { authorPath } from '@/features/catalogue/addresses';
 import { authorTitle } from '@/shared/lib/authorTitle';
 import { cn } from '@/shared/lib/utils';
 
@@ -54,7 +55,7 @@ const single = (
     const id = entity ? entity.id : author.legacy_author_id;
     if (id === undefined) return null;
     return {
-        to: `/books/find/author/${id}/1`,
+        to: authorPath(id),
         scopeName: entity ? authorTitle(entity, t) : author.name,
     };
 };
@@ -62,7 +63,7 @@ const single = (
 const people = (author: AuthorDisplay): AuthorEntityRef[] =>
     (author.entities?.length ?? 0) > 1 ? author.entities! : [];
 
-const personLink = (person: AuthorEntityRef) => `/books/find/author/${person.id}/1`;
+const personLink = (person: AuthorEntityRef) => authorPath(person.id);
 
 /**
  * AuthorPeople is a name of several people where it stands in the byline: the

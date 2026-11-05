@@ -223,11 +223,7 @@ const SCREENS: Record<string, { name: string; run: () => Promise<void> }> = {
                 authors: [{ id: 7, full_name: 'Толстой Лев', books_count: 184 }],
                 length: 9,
             });
-            at(
-                '/books/find/authors/tolstoy/1',
-                '/books/find/authors/:author/:page',
-                <AuthorSearch />,
-            );
+            at('/search?q=tolstoy&type=authors', '/search', <AuthorSearch />);
             await expectSharedColumn(() => screen.findByText('Толстой Лев'));
         },
     },

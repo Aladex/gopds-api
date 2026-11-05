@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/lib/utils';
 import { authorTitle } from '@/shared/lib/authorTitle';
 import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import * as booksApi from '@/api/books';
+import { authorPath, pageFromQuery } from '@/features/catalogue/addresses';
 import type { AuthorHit } from '@/api/books';
 import { useAuth } from '@/context/AuthContext';
 import { useAuthor } from '@/context/AuthorContext';
@@ -29,13 +30,13 @@ const PAGE_SIZE = 10;
  */
 const AuthorSearch: React.FC = () => {
     const { t } = useTranslation();
-    const { page } = useParams<{ page: string }>();
-    const { author } = useParams<{ author: string }>();
+    const [searchParams] = useSearchParams();
+    const author = searchParams.get('q') ?? '';
+    const page = pageFromQuery(searchParams);
     const [authors, setAuthors] = useState<AuthorHit[]>([]);
     const [loading, setLoading] = useState(true);
     const location = useLocation();
     const [totalPages, setTotalPages] = useState(0);
-    const baseUrl = window.location.pathname.replace(/\/\d+$/, '');
     const navigate = useNavigate();
     const { setSearchItem } = useSearchBar();
     const { user } = useAuth();
@@ -46,12 +47,10 @@ const AuthorSearch: React.FC = () => {
             setLoading(true);
             try {
                 window.scrollTo(0, 0);
-                const currentPage = parseInt(page || '1', 10);
-
                 const responseData = await booksApi.listAuthors({
                     limit: PAGE_SIZE,
-                    offset: (currentPage - 1) * PAGE_SIZE,
-                    author: decodeURIComponent(author || ''),
+                    offset: (page - 1) * PAGE_SIZE,
+                    author,
                     lang: user?.books_lang || '',
                 });
 
@@ -85,7 +84,7 @@ const AuthorSearch: React.FC = () => {
         // Carried over so the scope beside the search box can name the author
         // without asking the server for what was just on screen.
         setAuthorName(fullName);
-        navigate(`/books/find/author/${authorId}/1`);
+        navigate(authorPath(authorId));
     };
 
     return (
@@ -160,8 +159,8 @@ const AuthorSearch: React.FC = () => {
                 <div className="mt-auto pt-4">
                     <BookPagination
                         totalPages={totalPages}
-                        currentPage={parseInt(page || '1', 10)}
-                        baseUrl={baseUrl}
+                        currentPage={page}
+                        baseUrl={location.pathname + location.search}
                     />
                 </div>
             </div>

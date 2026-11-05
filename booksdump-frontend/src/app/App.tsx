@@ -5,6 +5,7 @@ import { FavProvider } from '@/context/FavContext';
 import { SearchBarProvider } from '@/context/SearchBarContext';
 import publicRoutes from '@/app/routes/publicRoutes';
 import privateRoutes from '@/app/routes/privateRoutes';
+import legacyRoutes from '@/app/routes/legacyRoutes';
 import adminRoutes from '@/app/routes/adminRoutes';
 import notFoundRoutes from '@/app/routes/notFoundRoutes';
 import { InterfaceLanguageProvider } from '@/context/InterfaceLanguageContext';
@@ -31,6 +32,7 @@ const App: React.FC<{ isAuthenticated: boolean }> = memo(() => {
             <Route path="/" element={<RootRedirect />} />
             {publicRoutes}
             {privateRoutes}
+            {legacyRoutes}
             {adminRoutes}
             {notFoundRoutes}
         </Routes>

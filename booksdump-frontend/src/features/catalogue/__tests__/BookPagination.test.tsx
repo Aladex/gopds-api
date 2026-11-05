@@ -329,26 +329,30 @@ describe('BookPagination', () => {
     it('builds sibling pages from a filtered route', async () => {
         const user = userEvent.setup();
         render(
-            <MemoryRouter initialEntries={['/books/find/author/42/3']}>
+            <MemoryRouter initialEntries={['/books/find/category/42/3']}>
                 <PathProbe />
-                <BookPagination totalPages={20} currentPage={3} baseUrl="/books/find/author/42/3" />
+                <BookPagination
+                    totalPages={20}
+                    currentPage={3}
+                    baseUrl="/books/find/category/42/3"
+                />
             </MemoryRouter>,
         );
 
         await user.click(screen.getByRole('link', { name: 'goToPage:4' }));
 
-        // The author id has to survive; dropping it would silently widen the search.
-        expect(currentPath).toBe('/books/find/author/42/4');
+        // The series id has to survive; dropping it would silently widen the search.
+        expect(currentPath).toBe('/books/find/category/42/4');
     });
 
     it('keeps the search of a scoped list on every page address', () => {
         render(
-            <MemoryRouter initialEntries={['/books/find/author/42/3?title=%D1%85&book_id=5']}>
+            <MemoryRouter initialEntries={['/books/find/category/42/3?title=%D1%85&book_id=5']}>
                 <PathProbe />
                 <BookPagination
                     totalPages={20}
                     currentPage={3}
-                    baseUrl="/books/find/author/42/3?title=%D1%85&book_id=5"
+                    baseUrl="/books/find/category/42/3?title=%D1%85&book_id=5"
                 />
             </MemoryRouter>,
         );
@@ -357,7 +361,7 @@ describe('BookPagination', () => {
         // different, wider list than the one the reader was paging through.
         expect(screen.getByRole('link', { name: 'goToPage:4' })).toHaveAttribute(
             'href',
-            '/books/find/author/42/4?title=%D1%85&book_id=5',
+            '/books/find/category/42/4?title=%D1%85&book_id=5',
         );
     });
 

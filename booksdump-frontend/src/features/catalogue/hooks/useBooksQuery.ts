@@ -6,7 +6,13 @@ import type { Book, BooksQuery } from '@/api/books';
 
 import { useAuth } from '@/context/AuthContext';
 import { useAuthor } from '@/context/AuthorContext';
-import { pageBaseUrl } from '@/features/catalogue/paginationRange';
+import {
+    isAuthorPath,
+    isSearchPath,
+    pageFromQuery,
+    pagesInQuery,
+} from '@/features/catalogue/addresses';
+import { pageHref } from '@/features/catalogue/paginationRange';
 
 /**
  * useBooksQuery owns everything about *which* books are on screen: it derives
@@ -81,13 +87,16 @@ export function booksListReducer(state: BooksListState, action: BooksListAction)
 
 export function useBooksQuery() {
     const { user } = useAuth();
-    const { page, id, title } = useParams<{ page: string; id?: string; title?: string }>();
+    const { page: pageInPath, id } = useParams<{ page: string; id?: string }>();
     const { setAuthorId } = useAuthor();
     const location = useLocation();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const prevLangRef = useRef(user?.books_lang);
     const [state, dispatch] = useReducer(booksListReducer, initialState);
+    // The page is a string to match the path it comes from on the other lists,
+    // and always set here: the first page of these addresses has no parameter.
+    const page = pagesInQuery(location.pathname) ? String(pageFromQuery(searchParams)) : pageInPath;
 
     const getParams = useCallback(() => {
         const limit = 10;
@@ -95,15 +104,18 @@ export function useBooksQuery() {
         const offset = (currentPage - 1) * limit;
         const params: BooksQuery = { limit, offset, lang: user?.books_lang || '' };
 
-        if (location.pathname.includes('/books/find/author/') && id) {
+        if (isAuthorPath(location.pathname) && id) {
             params.author = id;
             setAuthorId(id);
         } else if (location.pathname.includes('/books/find/category/') && id) {
             params.series = id;
         } else if (location.pathname.includes('/books/find/genre/') && id) {
             params.genre = id;
-        } else if (location.pathname.includes('/books/find/title/') && title) {
-            params.title = decodeURIComponent(title);
+        } else if (isSearchPath(location.pathname)) {
+            const query = searchParams.get('q');
+            if (query) {
+                params.title = query;
+            }
         } else if (location.pathname.startsWith('/collections/') && id) {
             params.curated_collection = id;
         }
@@ -118,8 +130,8 @@ export function useBooksQuery() {
 
         // A scoped search writes its query next to the route's own filters
         // rather than into React state, so a reload asks for exactly what the
-        // reader last saw. The title route already carries its query in the
-        // path and wins there.
+        // reader last saw. A book search already carries its words in q, and
+        // they win there.
         const scopedTitle = searchParams.get('title');
         if (scopedTitle && !params.title) {
             params.title = scopedTitle;
@@ -130,14 +142,14 @@ export function useBooksQuery() {
         }
 
         return params;
-    }, [id, location.pathname, page, searchParams, setAuthorId, title, user?.books_lang]);
+    }, [id, location.pathname, page, searchParams, setAuthorId, user?.books_lang]);
 
     const loadBooks = useCallback(async () => {
         // Changing the reading language invalidates deep pages, so start over
         // rather than showing page 40 of a shorter list. In place: the list
         // and its search survive, only the page number goes.
         if (prevLangRef.current !== user?.books_lang && page !== '1') {
-            navigate(`${pageBaseUrl(location.pathname)}/1${location.search}`);
+            navigate(pageHref(location.pathname + location.search, 1));
             return;
         }
 
@@ -163,5 +175,5 @@ export function useBooksQuery() {
         loadBooks();
     }, [loadBooks]);
 
-    return { state, dispatch, loadBooks };
+    return { state, dispatch, loadBooks, page: parseInt(page as string, 10) };
 }

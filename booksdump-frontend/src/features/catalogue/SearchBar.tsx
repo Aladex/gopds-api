@@ -21,6 +21,7 @@ import useSearchScope, {
 } from '@/features/catalogue/hooks/useSearchScope';
 import type { AutocompleteSuggestion } from '@/api/autocomplete';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
+import { authorPath, searchPath } from '@/features/catalogue/addresses';
 import { authorTitle } from '@/shared/lib/authorTitle';
 
 /**
@@ -86,23 +87,21 @@ const SearchBar: React.FC = () => {
             return;
         }
 
-        const encoded = encodeURIComponent(searchItem);
-
         if (selectedSearch === 'author') {
             clearAuthorId();
-            navigate(`/authors/${encoded}/1`);
+            navigate(searchPath(searchItem, 'authors'));
             return;
         }
 
         // Confined to a list: stay on it and filter it, the query riding the
         // URL so a reload or a shared link asks for exactly this.
         if (scoped) {
-            navigate(`${scope.firstPagePath}?title=${encoded}`);
+            navigate(`${scope.firstPagePath}?title=${encodeURIComponent(searchItem)}`);
             return;
         }
 
         clearAuthorId();
-        navigate(`/books/find/title/${encoded}/1`);
+        navigate(searchPath(searchItem));
     };
 
     // Where the reader is standing is what decides whether there is anything
@@ -128,7 +127,7 @@ const SearchBar: React.FC = () => {
         // no scope. With an empty box the chip simply offers itself back.
         const query = searchItem.trim();
         if (query) {
-            navigate(`/books/find/title/${encodeURIComponent(query)}/1`);
+            navigate(searchPath(query));
         }
     };
 
@@ -152,7 +151,7 @@ const SearchBar: React.FC = () => {
                 ),
             );
             setSearchItem('');
-            navigate(`/books/find/author/${suggestion.id}/1`);
+            navigate(authorPath(suggestion.id));
             return;
         }
         // A picked book is a title, not a copy of it. Pinning the suggestion's
@@ -161,11 +160,10 @@ const SearchBar: React.FC = () => {
         // колец" wants every edition of it, not whichever one the picker
         // happened to put first. The words go in and the search runs.
         setSearchItem(suggestion.value);
-        const encoded = encodeURIComponent(suggestion.value);
         if (scoped) {
-            navigate(`${scope.firstPagePath}?title=${encoded}`);
+            navigate(`${scope.firstPagePath}?title=${encodeURIComponent(suggestion.value)}`);
         } else {
-            navigate(`/books/find/title/${encoded}/1`);
+            navigate(searchPath(suggestion.value));
         }
     };
 
@@ -174,15 +172,18 @@ const SearchBar: React.FC = () => {
             return;
         }
         const query = searchItem.trim();
-        const encoded = encodeURIComponent(query);
         if (fav) {
             // Back to the library: the words return to the broad search they
             // would have been had favourites never narrowed it.
-            navigate(query ? `/books/find/title/${encoded}/1` : '/books/page/1');
+            navigate(query ? searchPath(query) : '/books/page/1');
         } else {
             // Into favourites, keeping the words: the filter changes, the
             // search does not.
-            navigate(query ? `/books/favorite/1?title=${encoded}` : '/books/favorite/1');
+            navigate(
+                query
+                    ? `/books/favorite/1?title=${encodeURIComponent(query)}`
+                    : '/books/favorite/1',
+            );
         }
     };
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 
 import AuthorSearch from '@/features/catalogue/AuthorSearch';
 import * as booksApi from '@/api/books';
@@ -38,18 +38,31 @@ vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarStat
 // The pager is reduced to the number it was given, so a stale page count is
 // directly visible to an assertion.
 vi.mock('@/features/catalogue/BookPagination', () => ({
-    default: ({ totalPages }: { totalPages: number }) => (
-        <div data-testid="pager">{totalPages}</div>
+    default: ({
+        totalPages,
+        currentPage,
+        baseUrl,
+    }: {
+        totalPages: number;
+        currentPage: number;
+        baseUrl: string;
+    }) => (
+        <div data-testid="pager" data-page={currentPage} data-url={baseUrl}>
+            {totalPages}
+        </div>
     ),
 }));
 
 const listAuthors = vi.mocked(booksApi.listAuthors);
 
-const renderPage = (path = '/books/find/authors/%D0%A2%D0%BE%D0%BB%D1%81%D1%82%D0%BE%D0%B9/1') =>
+const Landing: React.FC = () => <div data-testid="landing">{useLocation().pathname}</div>;
+
+const renderPage = (path = '/search?q=%D0%A2%D0%BE%D0%BB%D1%81%D1%82%D0%BE%D0%B9&type=authors') =>
     render(
         <MemoryRouter initialEntries={[path]}>
             <Routes>
-                <Route path="/books/find/authors/:author/:page" element={<AuthorSearch />} />
+                <Route path="/search" element={<AuthorSearch />} />
+                <Route path="/author/:id" element={<Landing />} />
             </Routes>
         </MemoryRouter>,
     );
@@ -90,6 +103,31 @@ describe('AuthorSearch', () => {
         expect(listAuthors).toHaveBeenCalledWith(expect.objectContaining({ author: 'Толстой' }));
     });
 
+    it('reads a name made of punctuation exactly, once', async () => {
+        const name = 'а/б?в%г+д';
+        renderPage(`/search?q=${encodeURIComponent(name)}&type=authors`);
+
+        await waitFor(() => expect(listAuthors).toHaveBeenCalled());
+        expect(listAuthors).toHaveBeenCalledWith(expect.objectContaining({ author: name }));
+    });
+
+    it('asks for the page the query names', async () => {
+        renderPage('/search?q=x&type=authors&page=3');
+
+        await waitFor(() => expect(listAuthors).toHaveBeenCalled());
+        expect(listAuthors).toHaveBeenCalledWith(expect.objectContaining({ offset: 20 }));
+    });
+
+    it('hands the pager the search it is paging through', async () => {
+        // The pager builds the next address from this; without the query,
+        // page two of a search is a search for nothing.
+        renderPage('/search?q=x&type=authors&page=3');
+
+        const pager = await screen.findByTestId('pager');
+        expect(pager).toHaveAttribute('data-url', '/search?q=x&type=authors&page=3');
+        expect(pager).toHaveAttribute('data-page', '3');
+    });
+
     it('says how many books each author holds', async () => {
         renderPage();
 
@@ -116,6 +154,8 @@ describe('AuthorSearch', () => {
 
         const row = await screen.findByRole('button', { name: /Достоевский Федор/ });
         await userEvent.click(row);
+
+        expect(screen.getByTestId('landing')).toHaveTextContent('/author/1');
 
         expect(authorState.setAuthorName).toHaveBeenCalledWith('Достоевский Федор');
         // A stale query in the box would fight the filter on the next page.
@@ -145,7 +185,7 @@ describe('AuthorSearch zero-hit search', () => {
     const NextSearch: React.FC = () => {
         const navigate = useNavigate();
         return (
-            <button type="button" onClick={() => navigate('/books/find/authors/zzz/1')}>
+            <button type="button" onClick={() => navigate('/search?q=zzz&type=authors')}>
                 search-again
             </button>
         );
@@ -157,9 +197,9 @@ describe('AuthorSearch zero-hit search', () => {
             length: 3,
         });
         render(
-            <MemoryRouter initialEntries={['/books/find/authors/%D0%A2%D0%BE%D0%BB/1']}>
+            <MemoryRouter initialEntries={['/search?q=%D0%A2%D0%BE%D0%BB&type=authors']}>
                 <Routes>
-                    <Route path="/books/find/authors/:author/:page" element={<AuthorSearch />} />
+                    <Route path="/search" element={<AuthorSearch />} />
                 </Routes>
                 <NextSearch />
             </MemoryRouter>,

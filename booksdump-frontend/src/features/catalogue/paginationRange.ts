@@ -1,3 +1,5 @@
+import { pagesInQuery, setPage } from '@/features/catalogue/addresses';
+
 /**
  * paginationRange decides which page numbers a pager shows.
  *
@@ -183,11 +185,18 @@ export function pageBaseUrl(pathname: string): string {
  * pageHref builds the address of a sibling page from where the reader is:
  * same list, same search, different page. The query string rides along
  * untouched — it carries the search that filtered the list, and dropping it
- * would silently widen the results on page two.
+ * would silently widen the results on page two. A search and an author's books
+ * keep the page in that query instead of the path.
  */
 export function pageHref(currentUrl: string, page: number): string {
     const question = currentUrl.indexOf('?');
     const pathname = question === -1 ? currentUrl : currentUrl.slice(0, question);
     const search = question === -1 ? '' : currentUrl.slice(question);
+    if (pagesInQuery(pathname)) {
+        const params = new URLSearchParams(search);
+        setPage(params, page);
+        const query = params.toString();
+        return query ? `${pathname}?${query}` : pathname;
+    }
     return `${pageBaseUrl(pathname)}/${page}${search}`;
 }

@@ -168,7 +168,7 @@ export const listAuthors = (query: {
 /**
  * getAuthor names a single author, which the search panel needs when a reader
  * arrives on an author's list by URL rather than by following a link — there is
- * no name in `/books/find/author/42/1` to put on screen. Under the entity
+ * no name in `/author/42` to put on screen. Under the entity
  * identity the id is the entity's UUID and the answer carries its label.
  */
 export const getAuthor = (id: number | string) =>

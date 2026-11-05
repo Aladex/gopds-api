@@ -220,7 +220,7 @@ describe('the byline', () => {
             .getAllByRole(root.getAttribute('role') === 'menu' ? 'menuitem' : 'link')
             .map((link) => [link.textContent, link.getAttribute('href')]);
 
-    const expected = names.map((name, index) => [name, `/books/find/author/${index + 1}/1`]);
+    const expected = names.map((name, index) => [name, `/author/${index + 1}`]);
 
     it('opens a menu of every author on a wide card', async () => {
         renderCard({ isWide: true, book: makeBook({ authors }) });
@@ -269,8 +269,8 @@ describe('the byline', () => {
                 .map((link) => [link.textContent, link.getAttribute('href')]);
 
             expect(people).toEqual([
-                ['Аркадий Стругацкий', '/books/find/author/a/1'],
-                ['Борис Стругацкий', '/books/find/author/b/1'],
+                ['Аркадий Стругацкий', '/author/a'],
+                ['Борис Стругацкий', '/author/b'],
             ]);
         },
     );

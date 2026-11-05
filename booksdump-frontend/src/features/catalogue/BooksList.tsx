@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useParams } from 'react-router';
+import { useLocation } from 'react-router';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -43,10 +43,9 @@ const SKELETON_COUNT = 10;
 
 const BooksList: React.FC = () => {
     const { user } = useAuth();
-    const { page } = useParams<{ page: string }>();
     const { t } = useTranslation();
     const location = useLocation();
-    const { state, dispatch, loadBooks } = useBooksQuery();
+    const { state, dispatch, loadBooks, page } = useBooksQuery();
     // The search panel needs to say which genre or series it is confined to,
     // and only the loaded page knows the name.
     useScopeName(state.books);
@@ -244,7 +243,7 @@ const BooksList: React.FC = () => {
                     <div className="mt-auto pt-4">
                         <BookPagination
                             totalPages={state.totalPages}
-                            currentPage={parseInt(page as string)}
+                            currentPage={page}
                             baseUrl={location.pathname + location.search}
                         />
                     </div>

@@ -159,32 +159,32 @@ beforeEach(() => {
 });
 
 describe('SearchBar routing', () => {
-    it('searches by title through /books/find/title', async () => {
+    it('searches by title through /search', async () => {
         searchState.searchItem = 'дюна';
         renderBar();
 
         await userEvent.click(screen.getByRole('button', { name: 'search' }));
 
-        expect(currentPath).toBe('/books/find/title/%D0%B4%D1%8E%D0%BD%D0%B0/1');
+        expect(currentPath).toBe('/search?q=%D0%B4%D1%8E%D0%BD%D0%B0&type=books');
     });
 
-    it('searches by author through /authors', async () => {
+    it('searches by author through /search', async () => {
         searchState.searchItem = 'Герберт';
         searchState.selectedSearch = 'author';
         renderBar();
 
         await userEvent.click(screen.getByRole('button', { name: 'search' }));
 
-        expect(currentPath).toMatch(/^\/authors\/.+\/1$/);
+        expect(currentPath).toBe(`/search?q=${encodeURIComponent('Герберт')}&type=authors`);
     });
 
-    it('percent-encodes the query so slashes cannot break the route', async () => {
-        searchState.searchItem = 'а/б';
+    it('percent-encodes the query so its punctuation cannot break the address', async () => {
+        searchState.searchItem = 'а/б?в%г+д';
         renderBar();
 
         await userEvent.click(screen.getByRole('button', { name: 'search' }));
 
-        expect(currentPath).not.toContain('/а/б/');
+        expect(new URLSearchParams(currentPath.split('?')[1]).get('q')).toBe('а/б?в%г+д');
         expect(currentPath).toContain('%2F');
     });
 
@@ -215,15 +215,21 @@ describe('SearchBar on a cold reload', () => {
     // as what the panel asked the context to hold — the input itself is
     // controlled and follows that state in the real chain.
     it('seeds the field from the query a scoped search wrote', async () => {
-        renderBar(`/books/find/author/42/1?title=${encodeURIComponent('война')}`);
+        renderBar(`/author/42?title=${encodeURIComponent('война')}`);
 
         await waitFor(() => expect(searchState.setSearchItem).toHaveBeenCalledWith('война'));
     });
 
-    it('seeds the field from a title route', async () => {
-        renderBar(`/books/find/title/${encodeURIComponent('дюна')}/3`);
+    it('seeds the field from a book search', async () => {
+        renderBar(`/search?q=${encodeURIComponent('дюна')}&type=books&page=3`);
 
         await waitFor(() => expect(searchState.setSearchItem).toHaveBeenCalledWith('дюна'));
+    });
+
+    it('seeds nothing from a search for an author by name', () => {
+        renderBar(`/search?q=${encodeURIComponent('кинг')}&type=authors`);
+
+        expect(searchState.setSearchItem).not.toHaveBeenCalled();
     });
 
     it('seeds nothing on a plain list', () => {
@@ -289,7 +295,7 @@ describe('SearchBar in favourites mode', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'showAllBooks' }));
 
-        expect(currentPath).toBe(`/books/find/title/${encodeURIComponent('дюна')}/1`);
+        expect(currentPath).toBe(`/search?q=${encodeURIComponent('дюна')}&type=books`);
     });
 
     it('keeps the plain swap when there is no query', async () => {
@@ -344,11 +350,11 @@ describe('SearchBar books language', () => {
 describe('SearchBar scoped search', () => {
     it("searches within an author's list instead of starting over", async () => {
         searchState.searchItem = 'война';
-        renderBar('/books/find/author/42/3');
+        renderBar('/author/42?page=3');
 
         await userEvent.click(screen.getByRole('button', { name: 'search' }));
 
-        expect(currentPath).toBe(`/books/find/author/42/1?title=${encodeURIComponent('война')}`);
+        expect(currentPath).toBe(`/author/42?title=${encodeURIComponent('война')}`);
     });
 
     it('searches within a genre list', async () => {
@@ -361,7 +367,7 @@ describe('SearchBar scoped search', () => {
     });
 
     it('shows the scope on a scoped list and nowhere else', () => {
-        renderBar('/books/find/author/42/1');
+        renderBar('/author/42');
 
         expect(screen.getByText('searchWithinThisAuthor')).toBeInTheDocument();
     });
@@ -370,12 +376,12 @@ describe('SearchBar scoped search', () => {
         // The seeded field is the common case; the mock context does not
         // re-render on a seed, so the words are given before the render.
         searchState.searchItem = 'х';
-        renderBar(`/books/find/author/42/3?title=${encodeURIComponent('х')}`);
+        renderBar(`/author/42?title=${encodeURIComponent('х')}&page=3`);
 
         await userEvent.click(screen.getByRole('button', { name: 'searchEverywhere' }));
 
         // "Search the whole library" means exactly that: same text, no scope.
-        expect(currentPath).toBe(`/books/find/title/${encodeURIComponent('х')}/1`);
+        expect(currentPath).toBe(`/search?q=${encodeURIComponent('х')}&type=books`);
         expect(searchState.searchItem).toBe('х');
     });
 
@@ -397,7 +403,7 @@ describe('SearchBar suggestion picks', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'pickAuthor' }));
 
-        expect(currentPath).toBe('/books/find/author/42/1');
+        expect(currentPath).toBe('/author/42');
     });
 
     it('gives the row to the chip on a phone, and keeps the row', () => {
@@ -463,11 +469,11 @@ describe('SearchBar suggestion picks', () => {
         // The panel seeds the box from the address; the fake context does not
         // re-render on that, so the seeded state is set up here directly.
         searchState.searchItem = 'война';
-        renderBar('/books/find/author/42/1?title=%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0');
+        renderBar('/author/42?title=%D0%B2%D0%BE%D0%B9%D0%BD%D0%B0');
 
         await userEvent.click(screen.getByRole('button', { name: 'resetSearch' }));
 
-        expect(currentPath).toBe('/books/find/author/42/1');
+        expect(currentPath).toBe('/author/42');
         expect(searchState.searchItem).toBe('');
     });
 
@@ -490,7 +496,9 @@ describe('SearchBar suggestion picks', () => {
         // exactly one book. A reader picking "Властелин колец" out of the list
         // wants every edition of it, not whichever one came first.
         expect(searchState.searchItem).toBe('Война и мир');
-        expect(currentPath).toBe(`/books/find/title/${encodeURIComponent('Война и мир')}/1`);
+        expect(currentPath).toBe(
+            `/search?q=${encodeURIComponent('Война и мир').replaceAll('%20', '+')}&type=books`,
+        );
     });
 
     it('searches for a picked title inside the current scope', async () => {
