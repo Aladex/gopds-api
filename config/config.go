@@ -141,6 +141,9 @@ type ScanningConfig struct {
 	LLMLangDetectionTimeout string `mapstructure:"llm_lang_detection_timeout" yaml:"llm_lang_detection_timeout"`
 	MaxConcurrentFiles      int    `mapstructure:"max_concurrent_files" yaml:"max_concurrent_files"`
 	BatchSize               int    `mapstructure:"batch_size" yaml:"batch_size"`
+	// IntakeToken opens POST /api/intake/scan to the intake job. Empty, or
+	// shorter than 32 characters, means the route answers 404.
+	IntakeToken string `mapstructure:"intake_token" yaml:"intake_token"`
 }
 
 // PreviewConfig holds the book-preview pipeline settings. Every key carries

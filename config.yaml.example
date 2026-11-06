@@ -200,6 +200,9 @@ scanning:
   llm_lang_detection_timeout: "5s"
   max_concurrent_files: 1
   batch_size: 50
+  # Lets a job start the scan of one new archive with POST /api/intake/scan and
+  # nothing else. At least 32 characters; unset, the route answers 404.
+  # intake_token: ""
 
 email:
   from: "no-reply@example.com"

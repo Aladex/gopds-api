@@ -32,6 +32,8 @@ func setupRoutes(
 	setupOpdsRoutes(route.Group("/opds", middlewares.BasicAuth()), search, db, authors)
 	// Add public auth routes (no auth middleware)
 	setupPublicAuthRoutes(route.Group("/api"))
+	// The intake job's scan route answers to its own token, not to a session
+	api.SetupIntakeRoutes(route.Group("/api/intake"))
 	// WebSocket: Origin check BEFORE auth, so evil origins get 403 not 401
 	route.GET("/api/ws", api.OriginCheckMiddleware(), middlewares.AuthMiddleware(), api.UnifiedWebSocketHandler)
 	// Add authenticated API routes with CSRF protection for state-changing operations
