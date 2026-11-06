@@ -273,6 +273,8 @@ func TestEveryExclusionReason(t *testing.T) {
 			// A pair of two kinds needs a component of two scripts: its own test.
 		case authorentity.ExcludedHubTooLong:
 			// The seal's, on a hub of long cards: its own test.
+		case authorentity.ExcludedTypoGender:
+			// A spelling pair's: its own test.
 		case authorentity.ExcludedMixedOtherName:
 			// A translit through a mixed-script side: its own test.
 		default:
@@ -418,7 +420,12 @@ func TestTheSampleIsBoundedAndExplainable(t *testing.T) {
 	}
 	p := sealed(t, c, nil)
 	assert.Equal(t, 60, counted(p, authorentity.CandidateSwap, "Cyrl"))
-	rows := p.MergeCandidateSample()
+	var rows []authorentity.MergeCandidateSample
+	for _, row := range p.MergeCandidateSample() {
+		if row.Kind == authorentity.CandidateSwap {
+			rows = append(rows, row)
+		}
+	}
 	assert.Len(t, rows, 50)
 	for i := 1; i < len(rows); i++ {
 		assert.Negative(t, bytes.Compare(rows[i-1].MembersSHA256[:], rows[i].MembersSHA256[:]))

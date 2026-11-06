@@ -42,12 +42,17 @@ const (
 var NameKinds = []string{CandidateOrphan, CandidatePenName}
 
 // NameKind reports a name kind.
-func NameKind(kind string) bool { return kind == CandidateOrphan || kind == CandidatePenName }
+func NameKind(kind string) bool {
+	return kind == CandidateOrphan || kind == CandidatePenName || SpellingKind(kind)
+}
 
 // nameKindPairs collects the pairs of the name kinds.
 type nameKindPairs struct {
 	g     *candGen
 	asked map[[2]int]bool
+	// out are the asked pairs a name kind kept out: a spelling pair may still
+	// ask them.
+	out   map[[2]int]bool
 	items []*candItem
 	// bases are each side's written names (script, family, given, suffix).
 	bases map[int]map[string]bool
@@ -56,7 +61,7 @@ type nameKindPairs struct {
 // nameItems are the items of the name kinds of a pass whose other pair
 // items are existing: a pair any of them asks is no name-kind pair.
 func (g *candGen) nameItems(existing []*candItem) []*candItem {
-	n := &nameKindPairs{g: g, asked: map[[2]int]bool{}, bases: map[int]map[string]bool{}}
+	n := &nameKindPairs{g: g, asked: map[[2]int]bool{}, out: map[[2]int]bool{}, bases: map[int]map[string]bool{}}
 	for _, it := range existing {
 		if it.reason == "" && it.credit < 0 {
 			n.asked[sidePair(it.a, it.b)] = true
@@ -64,6 +69,8 @@ func (g *candGen) nameItems(existing []*candItem) []*candItem {
 	}
 	n.orphans()
 	n.penNames()
+	n.nameForms(existing)
+	n.typos()
 	n.capPartners()
 	return n.items
 }
@@ -81,6 +88,7 @@ func (n *nameKindPairs) add(kind string, x, y *candSide, short bool) {
 	n.asked[sidePair(x, y)] = true
 	it := &candItem{kind: kind, script: pairScript(x, y), a: x, b: y, credit: -1, short: short}
 	it.reason = n.g.b.nameKindReason(it)
+	n.out[sidePair(x, y)] = it.reason != ""
 	n.items = append(n.items, it)
 }
 
@@ -327,21 +335,29 @@ func (n *nameKindPairs) capPartners() {
 	}
 }
 
-// joinOrphans applies the orphan decisions (E4q) and reports whether one
-// joined: a same joins the entities of its two sides, those of two full
-// names first, then those of a short side. A side whose sames name two
-// entities holds them all, two_targets; the holds of the Wikidata step
-// apply (a not_same pair, a veto) and a shared book, shared_book.
+// joinOrphans applies the orphan decisions (E4q), then those of the spelling
+// kinds (D2), and reports whether one joined: a same joins the entities of
+// its two sides, those of two full names first, then those of a short side.
+// A side whose sames name two entities holds them all, two_targets; the
+// holds of the Wikidata step apply (a not_same pair, a veto) and a shared
+// book, shared_book. A spelling decision never counts against an orphan's.
 func (m *modelStep) joinOrphans() bool {
 	b := m.b
 	partners := m.notSamePartners()
 	joined := false
-	for _, short := range []bool{false, true} {
+	var steps [3][]decided
+	for _, e := range m.orphanDecs {
+		if e.si.it.short {
+			steps[1] = append(steps[1], e)
+		} else {
+			steps[0] = append(steps[0], e)
+		}
+	}
+	steps[2] = m.spellingDecs
+	for _, decs := range steps {
 		bySide := map[int][]decided{}
-		for _, e := range m.orphanDecs {
-			if e.si.it.short == short {
-				bySide[e.si.it.a.root] = append(bySide[e.si.it.a.root], e)
-			}
+		for _, e := range decs {
+			bySide[e.si.it.a.root] = append(bySide[e.si.it.a.root], e)
 		}
 		for _, root := range sortedKeys(bySide) {
 			if m.joinOrphan(bySide[root], partners) {

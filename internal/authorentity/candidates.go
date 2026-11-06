@@ -112,12 +112,15 @@ const (
 	// whose partner is none of that side's names of the partner's script
 	// (E4h): two names of one script a weak skeleton paired.
 	ExcludedMixedOtherName = "mixed_other_name"
+	// ExcludedTypoGender is a typo pair told apart only by a gender ending
+	// whose sides share no title or series (D2).
+	ExcludedTypoGender = "typo_gender"
 )
 
 // ExclusionReasons are the reasons, each counted per kind and script.
 var ExclusionReasons = []string{ExcludedBucketSide, ExcludedCoCredited, ExcludedNamesakeTag, ExcludedPseudonymKey,
 	ExcludedManualSide, ExcludedRevokedPair, ExcludedPartnerCap, ExcludedMixedScript, ExcludedNoFamilyOrGiven,
-	ExcludedLooseScriptOnly, ExcludedPrecedence, ExcludedHubTooLong, ExcludedMixedOtherName}
+	ExcludedLooseScriptOnly, ExcludedPrecedence, ExcludedHubTooLong, ExcludedMixedOtherName, ExcludedTypoGender}
 
 // SampleCandidate is the reason of a sample row of a candidate.
 const SampleCandidate = "candidate"
@@ -1148,7 +1151,7 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 				a := r.card(si.sideA, si, p.cand.b.hubSide(it, si.sideA))
 				b := r.card(si.sideB, nil, p.cand.b.hubSide(it, si.sideB))
 				switch {
-				case it.kind == CandidateVariant:
+				case it.kind == CandidateVariant || SpellingKind(it.kind):
 					a.Wikidata, b.Wikidata = p.cand.b.wikidataLabel(si.sideA), p.cand.b.wikidataLabel(si.sideB)
 				case MixedKind(it.kind):
 					a.Wikidata, a.WikidataID = p.wikidataItemOf(si.sideA)

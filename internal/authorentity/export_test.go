@@ -72,3 +72,10 @@ func DenyWikidataAfter(qids ...string) (restore func()) {
 	}
 	return func() { wikidataAfterDenied = saved }
 }
+
+// TypoVerdict reads two near words on nx and ny sides: 0 no typo, 1 a typo,
+// 2 gender endings.
+func TypoVerdict(x, y string, nx, ny int) int { return typoVerdict(x, y, nx, ny) }
+
+// NearWords are the pairs of words within the typo distance.
+func NearWords(words []string) [][2]string { return nearWords(words) }

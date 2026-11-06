@@ -264,6 +264,11 @@ func (p *Plan) RenderSuiteItem(pair *MergeSuitePair, shape string, romanized boo
 	case CandidateVariant:
 		nameX = nx.given + " " + nx.additional + " " + nx.family
 		nameY = nx.given + " " + Respell(nx.additional) + " " + nx.family
+	case CandidateTypo:
+		// One person's name, and the same name misspelled on the other's
+		// books (D2): the question a typo pair asks, of two people.
+		nameX = nx.given + " " + nx.family
+		nameY = nx.given + " " + Respell(nx.family)
 	case CandidateOrphan, CandidatePenName:
 		// One written name on both: two people the name alone never tells
 		// apart (E4q).

@@ -1057,6 +1057,7 @@
   "authorLLM.step.merge6": "Check initials of large sides, every candidate (merge6)",
   "authorLLM.step.merge7": "Check names written in two scripts, every candidate (merge7)",
   "authorLLM.step.merge8": "Check namesakes and pen names, every candidate (merge8)",
+  "authorLLM.step.merge9": "Check typos and name forms, every candidate (merge9)",
   "authorLLM.side.also": "also",
   "authorLLM.step.merge_run": "Merge: ask the new candidates",
   "authorLLM.run.merge_run": "Merge run",

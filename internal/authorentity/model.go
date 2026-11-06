@@ -208,9 +208,11 @@ type modelStep struct {
 	entityDecs  []decided
 	bookDecs    []decided
 	orphanDecs  []decided
-	applied     map[int64]bool
-	pinStates   []PinState
-	rep         ModelReport
+	// spellingDecs are the decisions of the spelling kinds (D2).
+	spellingDecs []decided
+	applied      map[int64]bool
+	pinStates    []PinState
+	rep          ModelReport
 }
 
 // decided is a decision with the current candidate of its digest.
@@ -296,6 +298,9 @@ func (m *modelStep) evaluate() {
 		case si.it.kind == CandidateOrphan:
 			// An orphan joins after the book moves (joinOrphans, E4q).
 			m.orphanDecs = append(m.orphanDecs, decided{d, si})
+		case SpellingKind(si.it.kind):
+			// A spelling pair joins after every orphan (joinOrphans, D2).
+			m.spellingDecs = append(m.spellingDecs, decided{d, si})
 		default:
 			m.entityDecs = append(m.entityDecs, decided{d, si})
 		}

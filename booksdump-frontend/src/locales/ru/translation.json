@@ -1064,6 +1064,7 @@
   "authorLLM.step.merge6": "Проверить инициалы больших сторон, все кандидаты (merge6)",
   "authorLLM.step.merge7": "Проверить имена в двух письменностях, все кандидаты (merge7)",
   "authorLLM.step.merge8": "Проверить тёзок и псевдонимы, все кандидаты (merge8)",
+  "authorLLM.step.merge9": "Проверить опечатки и формы имени, все кандидаты (merge9)",
   "authorLLM.side.also": "также",
   "authorLLM.step.merge_run": "Слияния: спросить новых кандидатов",
   "authorLLM.run.merge_run": "Слияния: прогон",

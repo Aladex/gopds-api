@@ -129,6 +129,10 @@ var mergeEvalModes = map[string]mergeEvalMode{
 	// its own stratum and audit. No Wikidata suite: two sides an item names
 	// are what pen_name asks, not namesakes.
 	models.AuthorLLMEvalModeMerge8: {kinds: authorentity.NameKinds, census: true},
+	// merge9 (D2): the census of the spelling kinds, typo and name_form, each
+	// its own stratum and audit; two sides naming two Wikidata items are
+	// namesakes, asked in the suite («Христо Фотев», «Христо Ботев»).
+	models.AuthorLLMEvalModeMerge9: {kinds: authorentity.SpellingKinds, census: true, wikidataSuite: true},
 }
 
 // AuthorLLMMergeEvalSizes are a merge eval's sizes (§7).

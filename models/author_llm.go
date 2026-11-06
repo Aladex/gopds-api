@@ -339,6 +339,9 @@ const (
 	AuthorLLMEvalModeMerge6 = "merge6"
 	AuthorLLMEvalModeMerge7 = "merge7"
 	AuthorLLMEvalModeMerge8 = "merge8"
+	// AuthorLLMEvalModeMerge9 is the census of the spelling kinds, typo and
+	// name_form (D2, migration 82).
+	AuthorLLMEvalModeMerge9 = "merge9"
 )
 
 // AuthorLLMEvalStageModes lists the stage eval modes in order.
@@ -355,7 +358,7 @@ func IsAuthorLLMEvalStageMode(mode string) bool {
 func AuthorLLMEvalMergeModes() []string {
 	return []string{AuthorLLMEvalModeMerge, AuthorLLMEvalModeMerge0, AuthorLLMEvalModeMerge1, AuthorLLMEvalModeMerge2,
 		AuthorLLMEvalModeMerge3, AuthorLLMEvalModeMerge4, AuthorLLMEvalModeMerge5, AuthorLLMEvalModeMerge6,
-		AuthorLLMEvalModeMerge7, AuthorLLMEvalModeMerge8}
+		AuthorLLMEvalModeMerge7, AuthorLLMEvalModeMerge8, AuthorLLMEvalModeMerge9}
 }
 
 // IsAuthorLLMEvalMergeMode reports a merge eval mode.
