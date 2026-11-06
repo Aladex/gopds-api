@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -477,4 +478,36 @@ func TestTheAutopilotStatusShowsTheMergeSwitch(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, status.MergeEnabled)
 	assert.False(t, errors.Is(err, database.ErrAuthorAutopilotOff))
+}
+
+// The hold keeps speaking for as long as it lasts, at the pace the alert's
+// window expects, and falls silent with the administrator's pass.
+func TestAHeldPassKeepsAnnouncingItself(t *testing.T) {
+	p := newMergePilot(t)
+	p.renew(fillAsimov)
+	p.edit(fillKing)
+	a := p.pilot()
+	require.True(t, p.tick(a))
+	held := p.failPass(services.AuthorEntityBuildErrorDecisionsHeld)
+	p.c.exec(`UPDATE author_entity_build_run SET report = '{"applied_not_same":[7,9]}' WHERE id = ?`, held)
+
+	logs := captureLogs(t)
+	lines := func() int { return strings.Count(logs.String(), "msg=author_metadata.autopilot_held") }
+	p.tick(a)
+	require.Equal(t, 1, lines(), "the hold is announced at once")
+	assert.Contains(t, logs.String(), "count=2")
+	assert.Contains(t, logs.String(), "level=warning")
+
+	p.clock.advance(5 * time.Minute)
+	p.tick(a)
+	assert.Equal(t, 1, lines(), "not on every tick")
+
+	p.clock.advance(2 * time.Hour)
+	p.tick(a)
+	assert.Equal(t, 2, lines(), "again once the hour has passed")
+
+	p.c.build()
+	p.clock.advance(2 * time.Hour)
+	p.tick(a)
+	assert.Equal(t, 2, lines(), "an administrator's pass ends it")
 }

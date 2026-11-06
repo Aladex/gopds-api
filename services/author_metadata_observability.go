@@ -174,7 +174,11 @@ const (
 	// a tick failed and is retried after a backoff; Switched: an
 	// administrator switched it or its merge step (Status: on, off,
 	// merge_on or merge_off).
-	AuthorMetadataEventAutopilotState          AuthorMetadataEventName = "author_metadata.autopilot_state"
+	AuthorMetadataEventAutopilotState AuthorMetadataEventName = "author_metadata.autopilot_state"
+	// AuthorMetadataEventAutopilotHeld repeats for as long as the autopilot
+	// waits for an administrator (applied_decisions_held): ItemID is the held
+	// pass, Count its decisions. The alert watches this line.
+	AuthorMetadataEventAutopilotHeld           AuthorMetadataEventName = "author_metadata.autopilot_held"
 	AuthorMetadataEventAutopilotResolveStarted AuthorMetadataEventName = "author_metadata.autopilot_resolve_started"
 	AuthorMetadataEventAutopilotBuildStarted   AuthorMetadataEventName = "author_metadata.autopilot_build_started"
 	AuthorMetadataEventAutopilotMergeStarted   AuthorMetadataEventName = "author_metadata.autopilot_merge_started"
@@ -217,7 +221,8 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWikidataFetchStarted, AuthorMetadataEventWikidataChunkImported,
 		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,
 		AuthorMetadataEventWikidataFetchStepFailed,
-		AuthorMetadataEventAutopilotState, AuthorMetadataEventAutopilotResolveStarted,
+		AuthorMetadataEventAutopilotState, AuthorMetadataEventAutopilotHeld,
+		AuthorMetadataEventAutopilotResolveStarted,
 		AuthorMetadataEventAutopilotBuildStarted, AuthorMetadataEventAutopilotMergeStarted,
 		AuthorMetadataEventAutopilotStepFailed, AuthorMetadataEventAutopilotSwitched,
 	}

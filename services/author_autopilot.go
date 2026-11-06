@@ -142,6 +142,8 @@ type AuthorAutopilot struct {
 	merge AuthorAutopilotLLM
 	cfg   AuthorAutopilotConfig
 	owner uuid.UUID
+	// heldLoggedAt is when the hold was last announced.
+	heldLoggedAt time.Time
 }
 
 // NewAuthorAutopilot builds the worker; zero fields take the defaults.
@@ -254,6 +256,7 @@ func (l *AuthorAutopilot) tick(ctx context.Context, st *database.AuthorAutopilot
 	if hold.RunID != 0 {
 		found.State, found.StateRunID, found.MergeNote = database.AuthorAutopilotStateBuildHeld, hold.RunID,
 			AutopilotMergeBuildHeld
+		l.announceHold(hold, now)
 		return false, l.record(ctx, found, now)
 	}
 	needed, held, err := l.buildNeeded(ctx, now)
@@ -268,6 +271,20 @@ func (l *AuthorAutopilot) tick(ctx context.Context, st *database.AuthorAutopilot
 		return l.build(ctx, found, now)
 	}
 	return l.mergeStep(ctx, st, found, now)
+}
+
+// announceHold logs the hold now and then for as long as it lasts: state
+// changes are logged once, and a line that scrolled past the alert's window
+// must not leave new books waiting in silence.
+func (l *AuthorAutopilot) announceHold(hold *database.AuthorAutopilotDecisionsHeld, now time.Time) {
+	if now.Sub(l.heldLoggedAt) < authorAutopilotHoldLogEvery {
+		return
+	}
+	l.heldLoggedAt = now
+	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventAutopilotHeld, Stage: AuthorMetadataStageAutopilot, ItemID: hold.RunID,
+		Count: len(hold.Decisions), Worker: authorAutopilotName,
+	})
 }
 
 // buildNeeded reports whether a pass is to do now: the selections changed
@@ -370,6 +387,10 @@ func (l *AuthorAutopilot) record(ctx context.Context, t *database.AuthorAutopilo
 	}
 	return err
 }
+
+// authorAutopilotHoldLogEvery spaces the hold's log line; the alert's window
+// is twice this.
+const authorAutopilotHoldLogEvery = time.Hour
 
 // The tick seam's names of what it starts.
 const (
