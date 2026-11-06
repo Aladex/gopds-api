@@ -666,6 +666,7 @@ func (h *authorEntityHandler) creditMoves(c *gin.Context) {
 // @Summary Put single credits on an author entity by hand
 // @Description Writes manual credit rows: every build keeps them. The target is {"entity": uuid} or
 // @Description {"new_entity_name": name}, which creates the card. Up to 200 credits, all or none.
+// @Description Only a current selected person moves. 409 active_run_exists while a build is pending or running.
 // @Description 422 credit_move_credits, credit_move_target.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"

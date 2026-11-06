@@ -171,3 +171,10 @@ func TestEveryErrorClassIsInTheClosedVocabulary(t *testing.T) {
 		assert.True(t, vocabulary[string(class)], "%s missing from database.AuthorMetadataAttemptErrorClasses", class)
 	}
 }
+
+// A hand move's event names its action, not the sentinel.
+func TestAHandMoveHasAClosedStatus(t *testing.T) {
+	statuses := authorMetadataEventStatuses()
+	assert.True(t, statuses[authorEntityCreditsMoved])
+	assert.True(t, statuses[authorEntityCreditMoveRevoked])
+}

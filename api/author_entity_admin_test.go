@@ -663,6 +663,7 @@ func TestTheHandMoveRoutes(t *testing.T) {
 		{database.ErrCreditMoveCredits, "/credits/moves", "credit_move_credits", http.StatusUnprocessableEntity},
 		{database.ErrCreditMoveTarget, "/credits/moves", "credit_move_target", http.StatusUnprocessableEntity},
 		{database.ErrCreditMoveNotLive, "/credits/moves/revoke", "credit_move_not_live", http.StatusConflict},
+		{database.ErrAuthorEntityBuildActive, "/credits/moves", "active_run_exists", http.StatusConflict},
 	} {
 		svc.err = tc.err
 		rec = csrfRequest(t, r, http.MethodPost, entityBase+tc.path, `{"credits":[3]}`)

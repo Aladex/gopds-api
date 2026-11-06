@@ -26,9 +26,10 @@ const CreditMoveMaxBatch = 200
 // ErrCreditMoveTarget is a move to no live entity, or to no valid new one.
 var ErrCreditMoveTarget = errors.New("database: the credits' target is not a live entity")
 
-// ErrCreditMoveCredits names a credit that cannot move: unknown, not
-// selected, or a list of several people, whose segments no credit row of
-// ordinal 0 decides.
+// ErrCreditMoveCredits names a credit that cannot move: unknown, or not the
+// current selected person a build reads as one entity. A list of several
+// people is under review or unresolved, and no credit row of ordinal 0
+// decides its segments.
 var ErrCreditMoveCredits = errors.New("database: a credit cannot be moved by hand")
 
 // ErrCreditMoveNotLive is a revoke of a credit with no hand move.
@@ -66,11 +67,18 @@ func distinctCredits(ids []int64) []int64 {
 }
 
 // MoveCredits writes the manual rows of a move in tx and returns the target.
-// All of it moves or none does.
+// All of it moves or none does. An active build refuses it with
+// ErrAuthorEntityBuildActive: a plan made without the move could merge its
+// target away, and only a pass that applies a decision fences its plan. The
+// start lock, held to the commit, keeps a pass from starting until the move
+// is visible to it, and a pass that sees the manual row anchors the target.
 func MoveCredits(ctx context.Context, tx pg.DBI, m *CreditMove) (uuid.UUID, error) {
 	credits := distinctCredits(m.Credits)
 	if credits == nil {
 		return uuid.Nil, ErrCreditMoveCredits
+	}
+	if err := refuseActiveBuild(ctx, tx); err != nil {
+		return uuid.Nil, err
 	}
 	if err := checkMovableCredits(ctx, tx, credits); err != nil {
 		return uuid.Nil, err
@@ -91,22 +99,39 @@ func MoveCredits(ctx context.Context, tx pg.DBI, m *CreditMove) (uuid.UUID, erro
 	return target, nil
 }
 
-// checkMovableCredits refuses a credit a row of ordinal 0 cannot decide.
+// refuseActiveBuild takes the start lock to tx's commit and refuses while a
+// pass is pending or running.
+func refuseActiveBuild(ctx context.Context, tx pg.DBI) error {
+	if err := lockEntityBuildStart(ctx, tx); err != nil {
+		return err
+	}
+	active, err := ActiveAuthorEntityBuild(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if active != 0 {
+		return ErrAuthorEntityBuildActive
+	}
+	return nil
+}
+
+// checkMovableCredits refuses a credit that is not a current selected
+// person: the input a build reads as one entity, so a row of ordinal 0
+// decides all of it. It reads the input alone, never what a build wrote, and
+// keeps the rows it read as they are until the move commits: a selection or
+// a snapshot changing now is waited for, then read as it ended.
 func checkMovableCredits(ctx context.Context, tx pg.DBI, credits []int64) error {
-	var movable int
-	if _, err := tx.QueryOneContext(ctx, pg.Scan(&movable), `
-		SELECT count(*) FROM public.book_contributor_credit c
-		JOIN public.book_contributor_credit_selection cs ON cs.credit_id = c.id
-		JOIN public.book_metadata_snapshot s ON s.id = c.snapshot_id
-		WHERE c.id = ANY (?::bigint[])
-			AND NOT EXISTS (SELECT 1 FROM public.author_entity_credit_assignment ca
-				WHERE ca.credit_id = c.id AND ca.ordinal > 0)
-			AND NOT EXISTS (SELECT 1 FROM public.author_entity_assignment a
-				WHERE a.source_fingerprint = c.source_fingerprint AND a.extractor_version = s.extractor_version
-					AND a.ordinal > 0)`, pg.Array(credits)); err != nil {
+	var movable []int64
+	if _, err := tx.QueryContext(ctx, &movable, `
+		SELECT c.id FROM public.book_contributor_credit c
+		JOIN public.book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current
+		JOIN public.book_contributor_credit_selection cs ON cs.credit_id = c.id AND cs.state = 'selected'
+		JOIN public.contributor_normalization_result r ON r.id = cs.result_id
+		WHERE c.id = ANY (?::bigint[]) AND c.role = 'author' AND r.kind = 'person'
+		ORDER BY c.id FOR SHARE OF s, cs`, pg.Array(credits)); err != nil {
 		return fmt.Errorf("reading the credits to move: %w", err)
 	}
-	if movable != len(credits) {
+	if len(movable) != len(credits) {
 		return ErrCreditMoveCredits
 	}
 	return nil

@@ -210,12 +210,14 @@ const authorEntityFenceRefused = "refused"
 
 // AuthorEntityBuildStatuses are the statuses the entity build's events
 // carry: the census's closed classes, the failed census of a pass with
-// decisions, and the fence's refusal and its failure.
+// decisions, the fence's refusal and its failure, an administrator's revokes
+// and veto changes, and the hand moves.
 func AuthorEntityBuildStatuses() []string {
 	return []string{AuthorEntityCensusErrorGenerate, AuthorEntityCensusErrorCardLoad, AuthorEntityCensusErrorSeal,
 		AuthorEntityCensusErrorWrite, AuthorEntityBuildErrorCensus, authorEntityFenceRefused,
 		AuthorEntityBuildErrorInputMoved, AuthorEntityBuildErrorVetoOverlap, authorEntityMergeRevoked,
-		authorEntityMergeVetoRetired, authorEntityMergeVetoReanchored}
+		authorEntityMergeVetoRetired, authorEntityMergeVetoReanchored, authorEntityCreditsMoved,
+		authorEntityCreditMoveRevoked}
 }
 
 // loaded runs the test hook after a load of the plan's snapshot.
