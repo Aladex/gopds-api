@@ -700,6 +700,13 @@ func (r *PGSearchRepository) searchAuthorEntities(
 	return page, err
 }
 
+// The log event of a page left without summaries, and its fields.
+const (
+	authorSummaryReadFailed = "author_metadata.summary_read_failed"
+	authorSummaryReadHits   = "hits"
+	authorSummaryReadState  = "sqlstate"
+)
+
 // summarized is what a page says of its hits beside their names. The hits come
 // first: a summary that cannot be read costs the page its covers and titles,
 // never an author, so only the caller's own cancellation is an error here.
@@ -715,7 +722,8 @@ func (r *PGSearchRepository) summarized(
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
-		logging.Error(err)
+		// Fixed text: a driver's or a decoder's error can quote what it read.
+		logging.WithFields(logging.Fields{authorSummaryReadHits: len(ids), authorSummaryReadState: sqlState(err)}).Error(authorSummaryReadFailed)
 	}
 	out := make(map[uuid.UUID]models.AuthorSummary, len(hits))
 	for i := range hits {

@@ -24,6 +24,7 @@ import (
 	_ "image/png"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-pg/pg/v10"
 	"github.com/spf13/viper"
 )
 
@@ -101,10 +102,18 @@ func UploadBookCover(c *gin.Context) {
 		return
 	}
 
-	_, err = db.Model(&models.Book{}).
-		Set("cover = ?", true).
-		Where("id = ?", bookID).
-		Update()
+	// The mark commits with the flag: the author summary's cover pile follows
+	// it instead of waiting for the daily walk.
+	ctx := c.Request.Context()
+	err = db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if _, updateErr := tx.ModelContext(ctx, &models.Book{}).
+			Set("cover = ?", true).
+			Where("id = ?", bookID).
+			Update(); updateErr != nil {
+			return updateErr
+		}
+		return database.MarkAuthorDisplayDirty(ctx, tx, bookID)
+	})
 	if err != nil {
 		httputil.NewError(c, http.StatusInternalServerError, fmt.Errorf("failed_to_update_cover: %w", err))
 		return

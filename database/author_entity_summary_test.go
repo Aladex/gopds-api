@@ -2,15 +2,18 @@ package database
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"gopds-api/logging"
 	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test" //nolint:depguard // tests assert on the structured log entries
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,11 +60,37 @@ func (f *authorSchemaFixture) summaryMarks() []uuid.UUID {
 	return ids
 }
 
-func (f *authorSchemaFixture) rebuildSummaries(ids ...uuid.UUID) []AuthorSummarySkip {
+func (f *authorSchemaFixture) rebuildSummaries(ids ...uuid.UUID) {
 	f.t.Helper()
-	skipped, err := rebuildAuthorEntitySummaries(context.Background(), f.tx, ids, nil)
+	for _, id := range ids {
+		require.NoError(f.t, rebuildAuthorEntitySummary(context.Background(), f.tx, id))
+	}
+}
+
+// summaryTxs stands for the database in the fixture's one transaction: each of
+// the summary's transactions is a savepoint of it, so a refused one takes back
+// its own writes and nothing commits. It sees what the steps do, never what a
+// connection does: a real timeout is services/author_display_model_loop_test.go.
+type summaryTxs struct{ tx *pg.Tx }
+
+func (s summaryTxs) RunInTransaction(ctx context.Context, fn func(*pg.Tx) error) error {
+	return underSavepoint(ctx, s.tx, "summary_tx", func() error { return fn(s.tx) })
+}
+
+const summaryTimeout = 5 * time.Second
+
+func (f *authorSchemaFixture) drainSummaries(limit int) AuthorSummaryWork {
+	f.t.Helper()
+	done, err := DrainAuthorSummaryMarks(context.Background(), summaryTxs{f.tx}, limit, summaryTimeout)
 	require.NoError(f.t, err)
-	return skipped
+	return done
+}
+
+func (f *authorSchemaFixture) walkSummaries(batch int) AuthorSummaryWalkResult {
+	f.t.Helper()
+	done, err := AuthorSummaryWalkStep(context.Background(), summaryTxs{f.tx}, batch, time.Hour, summaryTimeout)
+	require.NoError(f.t, err)
+	return done
 }
 
 func (f *authorSchemaFixture) summaryLangs(id uuid.UUID) []string {
@@ -114,11 +143,18 @@ func TestASummaryThatCannotBeReadCostsNoAuthor(t *testing.T) {
 	f := summarySchema(t)
 	e := f.summaryEntity(0xbf, "Лемовский", "Станислав", "Солярис")
 	f.exec(`ALTER TABLE author_entity_summary RENAME TO author_entity_summary_away`)
+	hook := logrustest.NewLocal(logging.GetLogger())
 	page, err := NewPGSearchRepositoryFor(f.tx, true).SearchAuthors(context.Background(),
 		models.AuthorSearchRequest{Query: "лемовский", Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, page.Entities, 1)
 	assert.Equal(t, models.AuthorSummary{Kind: "person"}, page.Summaries[e.id])
+
+	// The log says what happened by a fixed event, never in the driver's words.
+	require.Len(t, hook.AllEntries(), 1)
+	entry := hook.AllEntries()[0]
+	assert.Equal(t, authorSummaryReadFailed, entry.Message)
+	assert.Equal(t, logging.Fields{authorSummaryReadHits: 1, authorSummaryReadState: "42P01"}, entry.Data)
 }
 
 // Building the summary changes what a page says of an author and nothing of
@@ -259,6 +295,60 @@ func TestAVariantNoCloserThanTheDisplayedNameIsNotAMatchedName(t *testing.T) {
 	assert.Empty(t, f.authorsPage("лемовский", "").Summaries[e.id].MatchedName)
 }
 
+// hiddenName is an entity with one listed book and one book of its own credited
+// under name: until hide takes that book off the listing the name is reported,
+// which is what shows the test can see it, and after it the name is gone.
+func hiddenName(t *testing.T, fill byte, column, name, hide string) {
+	t.Helper()
+	f := summarySchema(t)
+	e := f.summaryEntity(fill, "Лемовский", "Станислав", "Видимая", "Вторая")
+	f.exec(`UPDATE author_entity SET display_name = 'Станислав Лемовский' WHERE id = ?`, e.id)
+	f.exec(`UPDATE book_author_display SET `+column+` = ? WHERE book_id = ?`, name, e.books[1])
+	f.exec(`INSERT INTO author_entity_name (entity_id, search_key, books) VALUES (?, public.search_normalize(?), 1)`, e.id, name)
+	f.rebuildSummaries(e.id)
+	require.Equal(t, name, f.authorsPage(name, "").Summaries[e.id].MatchedName)
+
+	f.exec(`UPDATE opds_catalog_book SET `+hide+` WHERE id = ?`, e.books[1])
+	f.rebuildSummaries(e.id)
+	got := f.authorsPage(name, "")
+	require.Len(t, got.Entities, 1, "the search still finds the entity by the name")
+	assert.Empty(t, got.Summaries[e.id].MatchedName)
+	assert.Equal(t, []string{"Видимая"}, got.Summaries[e.id].Works)
+}
+
+const (
+	hideDuplicate = "duplicate_hidden = true"
+	hideApproval  = "approved = false"
+)
+
+func TestADisplayNameOnlyOnAHiddenDuplicateIsNotPublished(t *testing.T) {
+	hiddenName(t, 0xe1, "display", "Тайное Имя", hideDuplicate)
+}
+
+func TestADisplayNameOnlyOnAnUnapprovedBookIsNotPublished(t *testing.T) {
+	hiddenName(t, 0xe2, "display", "Тайное Имя", hideApproval)
+}
+
+func TestANicknameOnlyOnAHiddenDuplicateIsNotPublished(t *testing.T) {
+	hiddenName(t, 0xe3, "nickname", "Тайное Прозвище", hideDuplicate)
+}
+
+func TestANicknameOnlyOnAnUnapprovedBookIsNotPublished(t *testing.T) {
+	hiddenName(t, 0xe4, "nickname", "Тайное Прозвище", hideApproval)
+}
+
+// A name a listed book also carries stays, whatever a hidden one says.
+func TestANameOnAListedBookStaysThoughAHiddenBookHasItToo(t *testing.T) {
+	f := summarySchema(t)
+	e := f.summaryEntity(0xe5, "Лемовский", "Станислав", "Видимая", "Скрытая")
+	f.exec(`UPDATE author_entity SET display_name = 'Станислав Лемовский' WHERE id = ?`, e.id)
+	f.exec(`UPDATE book_author_display SET display = 'Общее Имя' WHERE book_id = ANY (?)`, pgInts(e.books))
+	f.exec(`INSERT INTO author_entity_name (entity_id, search_key, books) VALUES (?, public.search_normalize('Общее Имя'), 2)`, e.id)
+	f.exec(`UPDATE opds_catalog_book SET duplicate_hidden = true WHERE id = ?`, e.books[1])
+	f.rebuildSummaries(e.id)
+	assert.Equal(t, "Общее Имя", f.authorsPage("общее имя", "").Summaries[e.id].MatchedName)
+}
+
 // The matched name does not depend on the language: the search finds an
 // entity by any of its names, whatever the filter.
 func TestAMatchedNameComesWithALanguageFilter(t *testing.T) {
@@ -344,8 +434,7 @@ func TestDrainingMarksBuildsTheEntityAndTakesTheMark(t *testing.T) {
 	f := summarySchema(t)
 	e := f.summaryEntity(0xc6, "Прежний", "Пётр", "Книга")
 	require.Contains(t, f.summaryMarks(), e.id)
-	done, err := DrainAuthorSummaryMarks(context.Background(), f.tx, 100, nil)
-	require.NoError(t, err)
+	done := f.drainSummaries(100)
 	assert.GreaterOrEqual(t, done.Entities, 1)
 	assert.Empty(t, f.summaryMarks())
 	assert.Equal(t, []string{"", "ru"}, f.summaryLangs(e.id))
@@ -362,8 +451,7 @@ func TestAMergedEntityLeavesTheSummaryAndItsTargetTakesItsBooks(t *testing.T) {
 	f.exec(`UPDATE author_entity SET merged_into = ?0 WHERE id = ?1`, into.id, from.id)
 	f.exec(`UPDATE author_entity_assignment SET entity_id = ?0 WHERE entity_id = ?1`, into.id, from.id)
 	f.drain()
-	_, err := DrainAuthorSummaryMarks(context.Background(), f.tx, 100, nil)
-	require.NoError(t, err)
+	f.drainSummaries(100)
 
 	assert.Empty(t, f.summaryLangs(from.id))
 	assert.ElementsMatch(t, []string{"Первая", "Вторая"}, f.authorsPage("главный", "").Summaries[into.id].Works)
@@ -403,9 +491,9 @@ func TestALanguageTheEntityNoLongerHasLeaves(t *testing.T) {
 	assert.Equal(t, []string{"", "fr"}, f.summaryLangs(e.id))
 }
 
-// Walking the whole table in steps: every step commits its cursor, so a
-// restart continues; the first walk needs no one to start it; rows of an
-// entity that is gone leave.
+// Walking the whole table in steps: every entity commits its cursor, so a
+// restart continues; the first walk needs no one to start it; rows of an entity
+// that is gone leave.
 func TestTheWalkFillsTheSummaryAStepAtATimeAndResumes(t *testing.T) {
 	f := summarySchema(t)
 	a := f.summaryEntity(0xcb, "Первый", "Пётр", "Раз")
@@ -413,29 +501,28 @@ func TestTheWalkFillsTheSummaryAStepAtATimeAndResumes(t *testing.T) {
 	c := f.summaryEntity(0xcd, "Третий", "Пётр", "Три")
 	gone := uuid.Must(uuid.NewV7())
 	f.exec(`INSERT INTO author_entity_summary (entity_id, lang) VALUES (?, '')`, gone)
-	ctx := context.Background()
 
-	first, err := AuthorSummaryWalkStep(ctx, f.tx, 2, time.Hour, nil)
-	require.NoError(t, err)
+	first := f.walkSummaries(2)
 	assert.True(t, first.Ran)
 	assert.False(t, first.Finished)
 	assert.Equal(t, 2, first.Entities)
 	var read int
-	_, err = f.tx.QueryOne(pg.Scan(&read), `SELECT walk_read FROM author_entity_summary_walk`)
+	_, err := f.tx.QueryOne(pg.Scan(&read), `SELECT walk_read FROM author_entity_summary_walk`)
 	require.NoError(t, err)
 	assert.Equal(t, 2, read, "the cursor and the count are stored: a new process goes on from them")
 
-	second, err := AuthorSummaryWalkStep(ctx, f.tx, 2, time.Hour, nil)
-	require.NoError(t, err)
-	assert.True(t, second.Finished)
+	second := f.walkSummaries(2)
+	assert.False(t, second.Finished, "the last entity of a batch cannot know it is the last")
+	last := f.walkSummaries(2)
+	assert.Zero(t, last.Entities)
+	assert.True(t, last.Finished)
+	assert.EqualValues(t, 4, last.Read, "three entities and the rows of the one that is gone")
 	for _, e := range []summaryEntity{a, b, c} {
 		assert.Equal(t, []string{"", "ru"}, f.summaryLangs(e.id))
 	}
 	assert.Empty(t, f.summaryLangs(gone), "the entity is gone")
 
-	idle, err := AuthorSummaryWalkStep(ctx, f.tx, 2, time.Hour, nil)
-	require.NoError(t, err)
-	assert.False(t, idle.Ran, "a finished walk rests until every has passed")
+	assert.False(t, f.walkSummaries(2).Ran, "a finished walk rests until every has passed")
 }
 
 // A walk rewrites nothing that has not changed: no dead rows, no WAL.
@@ -455,27 +542,77 @@ func TestARebuildOfAnUnchangedEntityWritesNothing(t *testing.T) {
 	assert.Equal(t, before, stamp())
 }
 
-// A row the table refuses costs that one entity: the rest of the batch is
-// built, the cursor passes it, and it is reported by ID.
-func TestABadEntityStopsNoBatch(t *testing.T) {
-	f := summarySchema(t)
-	bad := f.summaryEntity(0xcf, "Плохой", "Пётр", "Раз")
-	good := f.summaryEntity(0xd0, "Хороший", "Пётр", "Два")
+// refusedSummary makes the table refuse one entity's rows.
+func (f *authorSchemaFixture) refusedSummary(id uuid.UUID) {
+	f.t.Helper()
 	f.exec(`CREATE FUNCTION public.a3_refuse_summary() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN
-			IF NEW.entity_id = '` + bad.id.String() + `' THEN RAISE EXCEPTION 'refused' USING ERRCODE = '22000'; END IF;
+			IF NEW.entity_id = '` + id.String() + `' THEN RAISE EXCEPTION 'refused' USING ERRCODE = '22000'; END IF;
 			RETURN NEW;
 		END $$`)
 	f.exec(`CREATE TRIGGER refuse_summary BEFORE INSERT ON author_entity_summary
 		FOR EACH ROW EXECUTE FUNCTION public.a3_refuse_summary()`)
+}
 
-	skipped, err := rebuildAuthorEntitySummaries(context.Background(), f.tx, []uuid.UUID{bad.id, good.id}, nil)
-	require.NoError(t, err)
-	require.Len(t, skipped, 1)
-	assert.Equal(t, bad.id, skipped[0].EntityID)
-	assert.Equal(t, "22000", skipped[0].SQLState)
+// A row the table refuses costs that one entity: the rest of the batch is
+// built, the cursor passes it, and it is reported by ID.
+func TestARefusedEntityStopsNoWalk(t *testing.T) {
+	f := summarySchema(t)
+	bad := f.summaryEntity(0xcf, "Плохой", "Пётр", "Раз")
+	good := f.summaryEntity(0xd0, "Хороший", "Пётр", "Два")
+	f.refusedSummary(bad.id)
+
+	done := f.walkSummaries(10)
+	assert.Equal(t, []AuthorSummarySkip{{EntityID: bad.id, SQLState: "22000"}}, done.Skipped)
+	assert.True(t, done.Finished)
+	assert.EqualValues(t, 2, done.Read)
+	assert.EqualValues(t, 1, done.Refused)
 	assert.Equal(t, []string{"", "ru"}, f.summaryLangs(good.id))
 	assert.Empty(t, f.summaryLangs(bad.id))
+}
+
+// The same for a mark: it goes, or the batch would come back to it every rest.
+func TestARefusedEntityLosesItsMark(t *testing.T) {
+	f := summarySchema(t)
+	bad := f.summaryEntity(0xd7, "Плохой", "Пётр", "Раз")
+	good := f.summaryEntity(0xd8, "Хороший", "Пётр", "Два")
+	f.refusedSummary(bad.id)
+
+	done := f.drainSummaries(10)
+	assert.Equal(t, 2, done.Entities)
+	assert.Equal(t, []AuthorSummarySkip{{EntityID: bad.id, SQLState: "22000"}}, done.Skipped)
+	assert.Empty(t, f.summaryMarks())
+	assert.Equal(t, []string{"", "ru"}, f.summaryLangs(good.id))
+	assert.Empty(t, f.summaryLangs(bad.id))
+}
+
+// A canceled statement comes back as PostgreSQL's own 57014, which reads like a
+// refused entity. Its caller going away is no verdict on the entity, and a pass
+// sent after it might still get through before the cancellation reaches it.
+func TestACanceledCallerRefusesNoEntity(t *testing.T) {
+	requireDatabase(t)
+	_, err := db.Exec(`SELECT 1 / 0`)
+	require.Error(t, err)
+	assert.True(t, summaryEntityRefused(context.Background(), err))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.False(t, summaryEntityRefused(ctx, err))
+}
+
+// fatalPGError is a FATAL as the driver hands it over. A terminated backend in
+// tests comes back as a bare EOF, which a lost-connection test in services sees;
+// this is the one that arrives with a SQLSTATE like a refusal.
+type fatalPGError struct{ error }
+
+func (fatalPGError) Field(field byte) string {
+	return map[byte]string{'V': severityFatal, 'C': "57P01"}[field]
+}
+
+func (fatalPGError) IntegrityViolation() bool { return false }
+
+func TestAFatalErrorRefusesNoEntity(t *testing.T) {
+	var _ pg.Error = fatalPGError{}
+	assert.False(t, summaryEntityRefused(context.Background(), fatalPGError{errors.New("terminating connection")}))
 }
 
 func TestACanceledContextEndsTheBatchInsteadOfSkippingIt(t *testing.T) {
@@ -483,27 +620,12 @@ func TestACanceledContextEndsTheBatchInsteadOfSkippingIt(t *testing.T) {
 	e := f.summaryEntity(0xd1, "Прежний", "Пётр", "Книга")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	skipped, err := rebuildAuthorEntitySummaries(ctx, f.tx, []uuid.UUID{e.id}, nil)
-	require.Error(t, err)
-	assert.Empty(t, skipped)
-}
-
-// A cancellation that reaches a running statement comes back as PostgreSQL's
-// own 57014, which looks like a row refused. It is the caller going away, no
-// verdict on the entity: it ends the batch and is not reported as refused.
-func TestACancellationInsideAnEntityEndsTheBatch(t *testing.T) {
-	f := summarySchema(t)
-	e := f.summaryEntity(0xd6, "Прежний", "Пётр", "Книга")
-	f.exec(`CREATE FUNCTION public.a3_slow_summary() RETURNS trigger LANGUAGE plpgsql AS $$
-		BEGIN PERFORM pg_sleep(3); RETURN NEW; END $$`)
-	f.exec(`CREATE TRIGGER a3_slow_summary BEFORE INSERT ON author_entity_summary
-		FOR EACH ROW EXECUTE FUNCTION public.a3_slow_summary()`)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	skipped, err := rebuildAuthorEntitySummaries(ctx, f.tx, []uuid.UUID{e.id}, func(string, string) bool {
-		time.AfterFunc(100*time.Millisecond, cancel)
-		return true
-	})
-	require.Error(t, err)
-	assert.Empty(t, skipped)
+	done, err := DrainAuthorSummaryMarks(ctx, summaryTxs{f.tx}, 10, summaryTimeout)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, done.Entities)
+	walked, err := AuthorSummaryWalkStep(ctx, summaryTxs{f.tx}, 10, time.Hour, summaryTimeout)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, walked.Ran)
+	assert.Contains(t, f.summaryMarks(), e.id)
+	assert.Empty(t, f.summaryLangs(e.id))
 }

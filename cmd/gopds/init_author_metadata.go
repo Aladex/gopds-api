@@ -8,12 +8,9 @@ import (
 
 	"gopds-api/api"
 	"gopds-api/config"
-	"gopds-api/internal/coverstore"
-	"gopds-api/internal/posters"
 	"gopds-api/services"
 
 	"github.com/go-pg/pg/v10"
-	"github.com/spf13/viper"
 )
 
 // authorMetadataShutdownTimeout bounds how long shutdown waits for the author
@@ -210,21 +207,6 @@ func startAuthorMetadataRunner(
 	return runner, nil
 }
 
-// coverCheckTimeout bounds asking object storage about one cover. The summary
-// batch holds a transaction while it waits.
-const coverCheckTimeout = 3 * time.Second
-
-// coverServable says whether the cover store has a book's cover: the disk,
-// then the bucket when one is configured. A store that cannot answer right now
-// is no evidence of a missing file, so the book's flag stands; the search card
-// draws a letter for a cover that fails to load.
-func coverServable(bookPath, fileName string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), coverCheckTimeout)
-	defer cancel()
-	_, err := coverstore.Default().Stat(ctx, viper.GetString("app.posters_path"), posters.RelativePath(bookPath, fileName))
-	return err == nil || errors.Is(err, coverstore.ErrUnavailable)
-}
-
 // initializeAuthorMetadata starts the runner: the workers when the
 // configuration enables them, and always the one-shot acceptance pass, which
 // selects the credits waiting for a pair this release registered (the
@@ -251,7 +233,7 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 	api.SetAuthorEntityAdminService(services.NewAuthorEntityAdmin(db).WithAutopilotQuiet(c.Autopilot.QuietPeriod))
 	workers := []services.AuthorMetadataStageWorker{
 		services.NewAuthorAcceptancePass(db),
-		services.NewAuthorDisplayModelLoop(db, services.AuthorDisplayModelConfig{CoverExists: coverServable}),
+		services.NewAuthorDisplayModelLoop(db, services.AuthorDisplayModelConfig{}),
 		services.NewAuthorEntityBuildLoop(db, services.AuthorEntityBuildConfig{}),
 		services.NewWikidataFetchLoop(db, services.NewQLeverSource(), services.WikidataFetchConfig{}),
 		newAuthorAutopilot(db, c),

@@ -13,14 +13,13 @@ import (
 // books one transaction takes, how long after a finished walk the next one
 // starts, and how long the worker rests when there is nothing to do.
 // SummaryBatch is how many entities of the author summary it takes in each
-// rest, and CoverExists says whether a cover can be served; nil trusts the
-// book's flag.
+// rest, and SummaryTimeout bounds each statement of one entity.
 type AuthorDisplayModelConfig struct {
-	Batch        int
-	Every        time.Duration
-	Poll         time.Duration
-	SummaryBatch int
-	CoverExists  database.CoverExists
+	Batch          int
+	Every          time.Duration
+	Poll           time.Duration
+	SummaryBatch   int
+	SummaryTimeout time.Duration
 }
 
 // Defaults: a batch rebuilds in tens of milliseconds, a walk over the
@@ -32,9 +31,10 @@ const (
 	// A batch of the summary every poll keeps a walk of the catalog to a few
 	// hours of one small query at a time, on a database that serves readers.
 	defaultAuthorSummaryBatch = 40
-	// authorSummaryStatementTimeout gives up on one entity's statements rather
-	// than hold a batch; the entity is reported and the walk comes back to it.
-	authorSummaryStatementTimeout = "5s"
+	// defaultAuthorSummaryTimeout gives up on one entity's statements rather
+	// than hold a batch; the entity is reported and passed, and the next walk
+	// comes back to it.
+	defaultAuthorSummaryTimeout = 5 * time.Second
 )
 
 func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
@@ -49,6 +49,9 @@ func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
 	}
 	if c.SummaryBatch <= 0 {
 		c.SummaryBatch = defaultAuthorSummaryBatch
+	}
+	if c.SummaryTimeout <= 0 {
+		c.SummaryTimeout = defaultAuthorSummaryTimeout
 	}
 	return c
 }
@@ -116,41 +119,35 @@ func (l *AuthorDisplayModelLoop) RunOnce(ctx context.Context) (bool, error) {
 	return false, l.advanceSummary(ctx)
 }
 
-// advanceSummary does one transaction of the author summary: a batch of its
-// marks or, with none, the next step of its walk.
+// advanceSummary does one batch of the author summary, an entity to a
+// transaction: its marks or, with none, the next step of its walk. What
+// committed before an error is reported all the same.
 func (l *AuthorDisplayModelLoop) advanceSummary(ctx context.Context) error {
-	var drained database.AuthorSummaryWork
-	var walked database.AuthorSummaryWalkResult
-	err := l.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '`+authorSummaryStatementTimeout+`'`); err != nil {
-			return err
-		}
-		var err error
-		if drained, err = database.DrainAuthorSummaryMarks(ctx, tx, l.cfg.SummaryBatch, l.cfg.CoverExists); err != nil {
-			return err
-		}
-		if drained.Entities > 0 {
-			return nil
-		}
-		walked, err = database.AuthorSummaryWalkStep(ctx, tx, l.cfg.SummaryBatch, l.cfg.Every, l.cfg.CoverExists)
-		return err
-	})
-	if err != nil {
+	drained, err := database.DrainAuthorSummaryMarks(ctx, l.db, l.cfg.SummaryBatch, l.cfg.SummaryTimeout)
+	logSkippedAuthorSummaries(drained.Skipped)
+	if err != nil || drained.Entities > 0 {
 		return err
 	}
-	for _, skip := range append(drained.Skipped, walked.Skipped...) {
-		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
-			Name: AuthorMetadataEventSummaryEntitySkipped, Stage: AuthorMetadataStageDisplayModel,
-			EntityID: skip.EntityID, SQLState: skip.SQLState,
-		})
-	}
+	walked, err := database.AuthorSummaryWalkStep(ctx, l.db, l.cfg.SummaryBatch, l.cfg.Every, l.cfg.SummaryTimeout)
+	logSkippedAuthorSummaries(walked.Skipped)
 	if walked.Finished {
 		LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
 			Name: AuthorMetadataEventSummaryWalkFinished, Stage: AuthorMetadataStageDisplayModel,
 			Count: int(walked.Read),
 		})
 	}
-	return nil
+	return err
+}
+
+// logSkippedAuthorSummaries records each entity the summary refused, by its ID
+// and the SQLSTATE.
+func logSkippedAuthorSummaries(skipped []database.AuthorSummarySkip) {
+	for _, skip := range skipped {
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventSummaryEntitySkipped, Stage: AuthorMetadataStageDisplayModel,
+			EntityID: skip.EntityID, SQLState: skip.SQLState,
+		})
+	}
 }
 
 // logSkippedAuthorDisplay records each book the model refused, once, by its

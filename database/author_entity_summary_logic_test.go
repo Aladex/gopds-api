@@ -24,7 +24,7 @@ func plainSummaryBook(id int64, title string) authorSummaryBook {
 // allLanguages is the variant of every language of the books.
 func allLanguages(t *testing.T, books []authorSummaryBook) authorSummaryVariant {
 	t.Helper()
-	got := composeAuthorSummaries(books, nil)
+	got := composeAuthorSummaries(books)
 	require.NotEmpty(t, got)
 	require.Equal(t, authorSummaryLangAll, got[0].Lang)
 	return got[0]
@@ -139,34 +139,6 @@ func TestOnlyBooksWithACoverReachThePile(t *testing.T) {
 	assert.Equal(t, "С обложкой", v.Covers[0].Title)
 }
 
-func TestACoverWhoseFileIsGoneIsPassedOverForTheNextTitle(t *testing.T) {
-	a, b, c, d := plainSummaryBook(4, "Раз"), plainSummaryBook(3, "Два"), plainSummaryBook(2, "Три"), plainSummaryBook(1, "Четыре")
-	exists := func(_, filename string) bool { return filename != "Два" }
-	got := composeAuthorSummaries([]authorSummaryBook{a, b, c, d}, exists)
-	require.Len(t, got, 2)
-	titles := []string{}
-	for _, cover := range got[0].Covers {
-		titles = append(titles, cover.Title)
-	}
-	assert.Equal(t, []string{"Раз", "Три", "Четыре"}, titles)
-}
-
-func TestACoverFileIsCheckedOnceAcrossVariantsAndTheChecksAreBounded(t *testing.T) {
-	var books []authorSummaryBook
-	for i := 0; i < 40; i++ {
-		books = append(books, plainSummaryBook(int64(i+1), "Книга "+string(rune('А'+i))))
-	}
-	calls := map[string]int{}
-	composeAuthorSummaries(books, func(_, filename string) bool {
-		calls[filename]++
-		return false
-	})
-	assert.LessOrEqual(t, len(calls), maxCoverChecks)
-	for name, n := range calls {
-		assert.Equal(t, 1, n, name)
-	}
-}
-
 func TestPilesAndListsAreBounded(t *testing.T) {
 	var books []authorSummaryBook
 	for i := 0; i < 9; i++ {
@@ -186,7 +158,7 @@ func TestPilesAndListsAreBounded(t *testing.T) {
 func TestEachLanguageHasItsOwnVariantAndAllHoldsEveryBook(t *testing.T) {
 	ru, en, none := plainSummaryBook(3, "Солярис"), plainSummaryBook(2, "Solaris"), plainSummaryBook(1, "Без языка")
 	en.Lang, none.Lang = "en", ""
-	got := composeAuthorSummaries([]authorSummaryBook{ru, en, none}, nil)
+	got := composeAuthorSummaries([]authorSummaryBook{ru, en, none})
 	byLang := map[string][]string{}
 	for _, v := range got {
 		byLang[v.Lang] = v.Works
@@ -200,7 +172,7 @@ func TestEachLanguageHasItsOwnVariantAndAllHoldsEveryBook(t *testing.T) {
 }
 
 func TestNoBooksNoVariants(t *testing.T) {
-	assert.Empty(t, composeAuthorSummaries(nil, nil))
+	assert.Empty(t, composeAuthorSummaries(nil))
 }
 
 func TestGenresRankByBooksAndCollectedBooksDoNotCountWhileOthersExist(t *testing.T) {

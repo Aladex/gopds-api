@@ -35,6 +35,16 @@ import (
 // What leaves. A merged entity, a retired one and one with no listed book left
 // lose their rows at their next rebuild; a language that lost its last book
 // loses its row there too.
+//
+// One entity, one transaction. The worker's connection does not survive a
+// statement timeout: go-pg calls SQLSTATE 57014 a bad connection, so nothing
+// more can be said on it, a savepoint's rollback included. An entity therefore
+// commits alone, with its mark or its cursor, and the worst it can cost is
+// itself. It holds a dirty row for one entity's statements, not a batch's.
+//
+// Covers. The book's cover flag decides. It matched the disk on all 400 books
+// drawn at random, and the search card draws a letter for an image that fails
+// to load, so this background work never asks the cover store.
 
 // authorSummaryLangAll is the variant of all languages, the value the search's
 // language filter uses for no filter.
@@ -47,17 +57,10 @@ const (
 	maxSummaryCovers = 3
 	// maxSummaryNames keeps a page's read bounded: it ranks these per row.
 	maxSummaryNames = 24
-	// maxCoverChecks bounds what looking for a cover costs per variant: past
-	// this many missing files the pile stays short.
-	maxCoverChecks = 12
 	// ownAuthorsLimit is how many authors a book may have and still say
 	// something of each of them.
 	ownAuthorsLimit = 2
 )
-
-// CoverExists says whether a book's cover can be served. Nil trusts the
-// book's cover flag.
-type CoverExists func(path, filename string) bool
 
 // authorSummaryBook is one listed book of an entity, as authorSummaryBooksSQL
 // reads it.
@@ -189,21 +192,9 @@ func rankSummaryBooks(books []authorSummaryBook) []summaryRank {
 // composeAuthorSummaries is the summary of one entity's listed books: the
 // variant of all languages first, then one per language, in code order. A book
 // with no language is in the first alone.
-func composeAuthorSummaries(books []authorSummaryBook, exists CoverExists) []authorSummaryVariant {
+func composeAuthorSummaries(books []authorSummaryBook) []authorSummaryVariant {
 	if len(books) == 0 {
 		return nil
-	}
-	checked := map[int64]bool{}
-	seen := func(b *authorSummaryBook) bool {
-		if exists == nil {
-			return true
-		}
-		ok, known := checked[b.ID]
-		if !known {
-			ok = exists(b.Path, b.Filename)
-			checked[b.ID] = ok
-		}
-		return ok
 	}
 	byLang := map[string][]authorSummaryBook{}
 	for i := range books {
@@ -217,17 +208,17 @@ func composeAuthorSummaries(books []authorSummaryBook, exists CoverExists) []aut
 	}
 	slices.Sort(langs)
 	out := make([]authorSummaryVariant, 0, len(langs)+1)
-	out = append(out, composeVariant(authorSummaryLangAll, books, seen))
+	out = append(out, composeVariant(authorSummaryLangAll, books))
 	for _, lang := range langs {
-		out = append(out, composeVariant(lang, byLang[lang], seen))
+		out = append(out, composeVariant(lang, byLang[lang]))
 	}
 	return out
 }
 
-func composeVariant(lang string, books []authorSummaryBook, exists func(*authorSummaryBook) bool) authorSummaryVariant {
+func composeVariant(lang string, books []authorSummaryBook) authorSummaryVariant {
 	ranked := rankSummaryBooks(books)
 	return authorSummaryVariant{Lang: lang, Genres: summaryGenres(ranked), Works: summaryWorks(ranked),
-		Covers: summaryCovers(ranked, exists)}
+		Covers: summaryCovers(ranked)}
 }
 
 func summaryWorks(ranked []summaryRank) []string {
@@ -246,22 +237,14 @@ func summaryWorks(ranked []summaryRank) []string {
 	return works
 }
 
-// summaryCovers walks the ranking for different titles with a cover that is
-// really there. A book with no words in its title is a title of its own.
-func summaryCovers(ranked []summaryRank, exists func(*authorSummaryBook) bool) []models.AuthorCover {
+// summaryCovers walks the ranking for different titles flagged with a cover. A
+// book with no words in its title is a title of its own.
+func summaryCovers(ranked []summaryRank) []models.AuthorCover {
 	covers := []models.AuthorCover{}
 	titles := map[string]bool{}
-	checks := 0
 	for _, r := range ranked {
 		key := titleKey(r.book.Title)
 		if !r.book.Cover || (key != "" && titles[key]) {
-			continue
-		}
-		if checks == maxCoverChecks {
-			break
-		}
-		checks++
-		if !exists(r.book) {
 			continue
 		}
 		titles[key] = true
@@ -352,18 +335,24 @@ WHERE b.id = ANY (ARRAY(SELECT d.book_id FROM book_author_display AS d WHERE d.e
     AND b.approved
     AND NOT b.duplicate_hidden`
 
-// authorSummaryNamesSQL are the names the entity's rows give it, the most used
-// first: a name it is shown by, or a nickname. A row of several entities is a
-// line of several people, no name of any one of them: a magazine's twelve
-// authors glued into one credit reach each of the twelve.
+// authorSummaryNamesSQL are the names the entity's listed rows give it, the most
+// used first: a name it is shown by, or a nickname. A row of several entities is
+// a line of several people, no name of any one of them: a magazine's twelve
+// authors glued into one credit reach each of the twelve. A name found only on
+// a book the listing hides is not published: each arm has the listing's
+// predicates, as authorSummaryBooksSQL does.
 const authorSummaryNamesSQL = `
 SELECT n.name
 FROM (
     SELECT d.display AS name FROM book_author_display AS d
+    JOIN opds_catalog_book AS b ON b.id = d.book_id
     WHERE d.entity_ids @> ARRAY[?0::uuid] AND cardinality(d.entity_ids) = 1
+        AND b.approved AND NOT b.duplicate_hidden
     UNION ALL
     SELECT d.nickname FROM book_author_display AS d
+    JOIN opds_catalog_book AS b ON b.id = d.book_id
     WHERE d.entity_ids @> ARRAY[?0::uuid] AND cardinality(d.entity_ids) = 1 AND d.nickname IS NOT NULL
+        AND b.approved AND NOT b.duplicate_hidden
 ) AS n
 WHERE n.name <> ''
 GROUP BY n.name
@@ -385,35 +374,36 @@ type AuthorSummarySkip struct {
 	SQLState string
 }
 
-// rebuildAuthorEntitySummaries brings the entities' summaries in line with
-// their books. Each entity is written under its own savepoint: one PostgreSQL
-// refuses is reported and passed, whatever the reason, because catalog data is
-// what it is and a batch retried forever serves no one. A lost connection or a
-// canceled context ends the batch.
-func rebuildAuthorEntitySummaries(
-	ctx context.Context, tx pg.DBI, ids []uuid.UUID, exists CoverExists,
-) ([]AuthorSummarySkip, error) {
-	var skipped []AuthorSummarySkip
-	for _, id := range ids {
-		if err := ctx.Err(); err != nil {
-			return skipped, err
-		}
-		err := underSavepoint(ctx, tx, "author_summary_entity", func() error {
-			return rebuildAuthorEntitySummary(ctx, tx, id, exists)
-		})
-		if err == nil {
-			continue
-		}
-		var refused pg.Error
-		if ctx.Err() != nil || !errors.As(err, &refused) || refused.Field('V') == "FATAL" {
-			return skipped, fmt.Errorf("rebuilding the summary of entity %s: %w", id, err)
-		}
-		skipped = append(skipped, AuthorSummarySkip{EntityID: id, SQLState: sqlState(err)})
-	}
-	return skipped, nil
+// severityFatal is the severity of an error that ended the session.
+const severityFatal = "FATAL"
+
+// AuthorSummaryDB opens the transactions the summary works in, one per entity.
+// *pg.DB is one; a *pg.Tx is not, it would commit on the first entity.
+type AuthorSummaryDB interface {
+	RunInTransaction(ctx context.Context, fn func(*pg.Tx) error) error
 }
 
-func rebuildAuthorEntitySummary(ctx context.Context, tx pg.DBI, id uuid.UUID, exists CoverExists) error {
+// inSummaryTx runs fn in a transaction of its own, each statement under timeout.
+func inSummaryTx(ctx context.Context, db AuthorSummaryDB, timeout time.Duration, fn func(*pg.Tx) error) error {
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = ?`, timeout.Milliseconds()); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
+}
+
+// summaryEntityRefused says whether PostgreSQL refused an entity, whatever the
+// reason: its timeout included, because catalog data is what it is and a batch
+// retried forever serves no one. A lost connection and a canceled context, whose
+// statement comes back as the same 57014, say nothing of the entity.
+func summaryEntityRefused(ctx context.Context, err error) bool {
+	var refused pg.Error
+	return ctx.Err() == nil && errors.As(err, &refused) && refused.Field('V') != severityFatal
+}
+
+// rebuildAuthorEntitySummary brings one entity's summary in line with its books.
+func rebuildAuthorEntitySummary(ctx context.Context, tx pg.DBI, id uuid.UUID) error {
 	var live []bool
 	if _, err := tx.QueryContext(ctx, &live, `SELECT merged_into IS NULL FROM author_entity WHERE id = ?`, id); err != nil {
 		return err
@@ -424,7 +414,7 @@ func rebuildAuthorEntitySummary(ctx context.Context, tx pg.DBI, id uuid.UUID, ex
 		if _, err := tx.QueryContext(ctx, &books, authorSummaryBooksSQL, id); err != nil {
 			return err
 		}
-		variants = composeAuthorSummaries(books, exists)
+		variants = composeAuthorSummaries(books)
 	}
 	langs := make([]string, len(variants))
 	for i := range variants {
@@ -467,22 +457,61 @@ type AuthorSummaryWork struct {
 }
 
 // DrainAuthorSummaryMarks rebuilds the oldest marked entities, at most limit,
-// inside the caller's transaction: a mark is gone exactly when its rebuild
-// commits. Marks another pod holds are skipped, never waited for.
+// each in its own transaction: a mark is gone exactly when its rebuild commits,
+// or when the entity was refused and passed. Marks another pod holds are
+// skipped, never waited for. A lost connection or a canceled context ends the
+// batch; what already committed is reported with the error.
 func DrainAuthorSummaryMarks(
-	ctx context.Context, tx pg.DBI, limit int, exists CoverExists,
+	ctx context.Context, db AuthorSummaryDB, limit int, timeout time.Duration,
 ) (AuthorSummaryWork, error) {
-	var ids []uuid.UUID
-	if _, err := tx.QueryContext(ctx, &ids, `DELETE FROM author_entity_summary_dirty d
-		WHERE d.entity_id IN (SELECT entity_id FROM author_entity_summary_dirty ORDER BY marked_at LIMIT ? FOR UPDATE SKIP LOCKED)
-		RETURNING d.entity_id`, limit); err != nil {
-		return AuthorSummaryWork{}, fmt.Errorf("taking the summary marks: %w", err)
+	var out AuthorSummaryWork
+	for out.Entities < limit {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		var taken []uuid.UUID
+		err := inSummaryTx(ctx, db, timeout, func(tx *pg.Tx) error {
+			if _, err := tx.QueryContext(ctx, &taken, `DELETE FROM author_entity_summary_dirty d
+				WHERE d.entity_id IN (SELECT entity_id FROM author_entity_summary_dirty ORDER BY marked_at LIMIT 1 FOR UPDATE SKIP LOCKED)
+				RETURNING d.entity_id`); err != nil {
+				return fmt.Errorf("taking a summary mark: %w", err)
+			}
+			if len(taken) == 0 {
+				return nil
+			}
+			return rebuildAuthorEntitySummary(ctx, tx, taken[0])
+		})
+		if len(taken) == 0 {
+			return out, err
+		}
+		id := taken[0]
+		out.Entities++
+		if err == nil {
+			continue
+		}
+		if !summaryEntityRefused(ctx, err) {
+			return out, fmt.Errorf("rebuilding the summary of entity %s: %w", id, err)
+		}
+		if passErr := passSummaryMark(ctx, db, timeout, id); passErr != nil {
+			return out, passErr
+		}
+		out.Skipped = append(out.Skipped, AuthorSummarySkip{EntityID: id, SQLState: sqlState(err)})
 	}
-	skipped, err := rebuildAuthorEntitySummaries(ctx, tx, ids, exists)
+	return out, nil
+}
+
+// passSummaryMark takes the mark of a refused entity, which the rollback put
+// back. It waits for the row rather than skip it: the failed connection's locks
+// last until the server sees it go.
+func passSummaryMark(ctx context.Context, db AuthorSummaryDB, timeout time.Duration, id uuid.UUID) error {
+	err := inSummaryTx(ctx, db, timeout, func(tx *pg.Tx) error {
+		_, execErr := tx.ExecContext(ctx, `DELETE FROM author_entity_summary_dirty WHERE entity_id = ?`, id)
+		return execErr
+	})
 	if err != nil {
-		return AuthorSummaryWork{}, err
+		return fmt.Errorf("passing the mark of entity %s: %w", id, err)
 	}
-	return AuthorSummaryWork{Entities: len(ids), Skipped: skipped}, nil
+	return nil
 }
 
 // AuthorSummaryWalkResult is what one step of the walk did. Ran is false when
@@ -502,71 +531,122 @@ type summaryWalkRow struct {
 	Due     bool       `pg:"due,use_zero"`
 }
 
-// lastEntityID is above every entity ID.
-var lastEntityID = uuid.Max
+// nextSummaryEntitySQL is the first ID past the cursor that has something to
+// walk: an entity, merged ones too, or summary rows that outlived theirs, as the
+// read model's walk finds rows of a book that is gone.
+const nextSummaryEntitySQL = `
+SELECT n.id
+FROM (
+    (SELECT id FROM author_entity WHERE id > ?0 ORDER BY id LIMIT 1)
+    UNION ALL
+    (SELECT entity_id FROM author_entity_summary WHERE entity_id > ?0 ORDER BY entity_id LIMIT 1)
+) AS n(id)
+ORDER BY n.id
+LIMIT 1`
 
-// AuthorSummaryWalkStep advances the walk over every entity by one batch,
-// inside the caller's transaction: the cursor commits with the batch, so a
-// restart goes on from it. A walk starts when none runs and none finished
-// within every, which makes the first one start by itself after the migration:
-// that one is the backfill. Merged entities are walked too, and rows of an
-// entity that no longer exists are found by range, as the read model's walk
-// finds rows of a book that is gone.
+// AuthorSummaryWalkStep advances the walk over every entity by at most batch
+// entities, each in its own transaction with the cursor: a restart goes on from
+// the last one committed, and a refused entity is passed once a walk, however
+// often it fails. A walk starts when none runs and none finished within every,
+// which makes the first one start by itself after the migration: that one is the
+// backfill. It finishes in the step that finds nothing past the cursor. A lost
+// connection or a canceled context ends the step; what already committed is
+// reported with the error.
 func AuthorSummaryWalkStep(
-	ctx context.Context, tx pg.DBI, batch int, every time.Duration, exists CoverExists,
+	ctx context.Context, db AuthorSummaryDB, batch int, every, timeout time.Duration,
 ) (AuthorSummaryWalkResult, error) {
 	var out AuthorSummaryWalkResult
+	for out.Entities < batch {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		var from, id *uuid.UUID
+		err := inSummaryTx(ctx, db, timeout, func(tx *pg.Tx) (err error) {
+			from, id, err = walkOneSummaryEntity(ctx, tx, every, &out)
+			return err
+		})
+		if id == nil {
+			return out, err
+		}
+		out.Entities++
+		if err == nil {
+			continue
+		}
+		if !summaryEntityRefused(ctx, err) {
+			return out, fmt.Errorf("walking the summary of entity %s: %w", *id, err)
+		}
+		if passErr := passSummaryWalkEntity(ctx, db, timeout, *from, *id); passErr != nil {
+			return out, passErr
+		}
+		out.Skipped = append(out.Skipped, AuthorSummarySkip{EntityID: *id, SQLState: sqlState(err)})
+	}
+	return out, nil
+}
+
+// walkOneSummaryEntity moves the walk by one entity inside tx, and finishes it
+// when there is none left. It returns where the walk stood and the entity it
+// took, nil with no walk due, with another pod on the walk, or with the walk
+// finished; a failure after that is the entity's.
+func walkOneSummaryEntity(
+	ctx context.Context, tx *pg.Tx, every time.Duration, out *AuthorSummaryWalkResult,
+) (from, id *uuid.UUID, err error) {
 	var rows []summaryWalkRow
 	if _, err := tx.QueryContext(ctx, &rows, `SELECT walk_cursor, walk_read, walk_skipped,
 			walk_cursor IS NULL AND (finished_at IS NULL OR finished_at <= now() - ?::interval) AS due
 		FROM author_entity_summary_walk FOR UPDATE SKIP LOCKED`, every.String()); err != nil {
-		return out, fmt.Errorf("reading the summary walk: %w", err)
+		return nil, nil, fmt.Errorf("reading the summary walk: %w", err)
 	}
 	if len(rows) == 0 {
-		return out, nil
+		return nil, nil, nil
 	}
 	state := rows[0]
 	if state.Cursor == nil {
 		if !state.Due {
-			return out, nil
+			return nil, nil, nil
 		}
 		state = summaryWalkRow{Cursor: &uuid.Nil}
 	}
 	out.Ran = true
 
-	var ids []uuid.UUID
-	if _, err := tx.QueryContext(ctx, &ids, `SELECT id FROM author_entity WHERE id > ? ORDER BY id LIMIT ?`,
-		*state.Cursor, batch); err != nil {
-		return out, fmt.Errorf("reading the walk's entities: %w", err)
+	var next []uuid.UUID
+	if _, err := tx.QueryContext(ctx, &next, nextSummaryEntitySQL, *state.Cursor); err != nil {
+		return nil, nil, fmt.Errorf("reading the walk's next entity: %w", err)
 	}
-	out.Finished = len(ids) < batch
-	upper := lastEntityID
-	if !out.Finished {
-		upper = ids[len(ids)-1]
+	if len(next) == 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE author_entity_summary_walk
+			SET walk_cursor = NULL, walk_read = 0, walk_skipped = 0, finished_at = now()`); err != nil {
+			return nil, nil, fmt.Errorf("finishing the summary walk: %w", err)
+		}
+		out.Finished, out.Read, out.Refused = true, state.Read, state.Skipped
+		return nil, nil, nil
 	}
-	var gone []uuid.UUID
-	if _, err := tx.QueryContext(ctx, &gone, `SELECT DISTINCT s.entity_id FROM author_entity_summary AS s
-		WHERE s.entity_id > ? AND s.entity_id <= ?
-			AND NOT EXISTS (SELECT 1 FROM author_entity AS e WHERE e.id = s.entity_id)`, *state.Cursor, upper); err != nil {
-		return out, fmt.Errorf("finding the summaries of gone entities: %w", err)
+	if err := rebuildAuthorEntitySummary(ctx, tx, next[0]); err != nil {
+		return state.Cursor, &next[0], err
 	}
-	skipped, err := rebuildAuthorEntitySummaries(ctx, tx, append(slices.Clone(ids), gone...), exists)
+	if _, err := tx.ExecContext(ctx, `UPDATE author_entity_summary_walk SET walk_cursor = ?, walk_read = walk_read + 1`,
+		next[0]); err != nil {
+		return state.Cursor, &next[0], fmt.Errorf("moving the summary walk: %w", err)
+	}
+	return state.Cursor, &next[0], nil
+}
+
+// passSummaryWalkEntity moves the cursor past a refused entity, from where the
+// failed transaction left it. It waits for the walk's row rather than skip it:
+// the failed connection's lock lasts until the server sees it go. With the
+// cursor moved meanwhile, another pod is already past this entity.
+func passSummaryWalkEntity(
+	ctx context.Context, db AuthorSummaryDB, timeout time.Duration, from, id uuid.UUID,
+) error {
+	err := inSummaryTx(ctx, db, timeout, func(tx *pg.Tx) error {
+		_, execErr := tx.ExecContext(ctx, `UPDATE author_entity_summary_walk
+			SET walk_cursor = ?, walk_read = walk_read + 1, walk_skipped = walk_skipped + 1
+			WHERE coalesce(walk_cursor, ?) = ?`, id, uuid.Nil, from)
+		return execErr
+	})
 	if err != nil {
-		return out, err
+		return fmt.Errorf("passing entity %s in the summary walk: %w", id, err)
 	}
-	out.Entities, out.Skipped = len(ids), skipped
-	out.Read, out.Refused = state.Read+int64(len(ids)), state.Skipped+int64(len(skipped))
-	if out.Finished {
-		_, err = tx.ExecContext(ctx, `UPDATE author_entity_summary_walk
-			SET walk_cursor = NULL, walk_read = 0, walk_skipped = 0, finished_at = now()`)
-	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE author_entity_summary_walk SET walk_cursor = ?, walk_read = ?, walk_skipped = ?`,
-			upper, out.Read, out.Refused)
-	}
-	if err != nil {
-		return out, fmt.Errorf("moving the summary walk: %w", err)
-	}
-	return out, nil
+	return nil
 }
 
 // authorSummariesSQL reads a page of summaries in one statement: each entity's
