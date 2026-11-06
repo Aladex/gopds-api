@@ -19,6 +19,9 @@ const PAGE_SIZE = 10;
 /** Past this many, nobody is paging: more of the name is the way through. */
 const TOO_MANY_AUTHORS = 200;
 
+/** A query that already has two words has no more of the name left to ask for. */
+const isOneWord = (query: string): boolean => query.trim().split(/\s+/).length === 1;
+
 const GRID = 'grid grid-cols-1 gap-1.5 card:grid-cols-2 card:gap-2';
 
 /**
@@ -131,7 +134,7 @@ const AuthorSearch: React.FC = () => {
                     {!loading && Boolean(total) && (
                         <>
                             <span>{t('authorSearch.total', { count: total })}</span>
-                            {(total ?? 0) > TOO_MANY_AUTHORS && (
+                            {(total ?? 0) > TOO_MANY_AUTHORS && isOneWord(author) && (
                                 <span className="min-w-0 truncate opacity-80">
                                     <span className="hidden card:inline">
                                         {t('authorSearch.narrowDown')}

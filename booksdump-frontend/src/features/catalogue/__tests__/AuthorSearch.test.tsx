@@ -240,19 +240,43 @@ describe('AuthorSearch head line', () => {
         expect(screen.getByTestId('author-head')).toHaveTextContent('');
     });
 
-    it('asks for more of the name on a huge result', async () => {
+    const hint = () => [
+        screen.queryByText('authorSearch.narrowDown'),
+        screen.queryByText('authorSearch.narrowDownShort'),
+    ];
+
+    it('asks for more of the name on a huge result of one word', async () => {
         listAuthors.mockResolvedValue(answer(201));
         renderPage();
 
-        expect(await screen.findByText('authorSearch.narrowDown')).toBeInTheDocument();
+        await screen.findByText('authorSearch.total:201');
+        hint().forEach((text) => expect(text).toBeInTheDocument());
     });
 
-    it('leaves a result that can be paged through alone', async () => {
+    // Spaces around the word add no word to the query.
+    it('counts the spaces around one word as nothing', async () => {
+        listAuthors.mockResolvedValue(answer(201));
+        renderPage(`/search?q=${encodeURIComponent(' Толстой ')}&type=authors`);
+
+        await screen.findByText('authorSearch.total:201');
+        hint().forEach((text) => expect(text).toBeInTheDocument());
+    });
+
+    // «Алексей Иванов» already gave the name the hint would ask for.
+    it('asks nothing more of two words, and still says how many', async () => {
+        listAuthors.mockResolvedValue(answer(201));
+        renderPage(`/search?q=${encodeURIComponent('Алексей Иванов')}&type=authors`);
+
+        await screen.findByText('authorSearch.total:201');
+        hint().forEach((text) => expect(text).toBeNull());
+    });
+
+    it('leaves a result of one word that can be paged through alone', async () => {
         listAuthors.mockResolvedValue(answer(200));
         renderPage();
 
         await screen.findByText('authorSearch.total:200');
-        expect(screen.queryByText('authorSearch.narrowDown')).toBeNull();
+        hint().forEach((text) => expect(text).toBeNull());
     });
 });
 
