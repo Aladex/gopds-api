@@ -111,7 +111,7 @@ func TestTypoVerdict(t *testing.T) {
 		{"толстой", "толстая", 1, 1, gender},
 		{"robert", "roberta", 9, 1, gender},
 	} {
-		assert.Equal(t, c.want, authorentity.TypoVerdict(c.x, c.y, c.nx, c.ny), "%s, %s", c.x, c.y)
+		assert.Equal(t, c.want, authorentity.TypoVerdictOfSides(c.x, c.y, c.nx, c.ny), "%s, %s", c.x, c.y)
 	}
 }
 

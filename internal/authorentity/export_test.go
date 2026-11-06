@@ -73,9 +73,27 @@ func DenyWikidataAfter(qids ...string) (restore func()) {
 	return func() { wikidataAfterDenied = saved }
 }
 
-// TypoVerdict reads two near words on nx and ny sides: 0 no typo, 1 a typo,
-// 2 gender endings.
-func TypoVerdict(x, y string, nx, ny int) int { return typoVerdict(x, y, nx, ny) }
+// TypoVerdict reads two near words through the frozen table: 0 no typo, 1 a
+// typo, 2 gender endings.
+func TypoVerdict(x, y string) int { return typoVerdict(x, y) }
+
+// TypoVerdictOfSides reads two near words on nx and ny sides.
+func TypoVerdictOfSides(x, y string, nx, ny int) int { return typoVerdictOfSides(x, y, nx, ny) }
+
+// FreezeTypoWords replaces the frozen table until the returned func restores
+// it.
+func FreezeTypoWords(words map[string]int) (restore func()) {
+	saved := typoWordTable
+	typoWordTable = func() map[string]int { return words }
+	return func() { typoWordTable = saved }
+}
+
+// The embedded table's file, the fewest sides it lists and its parser.
+var (
+	TypoWordsFile  = typoWordsFile
+	TypoWordFloor  = typoWordFloor
+	ParseTypoWords = parseTypoWords
+)
 
 // NearWords are the pairs of words within the typo distance.
 func NearWords(words []string) [][2]string { return nearWords(words) }

@@ -10,7 +10,8 @@ import (
 // model with the cards of both sides.
 //
 //   - typo: two full names of one script, suffix and every part but one, the
-//     family or the given name, that differ by a small edit (typoVerdict).
+//     family or the given name, that differ by a small edit (typoVerdict,
+//     whose word counts are frozen in typo_words.go).
 //     Patronymics are the variant kind's and two different ones are two
 //     people, so they never pair here. A pair of gender endings («Иванов»,
 //     «Иванова») is asked only when the sides share a title or a series;
@@ -37,10 +38,11 @@ var SpellingKinds = []string{CandidateTypo, CandidateNameForm}
 // SpellingKind reports a spelling kind.
 func SpellingKind(kind string) bool { return kind == CandidateTypo || kind == CandidateNameForm }
 
-// The bounds of the typo rule. A word is common on more than typoRareSides
-// sides: two common words of other consonants are two names. A first letter
-// that changes is a typo only of a word on at most typoRareFirst sides whose
-// partner is on typoFirstRatio times as many.
+// The bounds of the typo rule, over the frozen sides of typo_words.go. A word
+// is common on more than typoRareSides sides: two common words of other
+// consonants are two names. A first letter that changes is a typo only of a
+// word on at most typoRareFirst sides whose partner is on typoFirstRatio times
+// as many.
 const (
 	typoLongWord   = 7
 	typoEditsLong  = 2
@@ -65,48 +67,37 @@ type typoRef struct {
 	rest   string
 }
 
-// typoSlot is one part of the name a typo may stand in.
-type typoSlot struct {
-	refs  map[string][]typoRef
-	sides map[string]map[int]bool
-}
-
-func newTypoSlot() *typoSlot {
-	return &typoSlot{refs: map[string][]typoRef{}, sides: map[string]map[int]bool{}}
-}
-
-func (t *typoSlot) add(word string, ref typoRef) {
-	t.refs[word] = append(t.refs[word], ref)
-	if t.sides[word] == nil {
-		t.sides[word] = map[int]bool{}
-	}
-	t.sides[word][ref.side.root] = true
-}
+// typoKey reports a key the typo rule reads.
+func typoKey(k *nameKey) bool { return variantKey(k) && k.tagged == "" }
 
 // typos pairs the sides of a typo (see above).
 func (n *nameKindPairs) typos() {
-	family, given := newTypoSlot(), newTypoSlot()
+	family, given := map[string][]typoRef{}, map[string][]typoRef{}
 	for _, s := range n.g.sortedSides() {
 		for _, k := range s.keys {
 			key := &n.g.b.keys[k].key
-			if !variantKey(key) || key.tagged != "" {
+			if !typoKey(key) {
 				continue
 			}
 			common := key.script + "|" + key.suffix + "|" + key.additional + "|"
-			family.add(key.family, typoRef{side: s, script: key.script, rest: common + key.given})
-			given.add(key.given, typoRef{side: s, script: key.script, rest: common + key.family})
+			family[key.family] = append(family[key.family], typoRef{side: s, script: key.script, rest: common + key.given})
+			given[key.given] = append(given[key.given], typoRef{side: s, script: key.script, rest: common + key.family})
 		}
 	}
-	count := func(word string) int { return max(len(family.sides[word]), len(given.sides[word])) }
-	for _, slot := range []*typoSlot{family, given} {
-		for _, pair := range nearWords(sortedKeys(slot.refs)) {
-			x, y := pair[0], pair[1]
-			if slot == given && (patronymic(x) || patronymic(y)) {
-				continue
-			}
-			if verdict := typoVerdict(x, y, count(x), count(y)); verdict != typoNo {
-				n.typoPairs(slot.refs[x], slot.refs[y], verdict == typoGender)
-			}
+	n.typoSlot(family, false)
+	n.typoSlot(given, true)
+}
+
+// typoSlot pairs the near words of one part of the name; a patronymic in the
+// given name's place never pairs.
+func (n *nameKindPairs) typoSlot(refs map[string][]typoRef, givenPart bool) {
+	for _, pair := range nearWords(sortedKeys(refs)) {
+		x, y := pair[0], pair[1]
+		if givenPart && (patronymic(x) || patronymic(y)) {
+			continue
+		}
+		if verdict := typoVerdict(x, y); verdict != typoNo {
+			n.typoPairs(refs[x], refs[y], verdict == typoGender)
 		}
 	}
 }
@@ -225,9 +216,15 @@ func typoEdits(letters int) int {
 	return 1
 }
 
-// typoVerdict reads two near words of nx and ny sides: one word misspelled,
-// or two words of one stem told apart only by a gender ending, or neither.
-func typoVerdict(x, y string, nx, ny int) int {
+// typoVerdict reads two near words: one word misspelled, or two words of one
+// stem told apart only by a gender ending, or neither. It reads the names and
+// the frozen table, never the catalog.
+func typoVerdict(x, y string) int {
+	return typoVerdictOfSides(x, y, typoWordSides(x), typoWordSides(y))
+}
+
+// typoVerdictOfSides is typoVerdict of words on nx and ny sides.
+func typoVerdictOfSides(x, y string, nx, ny int) int {
 	rx, ry := []rune(x), []rune(y)
 	letters := min(len(rx), len(ry))
 	if letters < typoMinLetters {

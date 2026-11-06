@@ -171,6 +171,8 @@ type CandidateReport struct {
 	// whose handling panicked, left out (§1.5).
 	CardBooks   int `json:"card_books"`
 	ItemsFailed int `json:"items_failed"`
+	// TypoRule is the version of the typo rule and its frozen word table.
+	TypoRule int `json:"typo_rule"`
 }
 
 // CandidateCounts are the candidates of one kind and script and the pairs
@@ -304,6 +306,7 @@ func (b *builder) collectCandidates(p *Plan, groups []*group) {
 			r.Excluded++
 		}
 	}
+	r.TypoRule = TypoRuleVersion
 	p.cand = &candidates{b: b, items: items, sides: sides}
 	p.cardBooks = b.cardBookIDs(items)
 	r.CardBooks = len(p.cardBooks)

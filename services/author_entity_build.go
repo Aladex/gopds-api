@@ -904,3 +904,13 @@ func logMergeAction(status string, id int64) {
 		Name: AuthorMetadataEventEntityMergeAction, Stage: AuthorMetadataStageEntityBuild, ItemID: id, Status: status,
 	})
 }
+
+// AuthorEntityTypoWords counts the words of a plan over the catalog as it
+// stands, reading only: the input of a new table of the typo rule.
+func AuthorEntityTypoWords(ctx context.Context, db *pg.DB) (map[string]int, error) {
+	r, err := NewAuthorEntityBuildLoop(db, AuthorEntityBuildConfig{}).readPlan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.plan.TypoWordCounts(), nil
+}

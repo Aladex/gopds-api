@@ -13,8 +13,8 @@
 -- Every change only widens a check; no row is rewritten.
 --
 -- Locks: the tables are taken up front, NOWAIT, like 28-79. A build, a worker
--- or a run holding one makes the file fail at once; the next start retries it
--- whole.
+-- or a run holding one makes the file fail at once; startup retries it whole
+-- with backoff until its deadline.
 
 SET LOCAL lock_timeout = '5s';
 
