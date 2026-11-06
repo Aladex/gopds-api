@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { SuggestionScope } from '@/api/autocomplete';
-import { useLocation, useNavigate } from 'react-router';
+import { NavigationType, useLocation, useNavigate, useNavigationType } from 'react-router';
 import { Heart, Plus, X } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
@@ -22,7 +22,12 @@ import useSearchScope, {
 } from '@/features/catalogue/hooks/useSearchScope';
 import type { AutocompleteSuggestion } from '@/api/autocomplete';
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
-import { authorPath, isAuthorPath, searchPath } from '@/features/catalogue/addresses';
+import {
+    authorPath,
+    isAuthorPath,
+    isSearchPath,
+    searchPath,
+} from '@/features/catalogue/addresses';
 import { authorTitle } from '@/shared/lib/authorTitle';
 
 /**
@@ -55,7 +60,16 @@ const SearchBar: React.FC = () => {
     // Seed the field from the address so the reader can see — and edit —
     // what is being searched. A search among authors brings its mode too, or
     // the reader's next search would go to the books under a list of authors.
+    // Back and Forward to a book search bring title mode the same way. Any
+    // other way onto one leaves the mode to the reader who picked it.
     const onNameSearch = useRef(false);
+    // Read from a ref so that the kind of arrival alone, with the address
+    // unchanged, does not run the seeding over a draft.
+    const navigationType = useNavigationType();
+    const arrival = useRef(navigationType);
+    useEffect(() => {
+        arrival.current = navigationType;
+    });
     useEffect(() => {
         const name = authorNameFromLocation(location.pathname, location.search);
         const title = searchTitleFromLocation(location.pathname, location.search);
@@ -63,6 +77,9 @@ const SearchBar: React.FC = () => {
             setSelectedSearch('author');
             setSearchItem(name);
         } else if (title) {
+            if (isSearchPath(location.pathname) && arrival.current === NavigationType.Pop) {
+                setSelectedSearch('title');
+            }
             setSearchItem(title);
         } else if (onNameSearch.current && isAuthorPath(location.pathname)) {
             // From a list of names into one author. A card empties the box on
