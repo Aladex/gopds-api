@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"gopds-api/database"
 	"gopds-api/logging"
+	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
@@ -326,6 +328,75 @@ func TestASummaryMarkThatTimesOutIsPassed(t *testing.T) {
 	skipped := eventsNamed(w.hook, AuthorMetadataEventSummaryEntitySkipped)
 	require.Len(t, skipped, 1)
 	assert.Equal(t, "57014", skipped[0].Data["sqlstate"])
+}
+
+// pausedSummaryDB runs afterFailure once, between the first failed transaction
+// and the one that passes the entity: a pod descheduled there.
+type pausedSummaryDB struct {
+	db           *pg.DB
+	afterFailure func()
+}
+
+func (p *pausedSummaryDB) RunInTransaction(ctx context.Context, fn func(*pg.Tx) error) error {
+	err := p.db.RunInTransaction(ctx, fn)
+	if err != nil && p.afterFailure != nil {
+		resume := p.afterFailure
+		p.afterFailure = nil
+		resume()
+	}
+	return err
+}
+
+// The pass takes the generation it failed on and no other. While this pod is
+// away, another one consumes the restored mark and a real edit marks the entity
+// again: that mark is still owed a rebuild, and the pass must leave it.
+func TestASummaryPassLeavesANewerMark(t *testing.T) {
+	const timeout = 200 * time.Millisecond
+	w := newSummaryWorker(t, 1)
+	id, ctx := w.ids[0], context.Background()
+	previous := database.GetDB()
+	database.SetDB(w.db)
+	defer database.SetDB(previous)
+	w.exec(`INSERT INTO author_entity_credit_assignment (credit_id, entity_id, method, rule)
+		SELECT min(id), ?, 'manual', 'test' FROM book_contributor_credit`, id)
+	drainDisplay := func() {
+		require.NoError(t, w.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+			_, err := database.DrainAuthorDisplayMarks(ctx, tx, 10)
+			return err
+		}))
+	}
+	drainDisplay()
+	w.exec(`TRUNCATE author_entity_summary, author_entity_summary_dirty`)
+	w.exec(`INSERT INTO author_entity_summary_dirty (entity_id) VALUES (?)`, id)
+	w.slowEntity(id, 2)
+
+	paused := &pausedSummaryDB{db: w.db, afterFailure: func() {
+		w.exec(`DROP TRIGGER slow_summary ON author_entity_summary`)
+		other, err := database.DrainAuthorSummaryMarks(ctx, w.db, 1, timeout)
+		require.NoError(t, err)
+		require.Equal(t, 1, other.Entities, "the other pod consumes the restored mark")
+		var book int64
+		_, err = w.db.QueryOne(pg.Scan(&book), `SELECT min(id) FROM opds_catalog_book`)
+		require.NoError(t, err)
+		title := "Newer title"
+		_, err = database.UpdateBook(models.BookUpdateRequest{ID: book, Title: &title})
+		require.NoError(t, err)
+		drainDisplay()
+		require.Equal(t, 1, w.count(`SELECT count(*) FROM author_entity_summary_dirty WHERE entity_id = ?`, id),
+			"the edit marks the entity again")
+	}}
+
+	done, err := database.DrainAuthorSummaryMarks(ctx, paused, 1, timeout)
+	require.NoError(t, err)
+	require.Len(t, done.Skipped, 1)
+	assert.Equal(t, "57014", done.Skipped[0].SQLState)
+	assert.Equal(t, 1, w.count(`SELECT count(*) FROM author_entity_summary_dirty WHERE entity_id = ?`, id),
+		"the newer mark stays")
+
+	_, err = database.DrainAuthorSummaryMarks(ctx, w.db, 1, timeout)
+	require.NoError(t, err)
+	assert.Equal(t, 1, w.count(`SELECT count(*) FROM author_entity_summary
+		WHERE entity_id = ? AND lang = '' AND works @> ARRAY['Newer title']`, id), "and the edit reaches the summary")
 }
 
 // endingTheBatch runs one pass that end interrupts while the first entity sleeps,

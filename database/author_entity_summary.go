@@ -456,6 +456,17 @@ type AuthorSummaryWork struct {
 	Skipped  []AuthorSummarySkip
 }
 
+// summaryMark is a mark as the drain took it. Generation is the row's xmin, the
+// transaction that wrote it: rolling the take back restores that same row, and a
+// mark written after the take has another one. marked_at cannot say this: it is
+// now(), so two transactions that start in one microsecond share it, and a
+// transaction that waited for the read model's lock stamps its mark earlier than
+// the rows it follows.
+type summaryMark struct {
+	EntityID   uuid.UUID `pg:"entity_id,type:uuid"`
+	Generation string    `pg:"generation"`
+}
+
 // DrainAuthorSummaryMarks rebuilds the oldest marked entities, at most limit,
 // each in its own transaction: a mark is gone exactly when its rebuild commits,
 // or when the entity was refused and passed. Marks another pod holds are
@@ -469,22 +480,22 @@ func DrainAuthorSummaryMarks(
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
-		var taken []uuid.UUID
+		var taken []summaryMark
 		err := inSummaryTx(ctx, db, timeout, func(tx *pg.Tx) error {
 			if _, err := tx.QueryContext(ctx, &taken, `DELETE FROM author_entity_summary_dirty d
 				WHERE d.entity_id IN (SELECT entity_id FROM author_entity_summary_dirty ORDER BY marked_at LIMIT 1 FOR UPDATE SKIP LOCKED)
-				RETURNING d.entity_id`); err != nil {
+				RETURNING d.entity_id, d.xmin::text AS generation`); err != nil {
 				return fmt.Errorf("taking a summary mark: %w", err)
 			}
 			if len(taken) == 0 {
 				return nil
 			}
-			return rebuildAuthorEntitySummary(ctx, tx, taken[0])
+			return rebuildAuthorEntitySummary(ctx, tx, taken[0].EntityID)
 		})
 		if len(taken) == 0 {
 			return out, err
 		}
-		id := taken[0]
+		id := taken[0].EntityID
 		out.Entities++
 		if err == nil {
 			continue
@@ -492,7 +503,7 @@ func DrainAuthorSummaryMarks(
 		if !summaryEntityRefused(ctx, err) {
 			return out, fmt.Errorf("rebuilding the summary of entity %s: %w", id, err)
 		}
-		if passErr := passSummaryMark(ctx, db, timeout, id); passErr != nil {
+		if passErr := passSummaryMark(ctx, db, timeout, taken[0]); passErr != nil {
 			return out, passErr
 		}
 		out.Skipped = append(out.Skipped, AuthorSummarySkip{EntityID: id, SQLState: sqlState(err)})
@@ -501,15 +512,18 @@ func DrainAuthorSummaryMarks(
 }
 
 // passSummaryMark takes the mark of a refused entity, which the rollback put
-// back. It waits for the row rather than skip it: the failed connection's locks
-// last until the server sees it go.
-func passSummaryMark(ctx context.Context, db AuthorSummaryDB, timeout time.Duration, id uuid.UUID) error {
+// back, and only that one: between the rollback and this transaction another
+// pod can consume it and a later change can mark the entity again, and that mark
+// is still owed a rebuild. It waits for the row rather than skip it: the failed
+// connection's locks last until the server sees it go.
+func passSummaryMark(ctx context.Context, db AuthorSummaryDB, timeout time.Duration, mark summaryMark) error {
 	err := inSummaryTx(ctx, db, timeout, func(tx *pg.Tx) error {
-		_, execErr := tx.ExecContext(ctx, `DELETE FROM author_entity_summary_dirty WHERE entity_id = ?`, id)
+		_, execErr := tx.ExecContext(ctx, `DELETE FROM author_entity_summary_dirty WHERE entity_id = ? AND xmin = ?::xid`,
+			mark.EntityID, mark.Generation)
 		return execErr
 	})
 	if err != nil {
-		return fmt.Errorf("passing the mark of entity %s: %w", id, err)
+		return fmt.Errorf("passing the mark of entity %s: %w", mark.EntityID, err)
 	}
 	return nil
 }
