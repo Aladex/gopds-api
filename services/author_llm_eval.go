@@ -1426,7 +1426,7 @@ func (d *AuthorLLMEvalDriver) freeze(ctx context.Context, run *evalRun) error {
 // Closed reasons of a skipped eval item.
 const (
 	evalSkipInvalidSource      = "invalid_source"
-	evalSkipInputTooLong       = "input_too_long"
+	evalSkipInputTooLong       = database.MergeSkipInputTooLong
 	evalSkipInputUnreadable    = "input_unreadable"
 	evalSkipExcerptUnavailable = "excerpt_unavailable"
 	evalSkipAnchorIncomplete   = "anchor_incomplete"

@@ -327,6 +327,20 @@ func TestAMergeRunAsksNoFrozenCardThatIsNotItsDigests(t *testing.T) {
 	assert.Zero(t, f.decisions())
 }
 
+// A card over the bound of one question is skipped and never due again: the
+// digest names the card, so a run for it would ask nothing, tick after tick.
+func TestACandidateTooLongToAskIsNeverDueAgain(t *testing.T) {
+	f := newApplyFixture(t, mergeStub)
+	f.registerSwap()
+	f.renew(fillKing)
+	digest := f.digestOf(fillKing)
+	require.Contains(t, f.due(), hex.EncodeToString(digest))
+	run := f.startMergeRun()
+	require.NoError(t, database.RecordAuthorLLMEvalSkip(context.Background(), f.e.db, run,
+		&database.AuthorLLMEvalSkip{Stage: "enqueue", Reason: database.MergeSkipInputTooLong, SourceFingerprint: digest}))
+	assert.NotContains(t, f.due(), hex.EncodeToString(digest))
+}
+
 // The initials candidates are due once initials is registered: the
 // registration alone opens the kind.
 func TestAMergeRunAsksAKindOnceItIsRegistered(t *testing.T) {

@@ -32,6 +32,11 @@ type MergeCandidateDue struct {
 	InputSHA256 []byte `pg:"input_sha256"`
 }
 
+// MergeSkipInputTooLong is the skip of a candidate whose card is over the
+// bound of one question. The digest names the card, so the candidate is never
+// due again: asked or not, it would start a run of no question every tick.
+const MergeSkipInputTooLong = "input_too_long"
+
 // mergeDueFrom is the due rule of §6 over the stored census, a candidate
 // c, for the configuration and extractor version placeholders given: the
 // candidates the last completed build that wrote its census left. The
@@ -48,6 +53,8 @@ func mergeDueFrom(version, extractor string) string {
 		AND NOT EXISTS (SELECT 1 FROM public.author_llm_job j
 			WHERE j.source_fingerprint = c.digest AND j.extractor_version = {extractor} AND j.config_version = {version}
 				AND j.purpose = 'merge_check' AND j.eval_item_id IS NULL)
+		AND NOT EXISTS (SELECT 1 FROM public.author_llm_eval_skip s
+			WHERE s.source_fingerprint = c.digest AND s.reason = '` + MergeSkipInputTooLong + `')
 		AND NOT EXISTS (SELECT 1 FROM public.author_llm_eval_item e
 			JOIN public.author_llm_job j ON j.eval_item_id = e.id AND j.config_version = {version}
 			WHERE e.source_fingerprint = c.digest AND e.extractor_version = {extractor})`)
