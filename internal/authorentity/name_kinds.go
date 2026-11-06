@@ -343,7 +343,7 @@ func (n *nameKindPairs) capPartners() {
 // book, shared_book. A spelling decision never counts against an orphan's.
 func (m *modelStep) joinOrphans() bool {
 	b := m.b
-	partners := m.notSamePartners()
+	partners, spelling := m.notSamePartners(), m.spellingNotSamePartners()
 	joined := false
 	var steps [3][]decided
 	for _, e := range m.orphanDecs {
@@ -354,13 +354,17 @@ func (m *modelStep) joinOrphans() bool {
 		}
 	}
 	steps[2] = m.spellingDecs
-	for _, decs := range steps {
+	for step, decs := range steps {
 		bySide := map[int][]decided{}
 		for _, e := range decs {
 			bySide[e.si.it.a.root] = append(bySide[e.si.it.a.root], e)
 		}
+		held := partners
+		if step == len(steps)-1 {
+			held = spelling
+		}
 		for _, root := range sortedKeys(bySide) {
-			if m.joinOrphan(bySide[root], partners) {
+			if m.joinOrphan(bySide[root], held) {
 				joined = true
 			}
 		}
@@ -373,14 +377,44 @@ func (m *modelStep) joinOrphans() bool {
 	return joined
 }
 
+// booksRoot is the component a side's books are in: its own, or, when every
+// credit of it moved to one other component, that one (D4). A spelling same
+// names the person of the books: joined to the emptied key alone, a stub
+// would take that key's name and nobody's books, and the credits still going
+// by the name would follow it away from the author («Иван Ефремов»).
+func (b *builder) booksRoot(root int) int {
+	own, to, moved := b.find(root), 0, false
+	for _, k := range b.membersOf(own) {
+		for _, ci := range b.keys[k].credits {
+			t, ok := b.movedTo[ci]
+			if !ok {
+				return own
+			}
+			t = b.find(t)
+			if t == own || moved && t != to {
+				return own
+			}
+			to, moved = t, true
+		}
+	}
+	if moved {
+		return to
+	}
+	return own
+}
+
 // joinOrphan applies the sames decs of one orphan side (joinOrphans) and
 // reports whether it joined.
 func (m *modelStep) joinOrphan(decs []decided, partners map[int][]int) bool {
 	b := m.b
-	rx := b.find(decs[0].si.it.a.root)
+	rootOf := b.find
+	if SpellingKind(decs[0].d.Kind) {
+		rootOf = b.booksRoot
+	}
+	rx := rootOf(decs[0].si.it.a.root)
 	targets := map[int]bool{}
 	for _, e := range decs {
-		if r := b.find(e.si.it.b.root); r != rx {
+		if r := rootOf(e.si.it.b.root); r != rx {
 			targets[r] = true
 		}
 	}

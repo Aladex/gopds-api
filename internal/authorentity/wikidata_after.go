@@ -439,11 +439,25 @@ func initialsOfName(initials, full *Credit) bool {
 }
 
 // notSamePartners are the level-0 components the production pair answered
-// other than same on, pair by pair.
+// other than same on, pair by pair. A spelling pair's answer is left out
+// (D4): it says two spellings need not be one person on those two cards. It
+// holds the next spelling join (spellingNotSamePartners), never what another
+// kind's decision or the evidence joins with more to go on.
 func (m *modelStep) notSamePartners() map[int][]int {
+	return m.partnersOf(func(kind string) bool { return !SpellingKind(kind) })
+}
+
+// spellingNotSamePartners are the partners a spelling decision answers to:
+// every pair the production pair answered other than same on.
+func (m *modelStep) spellingNotSamePartners() map[int][]int {
+	return m.partnersOf(func(string) bool { return true })
+}
+
+// partnersOf are the not-same pairs of the kinds counted.
+func (m *modelStep) partnersOf(counted func(kind string) bool) map[int][]int {
 	partners := map[int][]int{}
 	for _, digest := range sortedDigests(m.b.in.NotSame) {
-		if si := m.byDigest[digest]; si != nil && si.credit == nil {
+		if si := m.byDigest[digest]; si != nil && si.credit == nil && counted(si.it.kind) {
 			x, y := si.sideA.root, si.sideB.root
 			partners[x] = append(partners[x], y)
 			partners[y] = append(partners[y], x)
