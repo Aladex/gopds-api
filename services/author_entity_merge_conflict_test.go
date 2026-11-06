@@ -3,6 +3,7 @@ package services_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"gopds-api/models"
 	"gopds-api/services"
 
+	"github.com/go-pg/pg/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -169,6 +171,71 @@ func TestADifferentPairStillBlocksItsComponent(t *testing.T) {
 			assert.False(t, f.together(fillPoselyaginA, fillPoselyaginC))
 		})
 	}
+}
+
+// heldTriangle is the triangle with A–B and B–C applied, and a different the
+// production pair gave on A–C after that: what an unattended merge run leaves
+// for the next pass.
+func heldTriangle(t *testing.T) *applyFixture {
+	t.Helper()
+	c := llmreq.MergeCannotTell
+	f := newTriangleFixture(t, triangleAnswers(map[string][]string{"gpt-6-luna": {c}, "deepseek-v4-pro": {c}}))
+	registration, _ := f.registerSwap()
+	_, err := f.admin.ApplyMergeEval(context.Background(), registration, 0)
+	require.NoError(t, err)
+	f.c.build()
+	require.Equal(t, "applied/", f.triangleStates()[[2]byte{fillPoselyaginA, fillPoselyaginB}])
+	require.True(t, f.together(fillPoselyaginA, fillPoselyaginC))
+	different := sha256.Sum256(llmreq.MergeCanonical(llmreq.MergeDifferent))
+	cannotTell := sha256.Sum256(llmreq.MergeCanonical(c))
+	f.c.exec(`ALTER TABLE author_llm_attempt DISABLE TRIGGER USER`)
+	f.c.exec(`UPDATE author_llm_attempt SET canonical_sha256 = ? WHERE canonical_sha256 = ?`, different[:], cannotTell[:])
+	f.c.exec(`ALTER TABLE author_llm_attempt ENABLE TRIGGER USER`)
+	notSame, err := database.LoadMergeNotSame(context.Background(), f.e.db)
+	require.NoError(t, err)
+	require.Len(t, notSame, 1)
+	return f
+}
+
+// A not-same answer that would take an applied decision apart stops the
+// autopilot's pass before it writes: the join stands, the marks go back and
+// the pass names the decision (D5).
+func TestAnAutopilotPassLeavesAnAppliedDecisionToAnAdministrator(t *testing.T) {
+	f := heldTriangle(t)
+	ctx := context.Background()
+	before := f.triangleStates()
+	run, err := database.StartAuthorEntityBuild(ctx, f.e.db, 0)
+	require.NoError(t, err)
+	worked, err := services.NewAuthorEntityBuildLoop(f.e.db, services.AuthorEntityBuildConfig{}).RunOnce(ctx)
+	require.NoError(t, err)
+	require.True(t, worked)
+
+	held, err := database.ReadAuthorAutopilotDecisionsHeld(ctx, f.e.db, services.AuthorEntityBuildErrorDecisionsHeld)
+	require.NoError(t, err)
+	assert.Equal(t, run.ID, held.RunID)
+	assert.Len(t, held.Decisions, 1)
+	assert.Equal(t, before, f.triangleStates(), "a held pass wrote a state")
+	assert.True(t, f.together(fillPoselyaginA, fillPoselyaginC), "a held pass took the join apart")
+}
+
+// An administrator's pass is the person looking: it goes through and its
+// report lists what it took apart.
+func TestAnAdministratorsPassTakesTheDecisionApartAndSaysSo(t *testing.T) {
+	f := heldTriangle(t)
+	ctx := context.Background()
+	f.c.exec(`INSERT INTO auth_user (id, password, is_superuser, username, email, date_joined)
+		VALUES (41, 'x', true, 'looking', 'looking@example.test', now())`)
+	run, err := database.StartAuthorEntityBuild(ctx, f.e.db, 41)
+	require.NoError(t, err)
+	_, err = services.NewAuthorEntityBuildLoop(f.e.db, services.AuthorEntityBuildConfig{}).RunOnce(ctx)
+	require.NoError(t, err)
+
+	var count int
+	_, err = f.e.db.QueryOne(pg.Scan(&count), `SELECT jsonb_array_length(report->'model'->'applied_not_same')
+		FROM author_entity_build_run WHERE id = ? AND status = 'completed'`, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+	assert.False(t, f.together(fillPoselyaginA, fillPoselyaginC))
 }
 
 // Both judges' different on A–C, the production pair cannot_tell, blocks

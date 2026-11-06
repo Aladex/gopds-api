@@ -268,6 +268,15 @@ const (
 // never holds it.
 const AuthorEntityBuildErrorCensus = "census_failed"
 
+// AuthorEntityBuildErrorDecisionsHeld is an autopilot pass refused before it
+// wrote anything: a not-same answer would take decisions the last pass
+// applied out of applied (D3). The answer may come from a merge run nobody
+// read, so the join stays until an administrator's pass, which goes through,
+// or a hand pin says what is true. Only this hold is the build's: a decision
+// that lapses on a changed card is asked again, and an administrator's own
+// pass lists what it took apart in its report.
+const AuthorEntityBuildErrorDecisionsHeld = "applied_decisions_held"
+
 // errAuthorEntityCensusMissing is a pass that needs its census and has none.
 var errAuthorEntityCensusMissing = errors.New("the pass has merge decisions and no sealed census")
 
@@ -315,6 +324,9 @@ func (l *AuthorEntityBuildLoop) RunOnce(ctx context.Context) (bool, error) {
 	}
 	if err != nil {
 		return true, err
+	}
+	if run.CreatedByUserID == nil && p.plan.Report.Model != nil && len(p.plan.Report.Model.AppliedNotSame) > 0 {
+		return true, l.holdForAdministrator(ctx, run.ID, p.plan.Report.Model.AppliedNotSame)
 	}
 	if overlaps := p.plan.VetoOverlaps(); len(overlaps) > 0 {
 		return true, l.refuseOverlap(ctx, run.ID, overlaps)
@@ -397,6 +409,20 @@ func (l *AuthorEntityBuildLoop) refusals(runID int64) int {
 		return 0
 	}
 	return l.refused.n
+}
+
+// holdForAdministrator ends an autopilot pass with nothing written: the marks
+// go back and the autopilot waits (AuthorAutopilot.buildNeeded).
+func (l *AuthorEntityBuildLoop) holdForAdministrator(ctx context.Context, runID int64, decisions []int64) error {
+	report, err := json.Marshal(map[string][]int64{"applied_not_same": decisions})
+	if err != nil {
+		return err
+	}
+	LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventEntityBuildDecisionsHeld, Stage: AuthorMetadataStageEntityBuild, RunID: runID,
+		Count: len(decisions), Worker: authorEntityBuildName,
+	})
+	return database.FailAuthorEntityBuildReport(ctx, l.db, runID, l.owner, AuthorEntityBuildErrorDecisionsHeld, report)
 }
 
 // planInput is what the plan read in its one snapshot.

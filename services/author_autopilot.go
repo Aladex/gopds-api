@@ -33,7 +33,10 @@ import (
 //     persists costs a pass now and then, not one a minute. Passes that
 //     failed their census in a row (census_failed: their marks were given
 //     back) are spaced out the same way; any other failure is built again
-//     on the next quiet tick.
+//     on the next quiet tick. A pass refused because it would take applied
+//     decisions apart on a not-same answer (applied_decisions_held) is
+//     not retried: every pass and merge run waits for an administrator's
+//     pass.
 //  5. Otherwise, when its merge step is switched on (migration 76, off by
 //     default), it starts one merge run of the merge configuration over the
 //     candidates due (AuthorLLMAdmin.StartAutopilotMerge, under the merge
@@ -242,6 +245,15 @@ func (l *AuthorAutopilot) tick(ctx context.Context, st *database.AuthorAutopilot
 		ResolveInputs: resolved.Inputs}
 	if resolved.Note == AutopilotResolveRunActive {
 		found.State = database.AuthorAutopilotStateLLMRunActive
+		return false, l.record(ctx, found, now)
+	}
+	hold, err := database.ReadAuthorAutopilotDecisionsHeld(ctx, l.db, AuthorEntityBuildErrorDecisionsHeld)
+	if err != nil {
+		return false, err
+	}
+	if hold.RunID != 0 {
+		found.State, found.StateRunID, found.MergeNote = database.AuthorAutopilotStateBuildHeld, hold.RunID,
+			AutopilotMergeBuildHeld
 		return false, l.record(ctx, found, now)
 	}
 	needed, held, err := l.buildNeeded(ctx, now)
@@ -555,6 +567,9 @@ type AuthorAutopilotStatus struct {
 	// row; the next pass is due at CensusRetryAt.
 	CensusFailures int        `json:"census_failures"`
 	CensusRetryAt  *time.Time `json:"census_retry_at,omitempty"`
+	// HeldDecisions are the applied decisions the newest pass would have
+	// taken apart, when it was held for an administrator.
+	HeldDecisions []int64 `json:"held_decisions,omitempty"`
 }
 
 // ReadAuthorAutopilotStatus reads the card's block, with the configuration's
@@ -580,10 +595,15 @@ func ReadAuthorAutopilotStatus(ctx context.Context, db pg.DBI, quiet time.Durati
 	if err != nil {
 		return nil, err
 	}
+	hold, err := database.ReadAuthorAutopilotDecisionsHeld(ctx, db, AuthorEntityBuildErrorDecisionsHeld)
+	if err != nil {
+		return nil, err
+	}
 	defaults := AuthorAutopilotConfig{}.withDefaults()
 	out := &AuthorAutopilotStatus{AuthorAutopilotState: st, QuietSeconds: int64(quiet / time.Second),
 		WaitingJobs: q.WaitingJobs, BuildPending: pending, SkippedUnits: debt.Units,
-		SkippedRetryAt: defaults.debtDue(debt), CensusFailures: census.Passes, CensusRetryAt: defaults.censusDue(census)}
+		SkippedRetryAt: defaults.debtDue(debt), CensusFailures: census.Passes, CensusRetryAt: defaults.censusDue(census),
+		HeldDecisions: hold.Decisions}
 	if q.NewestSnapshotAt != nil {
 		if until := q.NewestSnapshotAt.Add(quiet); until.After(time.Now()) {
 			out.QuietUntil = &until

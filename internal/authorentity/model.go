@@ -43,6 +43,9 @@ type MergeDecision struct {
 	// before (E4f). They order the decisions a conflict holds.
 	RegistrationID int64
 	WasApplied     bool
+	// Applied is true when the previous pass's state of the decision is
+	// applied, and nothing else: WasApplied also reads a hold (D5).
+	Applied bool
 }
 
 // States of a decision in a pass.
@@ -149,6 +152,11 @@ type ModelReport struct {
 	// Pins counts the hand joins by state (E4o); nil without a pin.
 	Pins     map[string]int `json:"pins,omitempty"`
 	Revivals RevivalReport  `json:"revivals"`
+	// AppliedNotSame are the decisions the previous pass applied that a
+	// not-same answer holds now, sorted: a join this pass takes apart on an
+	// answer nobody may have read. The autopilot does not write such a pass
+	// (D5, AuthorEntityBuildErrorDecisionsHeld).
+	AppliedNotSame []int64 `json:"applied_not_same,omitempty"`
 }
 
 // RevivalReport counts the revivals by outcome and reason.
@@ -626,9 +634,24 @@ func (m *modelStep) replan() *Plan {
 			m.rep.Revivals.Lapsed[r.Reason]++
 		}
 	}
+	m.rep.AppliedNotSame = m.appliedNotSame()
 	rep := m.rep
 	np.Report.Model = &rep
 	return np
+}
+
+// appliedNotSame are the decisions the previous pass applied that this one
+// holds on not_same, sorted.
+func (m *modelStep) appliedNotSame() []int64 {
+	var out []int64
+	for i := range m.b.in.Decisions {
+		d := &m.b.in.Decisions[i]
+		if s := m.states[d.ID]; d.Applied && s != nil && s.State == DecisionConflict && s.Reason == ConflictNotSame {
+			out = append(out, d.ID)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // moveDecidedBooks applies the book decisions after D3: a book still in its

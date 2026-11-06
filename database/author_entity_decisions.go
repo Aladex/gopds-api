@@ -37,6 +37,7 @@ type mergeDecisionRow struct {
 	Withheld      string `pg:"withheld"`
 	Registration  int64  `pg:"registration_id,use_zero"`
 	WasApplied    bool   `pg:"was_applied,use_zero"`
+	Applied       bool   `pg:"applied,use_zero"`
 }
 
 // mergeMemberRow is one member key of a decision side.
@@ -74,6 +75,8 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 					OR (s.state = 'conflict' AND s.reason = ?3 AND EXISTS (
 						SELECT 1 FROM public.author_entity_merge_log l
 						WHERE l.method = ?4 AND l.evidence->'decision_ids' @> to_jsonb(d.id))))) AS was_applied,
+			EXISTS (SELECT 1 FROM public.author_entity_merge_decision_state s
+				WHERE s.decision_id = d.id AND s.state = 'applied') AS applied,
 			CASE WHEN d.source <> 'model' THEN ''
 				WHEN own.id IS NULL THEN ?0
 				WHEN live.id IS NULL THEN ?1
@@ -110,7 +113,7 @@ func LoadMergeDecisions(ctx context.Context, db pg.DBI) ([]authorentity.MergeDec
 		r := &rows[i]
 		d := authorentity.MergeDecision{ID: r.ID, Kind: r.Kind, Script: r.Script, ItemKind: r.ItemKind,
 			Outcome: r.Outcome, ReportID: r.ReportID, Withheld: r.Withheld, RegistrationID: r.Registration,
-			WasApplied: r.WasApplied}
+			WasApplied: r.WasApplied, Applied: r.Applied}
 		copy(d.Digest[:], r.Digest)
 		copy(d.MembersSHA256[:], r.MembersSHA256)
 		if r.CreditID != nil {

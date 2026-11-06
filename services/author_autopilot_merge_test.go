@@ -431,6 +431,40 @@ func TestARepeatingCensusFailureBacksOff(t *testing.T) {
 }
 
 // The card's block shows the merge step's switch.
+// A pass held for an administrator is not retried: the autopilot starts no
+// pass and no merge run however long it waits, the card names the decisions,
+// and an administrator's pass ends the hold (D5).
+func TestAHeldPassWaitsForAnAdministrator(t *testing.T) {
+	p := newMergePilot(t)
+	p.switchMerge(true)
+	p.renew(fillAsimov)
+	p.edit(fillKing)
+	a := p.pilot()
+	ctx := context.Background()
+
+	require.True(t, p.tick(a))
+	held := p.failPass(services.AuthorEntityBuildErrorDecisionsHeld)
+	p.c.exec(`UPDATE author_entity_build_run SET report = '{"applied_not_same":[7,9]}' WHERE id = ?`, held)
+	for range 3 {
+		assert.False(t, p.tick(a), "a held pass was retried")
+		st := p.state()
+		assert.Equal(t, database.AuthorAutopilotStateBuildHeld, noteOf(st.State))
+		assert.Equal(t, held, *st.StateRunID)
+		assert.Equal(t, services.AutopilotMergeBuildHeld, noteOf(st.MergeNote))
+		p.clock.advance(24 * time.Hour)
+	}
+	assert.Zero(t, p.mergeRuns())
+	status, err := services.ReadAuthorAutopilotStatus(ctx, p.e.db, autopilotQuiet)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{7, 9}, status.HeldDecisions)
+
+	p.c.build()
+	status, err = services.ReadAuthorAutopilotStatus(ctx, p.e.db, autopilotQuiet)
+	require.NoError(t, err)
+	assert.Empty(t, status.HeldDecisions)
+	assert.True(t, p.tick(a), "the autopilot goes on after the administrator's pass")
+}
+
 func TestTheAutopilotStatusShowsTheMergeSwitch(t *testing.T) {
 	p := newMergePilot(t)
 	ctx := context.Background()

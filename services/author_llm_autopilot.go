@@ -163,7 +163,10 @@ const (
 	AutopilotMergeSwitchedOff = "switched_off"
 	// AutopilotMergeBuildDue: a pass is to do first; the candidates are the
 	// last completed pass's.
-	AutopilotMergeBuildDue     = "build_due"
+	AutopilotMergeBuildDue = "build_due"
+	// AutopilotMergeBuildHeld: the newest pass was held for an administrator
+	// (AuthorEntityBuildErrorDecisionsHeld).
+	AutopilotMergeBuildHeld    = "build_held"
 	AutopilotMergeLLMOff       = "llm_not_configured"
 	AutopilotMergeNoEval       = "no_merge_eval"
 	AutopilotMergeNoRegistered = "no_registered_kinds"
@@ -181,7 +184,8 @@ const (
 
 // AutopilotMergeNotes are every note of the merge check.
 func AutopilotMergeNotes() []string {
-	return []string{AutopilotMergeStarted, AutopilotMergeSwitchedOff, AutopilotMergeBuildDue, AutopilotMergeLLMOff,
+	return []string{AutopilotMergeStarted, AutopilotMergeSwitchedOff, AutopilotMergeBuildDue, AutopilotMergeBuildHeld,
+		AutopilotMergeLLMOff,
 		AutopilotMergeNoEval, AutopilotMergeNoRegistered, AutopilotMergeVetoHeld, AutopilotMergeDriftHeld,
 		AutopilotMergeLLMPaused, AutopilotMergeNothing, AutopilotMergeBudget, AutopilotMergeEvidence,
 		AutopilotMergeRunActive}

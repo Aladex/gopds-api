@@ -70,6 +70,9 @@ const (
 	// AuthorAutopilotStateBuildBackoff: a pass is to do, but the newest
 	// passes failed their census (StateRunID the newest); the next waits.
 	AuthorAutopilotStateBuildBackoff = "build_backoff"
+	// AuthorAutopilotStateBuildHeld: the newest pass would have taken applied
+	// decisions apart; only an administrator's pass goes on (D5).
+	AuthorAutopilotStateBuildHeld = "build_held"
 	// AuthorAutopilotStateIdle: nothing to do.
 	AuthorAutopilotStateIdle = "idle"
 )
@@ -324,6 +327,31 @@ func ReadAuthorAutopilotCensusFailures(
 		return nil, fmt.Errorf("reading the passes' census failures: %w", err)
 	}
 	return &f, nil
+}
+
+// AuthorAutopilotDecisionsHeld is the newest pass when it was refused for the
+// applied decisions it would take apart, with their IDs; RunID 0 otherwise.
+type AuthorAutopilotDecisionsHeld struct {
+	RunID     int64   `pg:"run_id,use_zero"`
+	Decisions []int64 `pg:"decisions,array"`
+}
+
+// ReadAuthorAutopilotDecisionsHeld reads the newest pass's hold (class names
+// it): any later pass, an administrator's, ends it.
+func ReadAuthorAutopilotDecisionsHeld(
+	ctx context.Context, db pg.DBI, class string,
+) (*AuthorAutopilotDecisionsHeld, error) {
+	var rows []AuthorAutopilotDecisionsHeld
+	if _, err := db.QueryContext(ctx, &rows, `
+		SELECT id AS run_id, ARRAY(SELECT jsonb_array_elements_text(report->'applied_not_same'))::bigint[] AS decisions
+		FROM (SELECT id, status, last_error_class, report FROM public.author_entity_build_run ORDER BY id DESC LIMIT 1) r
+		WHERE status = 'failed' AND last_error_class = ?`, class); err != nil {
+		return nil, fmt.Errorf("reading the pass's held decisions: %w", err)
+	}
+	if len(rows) == 0 {
+		return &AuthorAutopilotDecisionsHeld{}, nil
+	}
+	return &rows[0], nil
 }
 
 // AuthorAutopilotQuiet is the quiet gate's view: when the newest snapshot

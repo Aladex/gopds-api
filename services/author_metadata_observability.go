@@ -140,6 +140,9 @@ const (
 	// CensusFailed: a step of the merge candidate census failed (Status: its
 	// closed class); the pass landed without it.
 	AuthorMetadataEventEntityBuildCensusFailed AuthorMetadataEventName = "author_metadata.entity_build_census_failed"
+	// DecisionsHeld: an autopilot pass was refused for the applied decisions
+	// it would take apart (Count: how many).
+	AuthorMetadataEventEntityBuildDecisionsHeld AuthorMetadataEventName = "author_metadata.entity_build_decisions_held"
 	// InputMoved: the fence refused an attempt of a pass that applies a
 	// model decision, its input changed after the plan's snapshot (Count:
 	// the refusals in a row; Status refused, or input_moved when the third
@@ -209,6 +212,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventEntityBuildStarted, AuthorMetadataEventEntityBuildPlanned,
 		AuthorMetadataEventEntityBuildUnitSkipped, AuthorMetadataEventEntityBuildCompleted,
 		AuthorMetadataEventEntityBuildStepFailed, AuthorMetadataEventEntityBuildCensusFailed,
+		AuthorMetadataEventEntityBuildDecisionsHeld,
 		AuthorMetadataEventEntityBuildInputMoved, AuthorMetadataEventEntityMergeAction,
 		AuthorMetadataEventWikidataFetchStarted, AuthorMetadataEventWikidataChunkImported,
 		AuthorMetadataEventWikidataPublished, AuthorMetadataEventWikidataFetchFailed,

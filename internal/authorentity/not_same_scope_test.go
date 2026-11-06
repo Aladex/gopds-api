@@ -73,3 +73,31 @@ func TestASpellingSameFollowsTheBooksOfAnEmptiedSide(t *testing.T) {
 	same(t, p, 21, 1)
 	assert.Zero(t, w.pass().Changes(), "a second pass changes nothing")
 }
+
+// A different on a non-spelling pair still undoes an applied join, and the
+// pass says so: the autopilot, whose merge runs ask these unattended, does
+// not write such a pass (D5). A hold that was a hold before is not reported.
+func TestANonSpellingDifferentReportsTheAppliedDecisionItHolds(t *testing.T) {
+	w := newWorld(t, tremaynes(t))
+	w.pass()
+	refused := candidateOf(w.level0, authorentity.CandidateTranslit, 1, 3)
+	require.NotNil(t, refused)
+	bridge := w.decide(authorentity.CandidateTranslit, 2, 3)
+	typo := w.decide(authorentity.CandidateTypo, 1, 2)
+	same(t, w.pass(), 1, 3)
+	for i := range w.decisions {
+		w.decisions[i].Applied = w.state(w.decisions[i].ID).State == authorentity.DecisionApplied
+	}
+
+	w.ch.c.in.NotSame = map[[32]byte]bool{refused.Digest: true}
+	p := w.pass()
+	require.Equal(t, conflict(typo, authorentity.ConflictNotSame), w.state(typo))
+	assert.Equal(t, applied(bridge), w.state(bridge))
+	assert.Equal(t, []int64{typo}, p.Report.Model.AppliedNotSame)
+	apart(t, p, 1, 3)
+
+	for i := range w.decisions {
+		w.decisions[i].Applied = w.state(w.decisions[i].ID).State == authorentity.DecisionApplied
+	}
+	assert.Empty(t, w.pass().Report.Model.AppliedNotSame, "a held decision is no new hold")
+}
