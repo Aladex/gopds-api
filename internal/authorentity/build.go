@@ -128,6 +128,9 @@ type builder struct {
 	rep Report
 
 	fixed map[int]*uuid.UUID // manual: credit index → entity (nil = none)
+	// kept are the name_form decisions a pair of several targets may keep
+	// (keptNameForms), read once.
+	kept *keptForms
 	// sameName are the unselected credits waiting for the same-name join;
 	// selected is how many of in.Credits are selected credits: the particle
 	// names read as selected follow them.

@@ -18,6 +18,8 @@ import (
 //   - name_form: a pair of swap, variant or initials the plain kinds keep out
 //     as bucket_side (for initials only when it is the one target), and a
 //     given name cut short («Дж. Олдридж», «Джеймс Олдридж») with one target.
+//     One target is what a new question needs. A pair already applied keeps
+//     its candidate when a second target appears (keepNameForm).
 //
 // Like the name kinds they take no part in the generation, the cap or the
 // precedence of the others, so what a registered kind covers never changes,
@@ -116,10 +118,11 @@ func (n *nameKindPairs) typoPairs(xs, ys []typoRef, gender bool) {
 }
 
 // addSpelling records a pair of a spelling kind, side a the side of fewer
-// books, unless it is one side or asked.
-func (n *nameKindPairs) addSpelling(kind, script string, x, y *candSide, gender bool) {
+// books, unless it is one side or asked, and returns it, nil when it is not
+// recorded.
+func (n *nameKindPairs) addSpelling(kind, script string, x, y *candSide, gender bool) *candItem {
 	if x == y || (n.asked[sidePair(x, y)] && !n.out[sidePair(x, y)]) {
-		return
+		return nil
 	}
 	n.asked[sidePair(x, y)], n.out[sidePair(x, y)] = true, false
 	if len(y.books) < len(x.books) || (len(y.books) == len(x.books) && y.root < x.root) {
@@ -128,6 +131,7 @@ func (n *nameKindPairs) addSpelling(kind, script string, x, y *candSide, gender 
 	it := &candItem{kind: kind, script: script, a: x, b: y, credit: -1}
 	it.reason = n.g.b.spellingReason(x, y, gender)
 	n.items = append(n.items, it)
+	return it
 }
 
 // spellingReason is why a spelling pair is no candidate, empty when it is
@@ -354,11 +358,53 @@ func (n *nameKindPairs) nameForms(existing []*candItem) {
 		case CandidateInitials:
 			if n.oneInitialsTarget(it, targets) {
 				n.addSpelling(CandidateNameForm, it.script, it.a, it.b, false)
+			} else {
+				n.keepNameForm(it.script, it.a, it.b)
 			}
 		}
 	}
 	n.abbreviations()
 }
+
+// keepNameForm records a pair of several targets a pass applied (D5). A second
+// full name makes the short one ambiguous for a new question, not for the pair
+// the models accepted on these two cards, so the pair stays a candidate while
+// its decision's members and card hold: the seal drops it on any other digest
+// (keptDigest), and it counts against no partner cap. Every other hold of a
+// candidate and a decision still applies to it.
+func (n *nameKindPairs) keepNameForm(script string, x, y *candSide) {
+	members := sealItem(n.g.b, &candItem{a: x, b: y, credit: -1}).members
+	if !n.g.b.keptNameForms().members[members] {
+		return
+	}
+	if it := n.addSpelling(CandidateNameForm, script, x, y, false); it != nil {
+		it.kept = true
+	}
+}
+
+// keptForms are the name_form decisions the last pass applied that nothing
+// withholds, by members and by digest.
+type keptForms struct {
+	members map[[32]byte]bool
+	digests map[[32]byte]bool
+}
+
+// keptNameForms are the pass's keptForms.
+func (b *builder) keptNameForms() *keptForms {
+	if b.kept == nil {
+		b.kept = &keptForms{members: map[[32]byte]bool{}, digests: map[[32]byte]bool{}}
+		for i := range b.in.Decisions {
+			d := &b.in.Decisions[i]
+			if d.Kind == CandidateNameForm && d.Outcome != DecisionRevoked && d.WasApplied && d.Withheld == "" {
+				b.kept.members[d.MembersSHA256], b.kept.digests[d.Digest] = true, true
+			}
+		}
+	}
+	return b.kept
+}
+
+// keptDigest reports the digest of a decision keepNameForm kept.
+func (b *builder) keptDigest(digest [32]byte) bool { return b.keptNameForms().digests[digest] }
 
 // initialsTargets are the initials pairs of each side, of any reason.
 func (n *nameKindPairs) initialsTargets() map[int]int {
@@ -404,8 +450,12 @@ func (n *nameKindPairs) abbreviations() {
 				targets[y.side.root] = y.side
 			}
 		}
-		if len(targets) == 1 {
-			n.addSpelling(CandidateNameForm, x.key.script, x.side, targets[sortedKeys(targets)[0]], false)
+		for _, root := range sortedKeys(targets) {
+			if len(targets) == 1 {
+				n.addSpelling(CandidateNameForm, x.key.script, x.side, targets[root], false)
+			} else {
+				n.keepNameForm(x.key.script, x.side, targets[root])
+			}
 		}
 	}
 }

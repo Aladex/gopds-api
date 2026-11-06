@@ -321,6 +321,9 @@ func aloneItem(ref *Reference, key string) string {
 func (n *nameKindPairs) capPartners() {
 	partners := map[string]map[int]int{}
 	for _, it := range n.items {
+		if it.kept {
+			continue
+		}
 		if partners[it.kind] == nil {
 			partners[it.kind] = map[int]int{}
 		}
@@ -329,7 +332,7 @@ func (n *nameKindPairs) capPartners() {
 	}
 	for _, it := range n.items {
 		p := partners[it.kind]
-		if it.reason == "" && (p[it.a.root] > maxCandidatePartners || p[it.b.root] > maxCandidatePartners) {
+		if !it.kept && it.reason == "" && (p[it.a.root] > maxCandidatePartners || p[it.b.root] > maxCandidatePartners) {
 			it.reason = ExcludedPartnerCap
 		}
 	}

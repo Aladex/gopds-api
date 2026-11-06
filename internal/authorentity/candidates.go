@@ -115,12 +115,16 @@ const (
 	// ExcludedTypoGender is a typo pair told apart only by a gender ending
 	// whose sides share no title or series (D2).
 	ExcludedTypoGender = "typo_gender"
+	// ExcludedNameFormAmbiguous is a name_form pair of several targets, kept
+	// for its applied decision, whose card changed (D5). The seal finds it.
+	ExcludedNameFormAmbiguous = "name_form_ambiguous"
 )
 
 // ExclusionReasons are the reasons, each counted per kind and script.
 var ExclusionReasons = []string{ExcludedBucketSide, ExcludedCoCredited, ExcludedNamesakeTag, ExcludedPseudonymKey,
 	ExcludedManualSide, ExcludedRevokedPair, ExcludedPartnerCap, ExcludedMixedScript, ExcludedNoFamilyOrGiven,
-	ExcludedLooseScriptOnly, ExcludedPrecedence, ExcludedHubTooLong, ExcludedMixedOtherName, ExcludedTypoGender}
+	ExcludedLooseScriptOnly, ExcludedPrecedence, ExcludedHubTooLong, ExcludedMixedOtherName, ExcludedTypoGender,
+	ExcludedNameFormAmbiguous}
 
 // SampleCandidate is the reason of a sample row of a candidate.
 const SampleCandidate = "candidate"
@@ -247,6 +251,9 @@ type candItem struct {
 	credit int
 	// short is an orphan whose side a is a short name (E4q).
 	short bool
+	// kept is a name_form pair of several targets, a candidate only on the
+	// exact digest of its applied decision (keepNameForm).
+	kept bool
 }
 
 // candidates is what generation keeps for the seal.
@@ -1168,10 +1175,14 @@ func (p *Plan) seal(books map[int64]CardBookFields) {
 				continue
 			}
 			if it.kind == CandidateInitialsHub && len(si.input) > MergeInputMaxBytes {
-				p.excludeTooLong(si)
+				p.excludeAtSeal(si, ExcludedHubTooLong)
 			} else {
 				si.inputHash = sha256.Sum256(si.input)
 				si.digest = candidateDigest(it.kind, it.script, si.members, si.inputHash)
+				if it.kept && !b.keptDigest(si.digest) {
+					si.inputHash, si.digest = [32]byte{}, [32]byte{}
+					p.excludeAtSeal(si, ExcludedNameFormAmbiguous)
+				}
 			}
 		}
 		all = append(all, si)
@@ -1210,17 +1221,18 @@ func (p *Plan) dropFailedCard(si *sealedItem) {
 	p.Report.Candidates.ByKind[si.it.kind][si.it.script].Candidates--
 }
 
-// excludeTooLong turns a hub too long to ask whole into an exclusion,
+// excludeAtSeal turns a candidate the seal refuses, a hub too long to ask
+// whole or a kept pair whose card changed, into an exclusion of reason,
 // counted as one.
-func (p *Plan) excludeTooLong(si *sealedItem) {
-	si.it.reason, si.input = ExcludedHubTooLong, nil
+func (p *Plan) excludeAtSeal(si *sealedItem, reason string) {
+	si.it.reason, si.input = reason, nil
 	for _, r := range []*CandidateReport{&p.Report.Candidates, &p.cand.b.rep.Candidates} {
 		r.Candidates--
 		r.Excluded++
 	}
 	counts := p.Report.Candidates.ByKind[si.it.kind][si.it.script]
 	counts.Candidates--
-	counts.Excluded[ExcludedHubTooLong]++
+	counts.Excluded[reason]++
 }
 
 // sealItem puts an item's sides in canonical order with their members.
