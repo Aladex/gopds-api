@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"gopds-api/database"
@@ -39,6 +40,9 @@ type AuthorEntityAdminService interface {
 	MergePins(ctx context.Context) ([]database.MergePinRow, error)
 	PinMerge(ctx context.Context, sideA, sideB database.MergePinSide, note string, actor int64) (int64, error)
 	RevokeMergePin(ctx context.Context, id, actor int64) error
+	MoveCredits(ctx context.Context, m *database.CreditMove) (uuid.UUID, error)
+	RevokeCreditMoves(ctx context.Context, credits []int64) (int, error)
+	CreditMoves(ctx context.Context) ([]database.CreditMoveRow, error)
 	RegisterMergeKind(ctx context.Context, runID int64, kind string, actor int64) (int64, error)
 	WithdrawMergeRegistration(ctx context.Context, id, actor int64) error
 	BlockMergeScript(ctx context.Context, id int64, script string, actor int64) error
@@ -103,6 +107,18 @@ func (unavailableAuthorEntityAdmin) PinMerge(
 	return 0, errAuthorEntityServiceUnavailable
 }
 
+func (unavailableAuthorEntityAdmin) MoveCredits(context.Context, *database.CreditMove) (uuid.UUID, error) {
+	return uuid.Nil, errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) RevokeCreditMoves(context.Context, []int64) (int, error) {
+	return 0, errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) CreditMoves(context.Context) ([]database.CreditMoveRow, error) {
+	return nil, errAuthorEntityServiceUnavailable
+}
+
 func (unavailableAuthorEntityAdmin) RevokeMergePin(context.Context, int64, int64) error {
 	return errAuthorEntityServiceUnavailable
 }
@@ -153,6 +169,9 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	// durable state every build reads (E4o).
 	r.POST("/merges/pins", middlewares.CSRFMiddleware(), h.pin)
 	r.POST("/merges/pins/:id/revoke", middlewares.CSRFMiddleware(), h.revokePin)
+	r.GET("/credits/moves", h.creditMoves)
+	r.POST("/credits/moves", middlewares.CSRFMiddleware(), h.moveCredits)
+	r.POST("/credits/moves/revoke", middlewares.CSRFMiddleware(), h.revokeCreditMoves)
 	r.POST("/merges/registrations", h.register)
 	r.POST("/merges/registrations/:id/withdraw", h.withdraw)
 	r.POST("/merges/registrations/:id/block", h.blockScript)
@@ -177,6 +196,12 @@ func abortEntityError(c *gin.Context, err error) {
 		abortRun(c, http.StatusUnprocessableEntity, codeVetoSidesInvalid)
 	case errors.Is(err, database.ErrMergePinNotLive):
 		abortRun(c, http.StatusConflict, codePinNotLive)
+	case errors.Is(err, database.ErrCreditMoveNotLive):
+		abortRun(c, http.StatusConflict, codeMoveNotLive)
+	case errors.Is(err, database.ErrCreditMoveCredits):
+		abortRun(c, http.StatusUnprocessableEntity, codeMoveCredits)
+	case errors.Is(err, database.ErrCreditMoveTarget):
+		abortRun(c, http.StatusUnprocessableEntity, codeMoveTarget)
 	case errors.Is(err, database.ErrMergePinSides):
 		abortRun(c, http.StatusUnprocessableEntity, codePinSidesInvalid)
 	case errors.Is(err, services.ErrAuthorEntityMergeReportInvalid):
@@ -592,6 +617,105 @@ func (h *authorEntityHandler) revokePin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{jsonKeyPin: id})
+}
+
+// The hand move (D5): put single credits on another entity, list the moves
+// and hand credits back to the build. Closed codes: credit_move_not_live
+// (409), credit_move_credits (422): a credit unknown, not selected or a list,
+// or an empty or oversized batch; credit_move_target (422): no live entity, or
+// both or neither of entity and new_entity_name.
+const (
+	codeMoveNotLive = "credit_move_not_live"
+	codeMoveCredits = "credit_move_credits"
+	codeMoveTarget  = "credit_move_target" // #nosec G101 -- an error code, not a credential
+	jsonKeyEntityID = "entity_id"
+	jsonKeyCredits  = "credits"
+	jsonKeyMoves    = "moves"
+)
+
+// moveCreditsRequest names the credits and their target: an entity, or the
+// name of a new one.
+type moveCreditsRequest struct {
+	Credits       []int64    `json:"credits"`
+	Entity        *uuid.UUID `json:"entity"`
+	NewEntityName string     `json:"new_entity_name"`
+}
+
+// revokeCreditMovesRequest names the credits to hand back.
+type revokeCreditMovesRequest struct {
+	Credits []int64 `json:"credits"`
+}
+
+// creditMoves godoc
+// @Summary List the hand moves of credits
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Produce json
+// @Success 200 {object} map[string][]database.CreditMoveRow
+// @Router /api/admin/author-metadata/entities/credits/moves [get]
+func (h *authorEntityHandler) creditMoves(c *gin.Context) {
+	rows, err := h.svc().CreditMoves(c.Request.Context())
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyMoves: rows})
+}
+
+// moveCredits godoc
+// @Summary Put single credits on an author entity by hand
+// @Description Writes manual credit rows: every build keeps them. The target is {"entity": uuid} or
+// @Description {"new_entity_name": name}, which creates the card. Up to 200 credits, all or none.
+// @Description 422 credit_move_credits, credit_move_target.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param body body moveCreditsRequest true "The credits and the target"
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/admin/author-metadata/entities/credits/moves [post]
+func (h *authorEntityHandler) moveCredits(c *gin.Context) {
+	var req moveCreditsRequest
+	if decodeStrict(c, &req) != nil || utf8.RuneCountInString(req.NewEntityName) > maxPinNote {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	actor, err := actorID(c)
+	if err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return
+	}
+	id, err := h.svc().MoveCredits(c.Request.Context(), &database.CreditMove{Credits: req.Credits, Entity: req.Entity,
+		NewName: strings.TrimSpace(req.NewEntityName), Actor: actor})
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyEntityID: id, jsonKeyCredits: len(req.Credits)})
+}
+
+// revokeCreditMoves godoc
+// @Summary Hand credits back to the build
+// @Description Deletes their hand moves, all or none; the next build decides them. 409 credit_move_not_live.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param body body revokeCreditMovesRequest true "The credits"
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]int
+// @Router /api/admin/author-metadata/entities/credits/moves/revoke [post]
+func (h *authorEntityHandler) revokeCreditMoves(c *gin.Context) {
+	var req revokeCreditMovesRequest
+	if decodeStrict(c, &req) != nil {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	n, err := h.svc().RevokeCreditMoves(c.Request.Context(), req.Credits)
+	if err != nil {
+		abortEntityError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyCredits: n})
 }
 
 // Registration of a merge stratum (E4d): register a kind from a completed

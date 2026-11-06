@@ -141,6 +141,22 @@ func (f *fakeEntityAdmin) RevokeMergePin(_ context.Context, id, actor int64) err
 	return f.err
 }
 
+func (f *fakeEntityAdmin) MoveCredits(_ context.Context, m *database.CreditMove) (uuid.UUID, error) {
+	f.record(fmt.Sprintf("move %v %v %q", m.Credits, m.Entity, m.NewName))
+	f.actor = m.Actor
+	return uuid.MustParse("01a17dc0-a8b4-7706-b3db-57951f632b68"), f.err
+}
+
+func (f *fakeEntityAdmin) RevokeCreditMoves(_ context.Context, credits []int64) (int, error) {
+	f.record(fmt.Sprintf("revoke moves %v", credits))
+	return len(credits), f.err
+}
+
+func (f *fakeEntityAdmin) CreditMoves(context.Context) ([]database.CreditMoveRow, error) {
+	f.record("moves")
+	return nil, f.err
+}
+
 func (f *fakeEntityAdmin) RegisterMergeKind(_ context.Context, run int64, kind string, actor int64) (int64, error) {
 	f.record(fmt.Sprintf("register %d %s", run, kind))
 	f.actor = actor
@@ -593,8 +609,10 @@ func TestThePinWritesCheckCSRF(t *testing.T) {
 		r.ServeHTTP(rec, req)
 		return rec.Code
 	}
+	move := `{"credits":[1],"new_entity_name":"Алексей Константинович Толстой"}`
 	for _, route := range []struct{ path, body string }{
 		{entityBase + "/merges/pins", pin}, {entityBase + "/merges/pins/7/revoke", ""},
+		{entityBase + "/credits/moves", move}, {entityBase + "/credits/moves/revoke", `{"credits":[1]}`},
 	} {
 		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, route.path, route.body, "", ""), route.path)
 		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, route.path, route.body, "c1", ""), route.path)
@@ -604,5 +622,51 @@ func TestThePinWritesCheckCSRF(t *testing.T) {
 	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/merges/pins", pin, "c1", "c1"))
 	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/merges/pins/7/revoke", "", "c1", "c1"))
 	assert.Equal(t, http.StatusOK, send(http.MethodGet, entityBase+"/merges/pins", "", "", ""))
-	assert.Len(t, svc.calls, 3)
+	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/credits/moves", move, "c1", "c1"))
+	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/credits/moves/revoke", `{"credits":[1]}`, "c1", "c1"))
+	assert.Equal(t, http.StatusOK, send(http.MethodGet, entityBase+"/credits/moves", "", "", ""))
+	assert.Len(t, svc.calls, 6)
+}
+
+// A hand move names credits and one target; a malformed request reaches no
+// service and the store's refusals are closed codes (D5).
+func TestTheHandMoveRoutes(t *testing.T) {
+	svc := &fakeEntityAdmin{}
+	r := entityRouter(svc)
+	target := uuid.New()
+	rec := csrfRequest(t, r, http.MethodPost, entityBase+"/credits/moves",
+		fmt.Sprintf(`{"credits":[3,4],"entity":%q}`, target))
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"entity_id":"01a17dc0-a8b4-7706-b3db-57951f632b68","credits":2}`, rec.Body.String())
+	assert.Equal(t, adminActorID, svc.actor)
+	rec = csrfRequest(t, r, http.MethodPost, entityBase+"/credits/moves", `{"credits":[3],"new_entity_name":" Новый "}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	rec = csrfRequest(t, r, http.MethodPost, entityBase+"/credits/moves/revoke", `{"credits":[3]}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"credits":1}`, rec.Body.String())
+	assert.Equal(t, []string{fmt.Sprintf("move [3 4] %v %q", &target, ""), `move [3] <nil> "Новый"`, "revoke moves [3]"},
+		svc.calls)
+
+	svc.calls = nil
+	for _, body := range []string{"", `{"credits":"3"}`, `{"credits":[3],"entity":"not-a-uuid"}`, `{"credits":[3],"extra":1}`,
+		fmt.Sprintf(`{"credits":[3],"new_entity_name":%q}`, strings.Repeat("я", 501))} {
+		rec = csrfRequest(t, r, http.MethodPost, entityBase+"/credits/moves", body)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+	}
+	assert.Empty(t, svc.calls, "a malformed request reached the service")
+
+	for _, tc := range []struct {
+		err        error
+		path, want string
+		code       int
+	}{
+		{database.ErrCreditMoveCredits, "/credits/moves", "credit_move_credits", http.StatusUnprocessableEntity},
+		{database.ErrCreditMoveTarget, "/credits/moves", "credit_move_target", http.StatusUnprocessableEntity},
+		{database.ErrCreditMoveNotLive, "/credits/moves/revoke", "credit_move_not_live", http.StatusConflict},
+	} {
+		svc.err = tc.err
+		rec = csrfRequest(t, r, http.MethodPost, entityBase+tc.path, `{"credits":[3]}`)
+		assert.Equal(t, tc.code, rec.Code, tc.want)
+		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, tc.want), rec.Body.String())
+	}
 }

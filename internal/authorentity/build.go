@@ -16,6 +16,11 @@ const (
 	NoEntityNoLetters   = "no_letters"
 	// NoEntityManual is an administrator's "no entity" for the credit.
 	NoEntityManual = "manual"
+	// RuleCreditMove is the rule of a manual credit row an administrator wrote
+	// for one book (D5). It says where that book goes, nothing about the other
+	// credits of its fingerprint or the entity it joins: neither becomes a
+	// manual side (handFixed).
+	RuleCreditMove = "manual:credit"
 	// NoEntityItemFailed is a credit whose handling panicked: it is left
 	// out, the pass goes on (§1.5).
 	NoEntityItemFailed = "item_failed"

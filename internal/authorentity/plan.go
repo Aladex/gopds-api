@@ -121,6 +121,24 @@ func (b *builder) anchored() map[uuid.UUID]bool {
 	return out
 }
 
+// anchoredSides are the entities a manual row makes a manual side: anchored
+// without the rows of one book (RuleCreditMove), which leave the entity's
+// decisions as they are.
+func (b *builder) anchoredSides() map[uuid.UUID]bool {
+	out := map[uuid.UUID]bool{}
+	for _, r := range b.old.Credits {
+		if r.Method == MethodManual && r.Rule != RuleCreditMove && r.EntityID != nil {
+			out[*r.EntityID] = true
+		}
+	}
+	for _, r := range b.old.Fingerprints {
+		if r.Method == MethodManual {
+			out[r.EntityID] = true
+		}
+	}
+	return out
+}
+
 // sharedBook is a book of a group through a stored entity.
 type sharedBook struct {
 	entity uuid.UUID

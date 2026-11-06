@@ -328,7 +328,7 @@ func (b *builder) candidateSides(p *Plan, groups []*group) map[int]*candSide {
 		keysOf[root] = append(keysOf[root], kg.idx)
 	}
 	manualFP := b.manualFingerprints()
-	anchored := b.anchored()
+	anchored := b.anchoredSides()
 	out := map[int]*candSide{}
 	for _, g := range groups {
 		if b.keys[g.root].key.kind != KindPerson {
@@ -386,7 +386,7 @@ func (b *builder) candidateSide(p *Plan, g *group, keys []int, manualFP map[FPKe
 }
 
 // manualFingerprints are the fingerprints a manual row fixes, itself or a
-// credit of it.
+// credit of it, the row of one book (RuleCreditMove) apart.
 func (b *builder) manualFingerprints() map[FPKey]bool {
 	out := map[FPKey]bool{}
 	for fp, row := range b.old.Fingerprints {
@@ -395,7 +395,10 @@ func (b *builder) manualFingerprints() map[FPKey]bool {
 		}
 	}
 	for ci := range b.fixed {
-		out[fpKeyOf(&b.in.Credits[ci])] = true
+		c := &b.in.Credits[ci]
+		if row, ok := b.old.Credits[CreditKey{CreditID: c.ID}]; !ok || row.Rule != RuleCreditMove {
+			out[fpKeyOf(c)] = true
+		}
 	}
 	return out
 }

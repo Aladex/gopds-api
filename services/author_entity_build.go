@@ -846,6 +846,8 @@ const (
 	authorEntityMergeVetoReanchored = "veto_reanchored"
 	authorEntityMergePinned         = "pinned"
 	authorEntityMergePinRevoked     = "pin_revoked"
+	authorEntityCreditsMoved        = "credits_moved"
+	authorEntityCreditMoveRevoked   = "credit_move_revoked" // #nosec G101 -- a log status, not a credential
 )
 
 // MergeDecisions reads the card's merge block.
@@ -911,6 +913,40 @@ func (a *AuthorEntityAdmin) PinMerge(
 		logMergeAction(authorEntityMergePinned, id)
 	}
 	return id, err
+}
+
+// MoveCredits puts single credits on an entity by hand, a new one when the
+// move names one, and returns it; the next build keeps them there.
+func (a *AuthorEntityAdmin) MoveCredits(ctx context.Context, m *database.CreditMove) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		var err error
+		id, err = database.MoveCredits(ctx, tx, m)
+		return err
+	})
+	if err == nil {
+		logMergeAction(authorEntityCreditsMoved, int64(len(m.Credits)))
+	}
+	return id, err
+}
+
+// RevokeCreditMoves hands credits back to the build.
+func (a *AuthorEntityAdmin) RevokeCreditMoves(ctx context.Context, credits []int64) (int, error) {
+	var n int
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		var err error
+		n, err = database.RevokeCreditMoves(ctx, tx, credits)
+		return err
+	})
+	if err == nil {
+		logMergeAction(authorEntityCreditMoveRevoked, int64(n))
+	}
+	return n, err
+}
+
+// CreditMoves reads the live hand moves.
+func (a *AuthorEntityAdmin) CreditMoves(ctx context.Context) ([]database.CreditMoveRow, error) {
+	return database.ListCreditMoves(ctx, a.db)
 }
 
 // RevokeMergePin revokes a live hand join: the next build no longer joins
