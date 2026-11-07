@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { NavigationType, useLocation, useNavigate, useNavigationType } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 
 import type { AutocompleteSuggestion, SuggestionScope } from '@/api/autocomplete';
 import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
-import { authorPath, isAuthorPath, isSearchPath, searchPath } from '@/features/catalogue/addresses';
+import { authorPath, isAuthorPath, searchPath } from '@/features/catalogue/addresses';
 import useSearchScope, {
     authorNameFromLocation,
     searchTitleFromLocation,
@@ -26,35 +26,27 @@ import { authorTitle } from '@/shared/lib/authorTitle';
  */
 export function useCatalogueSearch() {
     const { t } = useTranslation();
-    const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
+    const { searchItem, setSearchItem } = useSearchBar();
     const navigate = useNavigate();
     const location = useLocation();
+
+    // There is one field and no choice of what it looks for, so the mode is the
+    // list on screen: under a list of authors the next search stays among them,
+    // and everywhere else it goes to books. Reading it off the address means a
+    // reload, Back and Forward cannot leave it out of step with the page.
+    const name = authorNameFromLocation(location.pathname, location.search);
+    const mode: 'books' | 'authors' = name ? 'authors' : 'books';
 
     // A reload or a pasted link lands on an already filtered list with an
     // empty box, because the query lives in the URL rather than in state.
     // Seed the field from the address so the reader can see — and edit —
-    // what is being searched. A search among authors brings its mode too, or
-    // the reader's next search would go to the books under a list of authors.
-    // Back and Forward to a book search bring title mode the same way. Any
-    // other way onto one leaves the mode to the reader who picked it.
+    // what is being searched.
     const onNameSearch = useRef(false);
-    // Read from a ref so that the kind of arrival alone, with the address
-    // unchanged, does not run the seeding over a draft.
-    const navigationType = useNavigationType();
-    const arrival = useRef(navigationType);
     useEffect(() => {
-        arrival.current = navigationType;
-    });
-    useEffect(() => {
-        const name = authorNameFromLocation(location.pathname, location.search);
         const title = searchTitleFromLocation(location.pathname, location.search);
         if (name) {
-            setSelectedSearch('author');
             setSearchItem(name);
         } else if (title) {
-            if (isSearchPath(location.pathname) && arrival.current === NavigationType.Pop) {
-                setSelectedSearch('title');
-            }
             setSearchItem(title);
         } else if (onNameSearch.current && isAuthorPath(location.pathname)) {
             // From a list of names into one author. A card empties the box on
@@ -63,19 +55,12 @@ export function useCatalogueSearch() {
             setSearchItem('');
         }
         onNameSearch.current = Boolean(name);
-    }, [location.pathname, location.search, setSearchItem, setSelectedSearch]);
+    }, [location.pathname, location.search, name, setSearchItem]);
 
-    // Arriving in a scoped list puts the panel in the mode the scope belongs
-    // to. Without this a reader who got here by searching for a name stays in
-    // "authors by name", where the scope cannot apply and so is not even
-    // shown — they had to know to switch modes themselves.
-    const scope = useSearchScope(() => setSelectedSearch('title'));
+    const scope = useSearchScope();
     const { setAuthorId, setAuthorName, clearAuthorId } = useAuthor();
 
-    // Looking for authors by name is a search of the whole library by
-    // definition, so the scope only applies to a search for books.
-    const scopeApplies = scope.kind !== null && selectedSearch === 'title';
-    const scoped = scopeApplies && scope.active;
+    const scoped = scope.kind !== null && scope.active;
 
     const submit = () => {
         // Check that the search field is not empty and contains at least one character
@@ -83,7 +68,7 @@ export function useCatalogueSearch() {
             return;
         }
 
-        if (selectedSearch === 'author') {
+        if (mode === 'authors') {
             clearAuthorId();
             navigate(searchPath(searchItem, 'authors'));
             return;
@@ -163,15 +148,21 @@ export function useCatalogueSearch() {
         }
     };
 
+    /** Back out of the takeover: the box shows what the page is showing. */
+    const restoreWords = () => {
+        setSearchItem(name || searchTitleFromLocation(location.pathname, location.search));
+    };
+
     return {
         scope,
-        scopeApplies,
+        mode,
         suggestionScope,
         /** What clearing the box means when the words are the filter, if they are. */
         reset: unsearchedPath ? reset : undefined,
         submit,
         releaseScope,
         pick,
+        restoreWords,
     };
 }
 

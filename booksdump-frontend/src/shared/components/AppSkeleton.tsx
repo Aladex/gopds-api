@@ -9,9 +9,8 @@ import React from 'react';
  * proportions Header and SkeletonCard use, so the interface that replaces it
  * lands where the reader is already looking instead of shifting under them.
  *
- * The breakpoints are Tailwind's rather than Header's own media queries: the
- * skeleton has no state to consult and a placeholder does not need the exact
- * pixel where the bar changes height.
+ * It runs before any hook can ask the width, so the 601px boundary is written in
+ * the stylesheet, at the pixel where Header changes shape.
  */
 
 const CARD_COUNT = 4;
@@ -26,25 +25,31 @@ const bodyBlock = 'animate-pulse rounded bg-muted';
 
 const AppSkeleton: React.FC = () => (
     <div aria-hidden="true" className="min-h-screen animate-in fade-in duration-300 bg-background">
-        {/* Header: logo and section links on the left, controls on the right. */}
-        <div className="flex h-12 w-full items-center gap-4 bg-chrome px-4 sm:h-16">
-            <div className="size-6 flex-none animate-pulse rounded-full bg-chrome-foreground/15" />
-            <div className="hidden items-center gap-6 sm:flex">
-                <div className={`h-4 w-20 ${barBlock}`} />
-                <div className={`h-4 w-24 ${barBlock}`} />
-                <div className={`h-4 w-20 ${barBlock}`} />
+        {/* The header: two storeys on a phone, one row above it. */}
+        <div className="flex w-full flex-col bg-chrome min-[601px]:h-16 min-[601px]:flex-row min-[601px]:items-center min-[601px]:gap-4 min-[601px]:px-4">
+            <div className="flex h-10 flex-none items-center justify-between gap-4 px-2 min-[601px]:contents">
+                <div className="size-6 flex-none animate-pulse rounded-full bg-chrome-foreground/15" />
+                <div className="flex items-center gap-2 min-[601px]:order-last">
+                    <div className={`h-4 w-14 ${barBlock}`} />
+                    <div className="size-5 animate-pulse rounded-full bg-chrome-foreground/15" />
+                </div>
             </div>
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
-                <div className={`h-4 w-14 ${barBlock}`} />
-                <div className="size-5 animate-pulse rounded-full bg-chrome-foreground/15" />
-                <div className={`hidden h-4 w-20 sm:block ${barBlock}`} />
+            <div className="flex h-11 flex-none items-center px-2 min-[601px]:h-9 min-[601px]:w-[560px] min-[601px]:max-w-[60%] min-[601px]:px-0">
+                <div className={`h-9 w-full ${barBlock}`} />
             </div>
+            <div className="hidden flex-1 min-[601px]:block" />
+        </div>
+
+        {/* The section row. */}
+        <div className="flex h-10 items-center gap-6 border-b border-border bg-card px-4 min-[601px]:h-11">
+            <div className={`h-4 w-14 ${bodyBlock}`} />
+            <div className={`h-4 w-20 ${bodyBlock}`} />
+            <div className={`h-4 w-20 ${bodyBlock}`} />
         </div>
 
         {/* The catalogue is the first screen after loading, so it is what the
             placeholder draws — the same card frame SkeletonCard uses. */}
-        <div className="flex flex-col p-4">
+        <div className="flex flex-col px-4 pt-2 pb-4">
             {Array.from({ length: CARD_COUNT }).map((_, index) => (
                 <div key={index} className="mx-auto w-full max-w-[1200px] py-1.5">
                     <div className="rounded border border-border bg-card p-4">

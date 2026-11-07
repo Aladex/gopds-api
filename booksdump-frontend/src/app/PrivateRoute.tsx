@@ -2,8 +2,6 @@
 import React, { memo, useEffect, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router';
 
-import { cn } from '@/shared/lib/utils';
-
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/shared/layout/Header';
 import Footer from '@/shared/layout/Footer';
@@ -13,6 +11,7 @@ import ProfileDrawer from '@/features/profile/ProfileDrawer';
 import ProfileDialog from '@/features/profile/ProfileDialog';
 import { ProfileOpenerContext, type ProfileSection } from '@/features/profile/ProfileOpenerContext';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
+import { CatalogueSearchProvider } from '@/features/catalogue/CatalogueSearchContext';
 import LanguagePrompt from '@/features/catalogue/LanguagePrompt';
 import { useDonateMethods } from '@/shared/hooks/useDonateMethods';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
@@ -80,14 +79,19 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
 
         return (
             <ProfileOpenerContext.Provider value={{ openProfile: handleOpenProfile }}>
-                <Header onOpenProfile={() => handleOpenProfile()} donateMethods={donateMethods} />
-                {/* The header is fixed on a phone, so the page is padded clear of
-                    it rather than sliding underneath. */}
-                <main className={cn('flex w-full flex-col overflow-x-hidden', isMobile && 'pt-12')}>
-                    <SectionRow />
-                    <div className="flex-1">{children}</div>
-                    {isMobile ? <PhoneFoot hasDonate={donateMethods.length > 0} /> : <Footer />}
-                </main>
+                {/* One search for the page: the field in the header, the chip
+                    over the list and the takeover all read the same scope. */}
+                <CatalogueSearchProvider>
+                    <Header
+                        onOpenProfile={() => handleOpenProfile()}
+                        donateMethods={donateMethods}
+                    />
+                    <main className="flex w-full flex-col overflow-x-hidden">
+                        <SectionRow />
+                        <div className="flex-1">{children}</div>
+                        {isMobile ? <PhoneFoot hasDonate={donateMethods.length > 0} /> : <Footer />}
+                    </main>
+                </CatalogueSearchProvider>
                 <ProfileDrawer
                     open={isProfileDrawerOpen}
                     section={profileSection}

@@ -5,17 +5,19 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 
 import { SearchBarProvider, useSearchBar } from '@/context/SearchBarContext';
 import AuthorSearch from '@/features/catalogue/AuthorSearch';
-import SearchBar from '@/features/catalogue/SearchBar';
+import { CatalogueSearchProvider } from '@/features/catalogue/CatalogueSearchContext';
+import HeaderSearchField from '@/features/catalogue/HeaderSearchField';
+import ListLine from '@/features/catalogue/ListLine';
 
-// The panel restored from an address, through the real context and the real
-// scope hook: what is on trial is how the seeding and the scope's own entry
-// into title mode meet, and a mocked context would hide that.
+// The field restored from an address, through the real context and the real
+// scope hook. There is no mode to keep in step any more: what the next search
+// looks for is read off the page, and these hold that a reader cannot tell.
 
 // The second argument is a default text or, for the author list, interpolation
 // values; only the text can stand in for the key.
 const translate = (key: string, fallback?: unknown) =>
     typeof fallback === 'string' ? fallback : key;
-const translation = { t: translate };
+const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 // No author answers the name, so the list offers its link to the books.
@@ -45,36 +47,33 @@ vi.mock('@/shared/hooks/useMediaQuery', () => ({
     default: () => false,
 }));
 
-vi.mock('@/shared/layout/LanguageSwitcher', () => ({ default: () => null }));
+vi.mock('@/shared/layout/BookLanguage', () => ({ default: () => null }));
 
 vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
     default: ({
         value,
         onChange,
         onEnterPressed,
+        runTag,
     }: {
         value: string;
         onChange: (v: string) => void;
         onEnterPressed: () => void;
+        runTag?: string;
     }) => (
-        <input
-            aria-label="searchItem"
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            onKeyDown={(event) => {
-                if (event.key === 'Enter') onEnterPressed();
-            }}
-        />
+        <>
+            <span data-testid="next-search">{runTag}</span>
+            <input
+                aria-label="searchItem"
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter') onEnterPressed();
+                }}
+            />
+        </>
     ),
 }));
-
-// jsdom has none of this, and the mode select cannot open without it.
-beforeAll(() => {
-    Element.prototype.scrollIntoView ??= () => {};
-    Element.prototype.setPointerCapture ??= () => {};
-    Element.prototype.releasePointerCapture ??= () => {};
-    Element.prototype.hasPointerCapture ??= () => false;
-});
 
 const NAME = 'кинг';
 const AUTHORS = `/search?q=${encodeURIComponent(NAME)}&type=authors`;
@@ -130,7 +129,10 @@ const openAt = (...entries: string[]) =>
     render(
         <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
             <SearchBarProvider>
-                <SearchBar />
+                <CatalogueSearchProvider>
+                    <HeaderSearchField />
+                    <ListLine />
+                </CatalogueSearchProvider>
                 <Journey />
             </SearchBarProvider>
         </MemoryRouter>,
@@ -148,7 +150,10 @@ const openWithResults = (...entries: string[]) =>
     render(
         <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
             <SearchBarProvider>
-                <SearchBar />
+                <CatalogueSearchProvider>
+                    <HeaderSearchField />
+                    <ListLine />
+                </CatalogueSearchProvider>
                 <Routes>
                     <Route path="/search" element={<Results />} />
                 </Routes>
@@ -158,26 +163,22 @@ const openWithResults = (...entries: string[]) =>
     );
 
 const box = () => screen.getByLabelText('searchItem');
-const mode = () => screen.getByRole('combobox', { name: 'searchWhat' });
 const press = (name: string) => userEvent.click(screen.getByRole('button', { name }));
 
-const pickAuthors = async () => {
-    await userEvent.click(mode());
-    await userEvent.click(await screen.findByRole('option', { name: 'byAuthor' }));
-};
+const nextSearch = () => screen.getByTestId('next-search');
 
 const expectAuthorsMode = async (name: string) => {
-    await waitFor(() => expect(mode()).toHaveTextContent('byAuthor'));
-    expect(box()).toHaveValue(name);
+    await waitFor(() => expect(nextSearch()).toHaveTextContent('search.runAuthors'));
+    await waitFor(() => expect(box()).toHaveValue(name));
 };
 
-const expectTitleMode = async (text: string) => {
-    await waitFor(() => expect(mode()).toHaveTextContent('byTitle'));
-    expect(box()).toHaveValue(text);
+const expectBooksOrHere = async (text: string) => {
+    await waitFor(() => expect(nextSearch()).not.toHaveTextContent('search.runAuthors'));
+    await waitFor(() => expect(box()).toHaveValue(text));
 };
 
-describe('SearchBar restored from the address', () => {
-    it('shows the authors mode and the name on a direct open', async () => {
+describe('The search field restored from the address', () => {
+    it('stays among authors and shows the name on a direct open', async () => {
         openAt(AUTHORS);
 
         await expectAuthorsMode(NAME);
@@ -202,16 +203,16 @@ describe('SearchBar restored from the address', () => {
         );
     });
 
-    it('leaves a book search in title mode', async () => {
+    it('goes to books from a book search', async () => {
         openAt(`/search?q=${encodeURIComponent('дюна')}&type=books`);
 
-        await expectTitleMode('дюна');
+        await expectBooksOrHere('дюна');
     });
 
-    it('leaves an open on an author in title mode, with the scope on and an empty box', async () => {
+    it('opens on an author with the scope on and an empty box', async () => {
         openAt('/author/42');
 
-        await expectTitleMode('');
+        await expectBooksOrHere('');
         expect(screen.getByText('searchWithinThisAuthor')).toBeInTheDocument();
     });
 
@@ -235,14 +236,14 @@ describe('SearchBar restored from the address', () => {
     });
 });
 
-describe('SearchBar on the way through an author', () => {
-    it('enters the author in title mode with an empty box', async () => {
+describe('The search field on the way through an author', () => {
+    it('enters the author with an empty box', async () => {
         openAt(AUTHORS);
         await expectAuthorsMode(NAME);
 
         await press('follow-card');
 
-        await expectTitleMode('');
+        await expectBooksOrHere('');
         expect(screen.getByText('searchWithinThisAuthor')).toBeInTheDocument();
     });
 
@@ -250,7 +251,7 @@ describe('SearchBar on the way through an author', () => {
         openAt(AUTHORS);
         await expectAuthorsMode(NAME);
         await press('follow-card');
-        await expectTitleMode('');
+        await expectBooksOrHere('');
 
         await press('back');
 
@@ -261,13 +262,13 @@ describe('SearchBar on the way through an author', () => {
         openAt(AUTHORS);
         await expectAuthorsMode(NAME);
         await press('follow-card');
-        await expectTitleMode('');
+        await expectBooksOrHere('');
         await press('back');
         await expectAuthorsMode(NAME);
 
         await press('forward');
 
-        await expectTitleMode('');
+        await expectBooksOrHere('');
         expect(screen.getByText('searchWithinThisAuthor')).toBeInTheDocument();
     });
 
@@ -277,16 +278,16 @@ describe('SearchBar on the way through an author', () => {
 
         await press('plain-link');
 
-        await expectTitleMode('');
+        await expectBooksOrHere('');
     });
 
     it('keeps the words of a book search on the way into an author, as before', async () => {
         openAt(`/search?q=${encodeURIComponent('дюна')}&type=books`);
-        await expectTitleMode('дюна');
+        await expectBooksOrHere('дюна');
 
         await press('plain-link');
 
-        await expectTitleMode('дюна');
+        await expectBooksOrHere('дюна');
     });
 
     it('keeps a title the address of the author carries', async () => {
@@ -295,7 +296,7 @@ describe('SearchBar on the way through an author', () => {
 
         await press('filtered-author');
 
-        await expectTitleMode('x');
+        await expectBooksOrHere('x');
     });
 
     it('keeps the words on the way into another kind of list, as before', async () => {
@@ -304,11 +305,11 @@ describe('SearchBar on the way through an author', () => {
 
         await press('genre-link');
 
-        await expectTitleMode(NAME);
+        await expectBooksOrHere(NAME);
     });
 });
 
-describe('SearchBar returning to a book search through history', () => {
+describe('The search field returning to a book search through history', () => {
     /** The empty author list, its link to the books, Back and Forward. */
     const returnToBooks = async () => {
         openWithResults(AUTHORS);
@@ -316,7 +317,7 @@ describe('SearchBar returning to a book search through history', () => {
             await screen.findByRole('link', { name: 'authorSearch.searchBooks' }),
         );
         expect(screen.getByTestId('book-results')).toBeInTheDocument();
-        await expectTitleMode(NAME);
+        await expectBooksOrHere(NAME);
 
         await press('back');
         await screen.findByRole('link', { name: 'authorSearch.searchBooks' });
@@ -337,56 +338,32 @@ describe('SearchBar returning to a book search through history', () => {
 
     it('leaves the reader their own words after coming back', async () => {
         await returnToBooks();
-        await expectTitleMode(NAME);
+        await expectBooksOrHere(NAME);
 
         await userEvent.clear(box());
         await userEvent.type(box(), 'дюна');
 
         expect(box()).toHaveValue('дюна');
-        await expectTitleMode('дюна');
+        await expectBooksOrHere('дюна');
     });
 
-    it('lets the reader pick authors after coming back', async () => {
-        await returnToBooks();
-        await expectTitleMode(NAME);
-
-        await pickAuthors();
-        await userEvent.clear(box());
-        await userEvent.type(box(), 'толстой{Enter}');
-
-        expect(screen.getByTestId('address')).toHaveTextContent(
-            `/search?q=${encodeURIComponent('толстой')}&type=authors`,
-        );
-    });
-
-    it('keeps a mode picked by hand through a turn of the book pages', async () => {
+    it('keeps to books through a turn of the book pages', async () => {
         openAt(BOOKS);
-        await expectTitleMode(NAME);
-        await pickAuthors();
+        await expectBooksOrHere(NAME);
 
         await press('next-books-page');
 
-        await expectAuthorsMode(NAME);
+        await expectBooksOrHere(NAME);
     });
 
     it('keeps a draft when an address opens again, even after a cold open', async () => {
         openAt(BOOKS);
-        await expectTitleMode(NAME);
+        await expectBooksOrHere(NAME);
         await userEvent.clear(box());
         await userEvent.type(box(), 'дюна');
 
         await press('same-address');
 
         expect(box()).toHaveValue('дюна');
-    });
-
-    it('leaves a mode picked by hand alone on Back through a filtered list', async () => {
-        openAt('/books/find/genre/7/1?title=x', '/books/find/genre/7/2?title=x');
-        await expectTitleMode('x');
-        await pickAuthors();
-
-        await press('back');
-
-        await expectAuthorsMode('x');
     });
 });

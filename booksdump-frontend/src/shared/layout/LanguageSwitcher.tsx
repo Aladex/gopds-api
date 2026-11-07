@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Globe } from 'lucide-react';
-
-import { Button } from '@/shared/ui/button';
+import { Check } from 'lucide-react';
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
-import { ALL_LANGUAGES, getLanguageDisplaySafe, languageMapping } from '@/shared/lib/languageUtils';
+import { ALL_LANGUAGES, getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
 import { cn } from '@/shared/lib/utils';
 
 /**
@@ -30,9 +28,15 @@ type LanguageSwitcherProps = {
     languages: string[];
     selected: string | null | undefined;
     onSelect: (lang: string) => void;
-    /** Which shell the list opens in; the search card decides. */
+    /** Which shell the list opens in. */
     isMobile: boolean;
-    disabled?: boolean;
+    /** The control that opens it: where it stands decides how it looks. */
+    renderTrigger: (trigger: {
+        open: () => void;
+        /** The language in force, named, since a label replaces the content. */
+        label: string;
+        title: string;
+    }) => React.ReactNode;
 };
 
 const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
@@ -40,7 +44,7 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
     selected,
     onSelect,
     isMobile,
-    disabled,
+    renderTrigger,
 }) => {
     const { t } = useTranslation();
     const [open, setOpen] = useState(false);
@@ -52,31 +56,6 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
         lang === ALL_LANGUAGES
             ? t('allLanguages')
             : (getLanguageDisplaySafe(lang) ?? lang.toUpperCase());
-
-    /*
-      In the card the control sits between the search button and the favourites
-      toggle, so a phone has room for a flag and a code but not for a name. The
-      whole library has no flag to stand for it, so it gets the globe.
-    */
-    const triggerContent = () => {
-        if (!selected || selected === ALL_LANGUAGES) {
-            return (
-                <>
-                    <Globe className="size-4 shrink-0" />
-                    <span className="hidden truncate sm:inline">{t('allLanguages')}</span>
-                </>
-            );
-        }
-        const info = languageMapping[selected];
-        return (
-            <>
-                <span className="sm:hidden">
-                    {info ? `${info.flag} ${selected.toUpperCase()}` : selected.toUpperCase()}
-                </span>
-                <span className="hidden truncate sm:inline">{fullLabel(selected)}</span>
-            </>
-        );
-    };
 
     const choose = (lang: string) => {
         onSelect(lang);
@@ -139,22 +118,11 @@ const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
 
     return (
         <>
-            {/* It stands beside the favourites toggle now, so it is built like
-                it: the same outline button, not the header's bare text. */}
-            <Button
-                type="button"
-                variant="outline"
-                /* The label replaces the content rather than adding to it, so
-                   the language in force has to be named here or it is not
-                   announced at all. */
-                aria-label={`${t('booksLanguage')}: ${fullLabel(selected || ALL_LANGUAGES)}`}
-                title={t('booksLanguage')}
-                disabled={disabled}
-                onClick={() => setOpen(true)}
-                className="max-w-[9rem] gap-1.5"
-            >
-                {triggerContent()}
-            </Button>
+            {renderTrigger({
+                open: () => setOpen(true),
+                label: `${t('booksLanguage')}: ${fullLabel(selected || ALL_LANGUAGES)}`,
+                title: t('booksLanguage'),
+            })}
 
             {isMobile ? (
                 <Drawer open={open} onOpenChange={setOpen}>

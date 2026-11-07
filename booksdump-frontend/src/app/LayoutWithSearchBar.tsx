@@ -1,14 +1,16 @@
 import React, { memo } from 'react';
 import { Outlet } from 'react-router';
 
-import SearchBar from '@/features/catalogue/SearchBar';
+import ListLine from '@/features/catalogue/ListLine';
 
-/** The frame every list route shares: the search panel above, the list below. */
+/** The frame every list route shares: the line that says what the list is, then the list. */
 const LayoutWithSearchBar: React.FC = memo(() => (
-    <div className="p-4">
-        <SearchBar />
-        <Outlet />
-    </div>
+    <>
+        <ListLine />
+        <div className="px-4 pb-4">
+            <Outlet />
+        </div>
+    </>
 ));
 
 LayoutWithSearchBar.displayName = 'LayoutWithSearchBar';

@@ -56,6 +56,19 @@ export const CARD_WIDE_QUERY = `(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`;
 export const PHONE_QUERY = '(max-width: 600px)';
 
 /**
+ * Where the header has room to keep the donate pill clear of the field.
+ *
+ * Green beside a field reads as the button that submits it. From here up the
+ * field stops at its 560px and the pill stands far to the right of it; below,
+ * the field takes the row and the pill would stand 24px from it, so it goes
+ * left of the field instead. Rem, like Tailwind's own `lg`, so a reader's font
+ * size moves this with the stylesheet.
+ */
+export const HEADER_WIDE_MIN_WIDTH_REM = 64;
+export const HEADER_WIDE_VARIANT = 'lg';
+export const HEADER_WIDE_QUERY = `(min-width: ${HEADER_WIDE_MIN_WIDTH_REM}rem)`;
+
+/**
  * Where the reader can afford a contents column beside the text.
  *
  * This is a different question from the card's, and answering it with the

@@ -47,7 +47,7 @@ describe('scrollToLoadedList', () => {
 
         scrollToLoadedList(true);
 
-        expect(window.scrollTo).toHaveBeenCalledWith(0, 452);
+        expect(window.scrollTo).toHaveBeenCalledWith(0, 456);
     });
 
     it('measures from where the page stands, not from the top of the screen', () => {
@@ -56,7 +56,7 @@ describe('scrollToLoadedList', () => {
 
         scrollToLoadedList(true);
 
-        expect(window.scrollTo).toHaveBeenCalledWith(0, 452);
+        expect(window.scrollTo).toHaveBeenCalledWith(0, 456);
     });
 
     it('never asks for a place above the page', () => {
@@ -84,8 +84,8 @@ describe('scrollToLoadedList', () => {
 
     it('owes the header nothing when the page is already there', () => {
         // No scroll event follows, so the mark would swallow the reader's next one.
-        (window as { scrollY: number }).scrollY = 452;
-        column(48);
+        (window as { scrollY: number }).scrollY = 456;
+        column(44);
 
         scrollToLoadedList(true);
 

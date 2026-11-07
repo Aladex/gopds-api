@@ -30,8 +30,6 @@ vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 const searchState = {
     searchItem: '',
     setSearchItem: vi.fn(),
-    selectedSearch: 'title',
-    setSelectedSearch: vi.fn(),
     scopeName: '',
 };
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchState }));
@@ -50,7 +48,36 @@ const Field: React.FC = () => {
     return <span data-testid="field">{suggestionScope?.kind ?? 'whole library'}</span>;
 };
 
+const Arrow: React.FC = () => {
+    const { restoreWords } = useCatalogueSearchContext();
+    return (
+        <button type="button" onClick={restoreWords}>
+            arrow
+        </button>
+    );
+};
+
 describe('CatalogueSearchProvider', () => {
+    it.each([
+        ['a search', `/search?q=${encodeURIComponent('война')}&type=books`, 'война'],
+        ['a search among authors', '/search?q=%D0%BA%D0%B8%D0%BD%D0%B3&type=authors', 'кинг'],
+        ['a scoped search', '/author/42?title=%D1%85', 'х'],
+        ['a plain list', '/books/page/1', ''],
+    ])('puts the page’s own words back in the box on %s', async (_, path, words) => {
+        render(
+            <MemoryRouter initialEntries={[path]}>
+                <CatalogueSearchProvider>
+                    <Arrow />
+                </CatalogueSearchProvider>
+            </MemoryRouter>,
+        );
+        searchState.setSearchItem.mockClear();
+
+        await userEvent.click(screen.getByRole('button', { name: 'arrow' }));
+
+        expect(searchState.setSearchItem).toHaveBeenCalledWith(words);
+    });
+
     it('gives every consumer the one scope', async () => {
         render(
             <MemoryRouter initialEntries={['/books/find/genre/9/1']}>

@@ -1,11 +1,12 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, useNavigate } from 'react-router';
 
 import Header from '@/shared/layout/Header';
-import { LIST_COLUMN_ATTR } from '@/shared/layout/breakpoints';
+import { HEADER_WIDE_QUERY, LIST_COLUMN_ATTR, PHONE_QUERY } from '@/shared/layout/breakpoints';
 import { scrollToLoadedList } from '@/shared/layout/landOnList';
+import type { DonateMethod } from '@/api/system';
 
 const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
@@ -17,134 +18,335 @@ const authState = {
 };
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
-// jsdom has no viewport; the wide layout is the one that carries the nav, and
-// narrow() switches to the other for the tests that are about it.
-const narrow = { current: false };
-vi.mock('@/shared/hooks/useMediaQuery', () => ({
-    useMediaQuery: () => narrow.current,
-    default: () => narrow.current,
+const search = { restoreWords: vi.fn() };
+vi.mock('@/features/catalogue/CatalogueSearchContext', () => ({
+    useCatalogueSearchContext: () => search,
 }));
 
-vi.mock('@/shared/layout/ThemeToggle', () => ({ default: () => null }));
+// The field stands in with what the header hands it. Its own behaviour has its
+// own tests; what matters here is the screen it gets.
+vi.mock('@/features/catalogue/HeaderSearchField', () => ({
+    default: ({
+        taking,
+        onTake,
+        onDone,
+    }: {
+        taking?: boolean;
+        onTake?: () => void;
+        onDone?: () => void;
+    }) => (
+        <div data-testid="field" data-taking={String(Boolean(taking))}>
+            <button type="button" onClick={onTake}>
+                focus-field
+            </button>
+            <button type="button" onClick={onDone}>
+                finish-search
+            </button>
+        </div>
+    ),
+}));
+vi.mock('@/shared/layout/BookLanguage', () => ({ default: () => <span>language</span> }));
+const labelKeys = vi.hoisted(() => [] as string[]);
+vi.mock('@/shared/layout/useBarLabel', () => ({
+    useBarLabel: (_: unknown, key: string) => {
+        labelKeys.push(key);
+        return { label: 'long', group: { current: null }, rig: { current: null } };
+    },
+}));
+vi.mock('@/shared/layout/ThemeToggle', () => ({ default: () => <button>theme</button> }));
+vi.mock('@/shared/layout/DonateModal', () => ({ default: () => <div>donate-modal</div> }));
 
-const renderHeader = (path: string) =>
+const media = { phone: true, wide: false };
+const matches = (query: string) =>
+    (query === PHONE_QUERY && media.phone) || (query === HEADER_WIDE_QUERY && media.wide);
+vi.mock('@/shared/hooks/useMediaQuery', () => ({
+    useMediaQuery: (query: string) => matches(query),
+    default: (query: string) => matches(query),
+}));
+
+const METHODS: DonateMethod[] = [{ id: 'a', label: 'A', kind: 'link', value: 'x', qr: false }];
+
+const Go: React.FC = () => {
+    const navigate = useNavigate();
+    return (
+        <button type="button" onClick={() => navigate('/books/page/2')}>
+            go
+        </button>
+    );
+};
+
+const renderHeader = (path = '/books/page/1', donateMethods = METHODS) =>
     render(
         <MemoryRouter initialEntries={[path]}>
-            <Header donateMethods={[]} />
+            <Header donateMethods={donateMethods} onOpenProfile={profile} />
+            <Go />
         </MemoryRouter>,
     );
 
+const profile = vi.fn();
+const band = () => screen.getByTestId('search-band');
+const pill = () => screen.queryAllByRole('button', { name: /donate|Донат/ });
+const before = (a: Element, b: Element) =>
+    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+const scrollTo = (y: number) =>
+    act(() => {
+        Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
+        window.dispatchEvent(new Event('scroll'));
+    });
+
 beforeEach(() => {
     vi.clearAllMocks();
-    narrow.current = false;
-    authState.user = { username: 'reader', is_superuser: false };
+    media.phone = true;
+    media.wide = false;
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+    window.scrollTo = vi.fn();
+    document.body.style.overflow = '';
 });
 
-describe('Header', () => {
+describe('Header on a phone', () => {
     it('leaves the sections to the row under it', () => {
-        renderHeader('/books/page/1');
+        renderHeader();
 
         expect(screen.queryByRole('navigation')).toBeNull();
-        expect(screen.queryByRole('link', { name: /Подборки/ })).toBeNull();
-        expect(screen.getByRole('link', { name: 'booksTab' })).toHaveAttribute(
-            'href',
-            '/books/page/1',
-        );
     });
 
-    /*
-     * The bar at the foot used to hold the profile, and it was the only way to
-     * it on a phone. It has to stay one tap away, with the only logout behind it.
-     */
-    describe('on a phone', () => {
-        beforeEach(() => {
-            narrow.current = true;
-        });
+    it('holds the language where it applies, and the word where it does not', () => {
+        const { unmount } = renderHeader('/books/page/1');
+        expect(screen.getByText('language')).toBeInTheDocument();
+        expect(screen.queryByText('booksdump')).toBeNull();
+        unmount();
 
-        it('opens the profile', async () => {
-            const open = vi.fn();
-            render(
-                <MemoryRouter>
-                    <Header donateMethods={[]} onOpenProfile={open} />
-                </MemoryRouter>,
-            );
+        renderHeader('/collections');
+        expect(screen.queryByText('language')).toBeNull();
+        expect(screen.getByText('booksdump')).toBeInTheDocument();
+    });
 
-            await userEvent.click(screen.getByRole('button', { name: 'user' }));
+    it('holds the language inside a collection, which is a list of books', () => {
+        renderHeader('/collections/48/page/1');
 
-            expect(open).toHaveBeenCalledTimes(1);
-        });
+        expect(screen.getByText('language')).toBeInTheDocument();
+    });
 
-        it('offers a superuser the admin panel, since nothing else does', async () => {
-            authState.user = { username: 'root', is_superuser: true };
-            renderHeader('/books/page/1');
+    it('fits the label again when the pill arrives, after the first paint', () => {
+        const tree = (methods: DonateMethod[]) => (
+            <MemoryRouter>
+                <Header donateMethods={methods} />
+            </MemoryRouter>
+        );
+        const { rerender } = render(tree([]));
+        const before = labelKeys.at(-1);
 
-            const link = await screen.findByRole('link', { name: /adminTab/ });
-            expect(link).toHaveAttribute('href', '/admin');
-        });
+        rerender(tree(METHODS));
 
-        it('offers an ordinary reader nothing of the sort', async () => {
-            renderHeader('/books/page/1');
+        expect(labelKeys.at(-1)).not.toBe(before);
+    });
 
-            await waitFor(() =>
-                expect(screen.getByRole('link', { name: /booksTab/ })).toBeInTheDocument(),
-            );
-            expect(screen.queryByRole('link', { name: /adminTab/ })).not.toBeInTheDocument();
-        });
+    it('opens the profile', async () => {
+        renderHeader();
 
-        it('marks it while the reader is inside it', async () => {
-            authState.user = { username: 'root', is_superuser: true };
-            renderHeader('/admin/users');
+        await userEvent.click(screen.getByRole('button', { name: 'user' }));
 
-            expect(await screen.findByRole('link', { name: /adminTab/ })).toHaveAttribute(
-                'aria-current',
-                'page',
-            );
-        });
+        expect(profile).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens the donate dialog from the pill', async () => {
+        renderHeader();
+
+        await userEvent.click(pill()[0]);
+
+        expect(await screen.findByText('donate-modal')).toBeInTheDocument();
+    });
+
+    it('has no pill with nothing to offer', () => {
+        renderHeader('/books/page/1', []);
+
+        expect(pill()).toHaveLength(0);
+    });
+
+    it('keeps no theme and no admin link: those are in the foot and the profile', () => {
+        authState.user = { username: 'root', is_superuser: true };
+        renderHeader();
+
+        expect(screen.queryByRole('button', { name: 'theme' })).toBeNull();
+        expect(screen.queryByRole('link', { name: /adminTab/ })).toBeNull();
+        authState.user = { username: 'reader', is_superuser: false };
     });
 });
 
-describe('Header and a landed page', () => {
-    const scrollTo = (y: number) =>
-        act(() => {
-            Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
-            window.dispatchEvent(new Event('scroll'));
-        });
-
-    beforeEach(() => {
-        Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
-        window.scrollTo = vi.fn();
-    });
-
-    afterEach(() => {
-        document.querySelectorAll(`[${LIST_COLUMN_ATTR}]`).forEach((el) => el.remove());
-    });
-
-    it('hides as the reader scrolls down', () => {
-        narrow.current = true;
-        renderHeader('/books/page/1');
+describe('Header band on a phone', () => {
+    it('leaves as the reader goes down and comes back on the way up', () => {
+        renderHeader();
 
         scrollTo(300);
+        expect(band()).toHaveClass('-translate-y-full');
 
-        expect(screen.getByRole('banner')).toHaveClass('-translate-y-full');
+        scrollTo(200);
+        expect(band()).not.toHaveClass('-translate-y-full');
     });
 
     it('stays out when the scroll down was a page landing, not the reader', () => {
         // Turning a page on a short list scrolls down to the first card, and the
-        // header has to stand over it.
-        narrow.current = true;
-        renderHeader('/books/page/1');
+        // band has to stand over it.
+        renderHeader();
         const column = document.createElement('div');
         column.setAttribute(LIST_COLUMN_ATTR, '');
-        column.getBoundingClientRect = () => ({ ...new DOMRect(), top: 348 });
+        column.getBoundingClientRect = () => ({ ...new DOMRect(), top: 344 });
         document.body.appendChild(column);
 
         scrollToLoadedList(true);
         scrollTo(300);
+        column.remove();
 
-        expect(screen.getByRole('banner')).not.toHaveClass('-translate-y-full');
+        expect(band()).not.toHaveClass('-translate-y-full');
 
         // The reader's own next move counts again, from where the page landed.
         scrollTo(340);
-        expect(screen.getByRole('banner')).toHaveClass('-translate-y-full');
+        expect(band()).toHaveClass('-translate-y-full');
+    });
+
+    it('brings the pill and the profile with it once the bar has gone', () => {
+        renderHeader();
+        expect(band().querySelectorAll('a,button[aria-label="user"]')).toHaveLength(0);
+
+        scrollTo(100);
+        scrollTo(60);
+
+        expect(band().querySelector('a[href="/books/page/1"]')).not.toBeNull();
+        expect(band().querySelector('button[aria-label="user"]')).not.toBeNull();
+    });
+
+    it('puts nothing green to the right of the field', () => {
+        renderHeader();
+        scrollTo(100);
+        scrollTo(60);
+
+        const field = screen.getByTestId('field');
+        const inBand = [...band().querySelectorAll('button')].find((button) =>
+            /Донат/.test(button.textContent ?? ''),
+        );
+        expect(inBand).toBeDefined();
+        expect(before(inBand as Element, field)).toBe(true);
+    });
+
+    it('comes back when the width crosses back to a phone', () => {
+        const { rerender } = renderHeader();
+        scrollTo(300);
+        expect(band()).toHaveClass('-translate-y-full');
+
+        media.phone = false;
+        rerender(
+            <MemoryRouter>
+                <Header donateMethods={METHODS} />
+            </MemoryRouter>,
+        );
+        media.phone = true;
+        rerender(
+            <MemoryRouter>
+                <Header donateMethods={METHODS} />
+            </MemoryRouter>,
+        );
+
+        expect(band()).not.toHaveClass('-translate-y-full');
+    });
+});
+
+describe('Header takeover', () => {
+    const take = () => userEvent.click(screen.getByRole('button', { name: 'focus-field' }));
+
+    it('gives the field the screen, without the bar or the pill', async () => {
+        renderHeader();
+
+        await take();
+
+        expect(screen.getByTestId('field')).toHaveAttribute('data-taking', 'true');
+        expect(band()).toHaveClass('fixed');
+        // Hidden, not removed: the bar holds the page where it was.
+        expect(pill()[0].parentElement).toHaveClass('invisible');
+    });
+
+    it('stands open even where the band had gone', async () => {
+        renderHeader();
+        scrollTo(300);
+
+        await take();
+
+        expect(band()).not.toHaveClass('-translate-y-full');
+    });
+
+    it('holds the page still under it', async () => {
+        renderHeader();
+
+        await take();
+        expect(document.body.style.overflow).toBe('hidden');
+
+        await userEvent.click(screen.getByRole('button', { name: 'finish-search' }));
+        expect(document.body.style.overflow).toBe('');
+    });
+
+    it('has one way back, and that puts the page’s own words back in the box', async () => {
+        renderHeader();
+        await take();
+
+        await userEvent.click(screen.getByRole('button', { name: 'search.close' }));
+
+        expect(screen.getByTestId('field')).toHaveAttribute('data-taking', 'false');
+        expect(search.restoreWords).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the words of a finished search', async () => {
+        renderHeader();
+        await take();
+
+        await userEvent.click(screen.getByRole('button', { name: 'finish-search' }));
+
+        expect(search.restoreWords).not.toHaveBeenCalled();
+    });
+
+    it('ends at any arrival somewhere else', async () => {
+        renderHeader();
+        await take();
+
+        await userEvent.click(screen.getByRole('button', { name: 'go' }));
+
+        expect(screen.getByTestId('field')).toHaveAttribute('data-taking', 'false');
+    });
+});
+
+describe('Header from 601 up', () => {
+    beforeEach(() => {
+        media.phone = false;
+    });
+
+    it('holds the theme, the name and the way out', () => {
+        renderHeader();
+
+        expect(screen.getByRole('button', { name: 'theme' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'reader' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Выход' })).toBeInTheDocument();
+    });
+
+    it('never gives the field the screen', () => {
+        renderHeader();
+
+        expect(screen.getByTestId('field')).toHaveAttribute('data-taking', 'false');
+        expect(screen.queryByTestId('search-band')).toBeNull();
+    });
+
+    it('keeps the pill left of the field until the field stops short', () => {
+        media.wide = false;
+        const { unmount } = renderHeader();
+        expect(before(pill()[0], screen.getByTestId('field'))).toBe(true);
+        unmount();
+
+        media.wide = true;
+        renderHeader();
+        expect(before(screen.getByTestId('field'), pill()[0])).toBe(true);
+    });
+
+    it('has no pill with nothing to offer', () => {
+        renderHeader('/books/page/1', []);
+
+        expect(pill()).toHaveLength(0);
     });
 });

@@ -655,3 +655,74 @@ describe('AutocompleteSearch as one field for books and authors', () => {
         });
     });
 });
+
+describe('AutocompleteSearch in a takeover', () => {
+    beforeEach(() => {
+        getSuggestions.mockResolvedValue(BOOKS);
+    });
+
+    it('stands open with nothing to show', () => {
+        setup({ searchType: 'all', taking: true, top: <div>top</div> });
+
+        expect(screen.getByText('top')).toBeInTheDocument();
+    });
+
+    it('asks to take the screen on a real focus only', async () => {
+        const onFocused = vi.fn();
+        const { input } = setup({ searchType: 'all', value: 'кинг', onFocused });
+        expect(onFocused).not.toHaveBeenCalled();
+
+        await userEvent.click(input);
+
+        expect(onFocused).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks to be closed by Escape once nothing is filled', async () => {
+        const onDismissed = vi.fn();
+        const { input } = setup({ searchType: 'all', onDismissed });
+        await userEvent.type(input, 'кинг');
+        await screen.findAllByRole('option');
+
+        await userEvent.keyboard('{ArrowDown}{Escape}');
+        expect(onDismissed).not.toHaveBeenCalled();
+
+        await userEvent.keyboard('{Escape}');
+        expect(onDismissed).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes the caret with it when it ends, so the keyboard goes', async () => {
+        const { input, rerender } = setup({ searchType: 'all', taking: true });
+        await userEvent.click(input);
+        expect(input).toHaveFocus();
+
+        rerender(
+            <Harness onChange={vi.fn()} onEnterPressed={vi.fn()} searchType="all" taking={false} />,
+        );
+
+        expect(input).not.toHaveFocus();
+    });
+
+    it('keeps the input the same element through the change', async () => {
+        const { input, rerender } = setup({ searchType: 'all', taking: false });
+
+        rerender(<Harness onChange={vi.fn()} searchType="all" taking />);
+
+        expect(screen.getByRole('combobox')).toBe(input);
+    });
+
+    it('goes back to what the empty field offers when the cross empties it', async () => {
+        const { input } = setup({ searchType: 'all', hint: 'Подсказка', taking: true });
+        await userEvent.type(input, 'ки');
+
+        await userEvent.click(screen.getByRole('button', { name: 'clearSearch' }));
+
+        expect(screen.getByText('Подсказка')).toBeInTheDocument();
+        expect(input).toHaveFocus();
+    });
+
+    it('leaves room for the keyboard at the end of the panel', () => {
+        setup({ searchType: 'all', taking: true, keyboard: 300, top: <div>top</div> });
+
+        expect(screen.getByText('top').parentElement).toHaveStyle({ paddingBottom: '300px' });
+    });
+});

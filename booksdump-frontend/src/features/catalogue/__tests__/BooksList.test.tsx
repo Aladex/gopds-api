@@ -57,8 +57,6 @@ vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 const searchBarState = {
     searchItem: '',
     setSearchItem: vi.fn(),
-    selectedSearch: 'title',
-    setSelectedSearch: vi.fn(),
     languages: ['ru'],
     selectedLanguage: 'ru',
     setSelectedLanguage: vi.fn(),

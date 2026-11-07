@@ -21,8 +21,8 @@ import { LIST_COLUMN_SELECTOR } from '@/shared/layout/breakpoints';
 /** The router state a phone's pager navigates with. */
 export const PAGE_TURN = { pageTurn: true };
 
-/** The header stands over the page on a phone, so the list lands below it. */
-const PHONE_HEADER_HEIGHT = 48;
+/** The band docks over the page on a phone, so the list lands below it. */
+const PHONE_BAND_HEIGHT = 44;
 
 /** Whether the location the reader just arrived at is a turned page. */
 export function usePageTurn(): boolean {
@@ -50,7 +50,7 @@ export function scrollToLoadedList(turned: boolean): void {
     }
     const y = Math.max(
         0,
-        Math.round(column.getBoundingClientRect().top + window.scrollY - PHONE_HEADER_HEIGHT),
+        Math.round(column.getBoundingClientRect().top + window.scrollY - PHONE_BAND_HEIGHT),
     );
     // A scroll to where the page already stands fires no event, and a mark left
     // behind would swallow the reader's next real one.
@@ -60,8 +60,8 @@ export function scrollToLoadedList(turned: boolean): void {
 
 /**
  * takeLanding reports, once, that the scroll in progress was this and not the
- * reader. The header hides on a scroll down, and a landing can be one: it has
- * to stand over the first card all the same.
+ * reader. The band hides on a scroll down, and a landing can be one: it has to
+ * stand over the first card all the same.
  */
 export function takeLanding(): boolean {
     const was = landing;

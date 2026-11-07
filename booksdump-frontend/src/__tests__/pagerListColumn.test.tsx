@@ -115,8 +115,6 @@ vi.mock('@/context/SearchBarContext', () => {
     const value = {
         searchItem: '',
         setSearchItem: vi.fn(),
-        selectedSearch: 'title',
-        setSelectedSearch: vi.fn(),
         languages: ['ru'],
         selectedLanguage: 'ru',
         setSelectedLanguage: vi.fn(),

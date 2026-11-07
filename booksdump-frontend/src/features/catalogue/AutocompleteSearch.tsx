@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookOpen, Loader2, Search, Star, User, X } from 'lucide-react';
 
-import { inputFocusRing, inputFrame } from '@/shared/ui/input';
 import { cn } from '@/shared/lib/utils';
 
 import { autocompleteService, AutocompleteSuggestion, SuggestionScope } from '@/api/autocomplete';
@@ -75,6 +74,19 @@ interface AutocompleteSearchProps {
     hint?: string;
     /** One place to go, offered in the open field while it is empty. */
     shelf?: { label: string; onPick: () => void };
+    /**
+     * Whether the panel has the phone's screen. It then stays open whatever
+     * there is to show, and its rows take a thumb's height.
+     */
+    taking?: boolean;
+    /** How much of that screen a keyboard covers, in pixels. */
+    keyboard?: number;
+    /** Above everything else in the panel. */
+    top?: React.ReactNode;
+    /** The reader put the caret in the box. */
+    onFocused?: () => void;
+    /** Escape with nothing filled: the reader wants out. */
+    onDismissed?: () => void;
 }
 
 interface Answer {
@@ -111,6 +123,11 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     runTag,
     hint: emptyHint,
     shelf,
+    taking = false,
+    keyboard = 0,
+    top,
+    onFocused,
+    onDismissed,
 }) => {
     const { t } = useTranslation();
     const { selectedLanguage } = useSearchBar();
@@ -204,6 +221,15 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         [],
     );
 
+    // The caret goes with the takeover, or the keyboard stays up over the page.
+    const wasTaking = useRef(taking);
+    useEffect(() => {
+        if (wasTaking.current && !taking) {
+            inputRef.current?.blur();
+        }
+        wasTaking.current = taking;
+    }, [taking]);
+
     useEffect(() => {
         if (dismissed) return;
         const onPointerDown = (event: MouseEvent) => {
@@ -243,13 +269,16 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
      * second chip squeezed the scope down to its cross.
      */
     const clear = () => {
+        typed.current = '';
         onChange('');
-        setDismissed(true);
         setHighlighted(-1);
         if (onClear) {
+            setDismissed(true);
             onClear();
             return;
         }
+        // Back to what the empty field offers, if it offers anything.
+        setDismissed(!emptyHint && !shelf);
         inputRef.current?.focus();
     };
 
@@ -317,6 +346,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                 return;
             }
             setDismissed(true);
+            onDismissed?.();
             return;
         }
         if (event.key === 'Enter') {
@@ -336,6 +366,11 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         }
     };
 
+    const rowClass = cn(
+        'flex w-full items-center gap-2 rounded text-left',
+        taking ? 'min-h-12 px-4 text-[15px]' : 'px-2 py-1.5 text-sm',
+    );
+
     const run = () => {
         setDismissed(true);
         onEnterPressed?.();
@@ -344,7 +379,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     const hint = runeLength(query) < MIN_QUERY_LENGTH ? t('typeToSearch') : t('noOptions');
     const showList = !dismissed && !disabled && query.length > 0;
     const showEmpty = !dismissed && !disabled && isEmpty && Boolean(shelf || emptyHint);
-    const open = showList || showEmpty;
+    const open = taking || showList || showEmpty;
     const clearable = value.length > 0 && !disabled;
 
     return (
@@ -362,13 +397,13 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
             */}
             <div
                 className={cn(
-                    inputFrame,
-                    inputFocusRing.replace(/focus-visible:/g, 'focus-within:'),
-                    'flex items-center gap-1.5 py-0',
-                    (clearable || loading) && 'pr-1',
+                    'flex h-10 items-center gap-2 rounded-md bg-chrome-raised pl-2.5 text-chrome-muted',
+                    'focus-within:ring-2 focus-within:ring-chrome-muted min-[601px]:h-9',
+                    !clearable && 'pr-2.5',
                     disabled && 'pointer-events-none cursor-not-allowed opacity-50',
                 )}
             >
+                <Search aria-hidden="true" className="size-4 shrink-0" />
                 <input
                     ref={inputRef}
                     type="text"
@@ -377,20 +412,25 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                     aria-autocomplete="list"
                     aria-controls={open ? listId : undefined}
                     aria-activedescendant={highlighted >= 0 ? optionId(highlighted) : undefined}
-                    aria-label={placeholder || t('searchItem')}
+                    aria-label={t('searchItem')}
                     placeholder={placeholder || t('searchItem')}
+                    autoComplete="off"
+                    enterKeyHint="search"
                     value={value}
                     disabled={disabled}
                     onChange={(event) => handleInput(event.target.value)}
-                    onFocus={() => setDismissed(false)}
+                    onFocus={() => {
+                        setDismissed(false);
+                        onFocused?.();
+                    }}
                     onKeyDown={handleKeyDown}
-                    className="h-full min-w-0 flex-1 bg-transparent text-inherit outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                    className="h-full min-w-0 flex-1 bg-transparent text-base text-chrome-foreground outline-none placeholder:text-chrome-muted placeholder:opacity-100 disabled:cursor-not-allowed min-[601px]:text-sm"
                 />
 
                 {loading && (
                     <Loader2
                         aria-hidden="true"
-                        className="pointer-events-none size-4 shrink-0 animate-spin text-muted-foreground"
+                        className="pointer-events-none size-4 shrink-0 animate-spin"
                     />
                 )}
 
@@ -401,7 +441,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                         aria-label={onClear ? t('resetSearch') : t('clearSearch')}
                         title={onClear ? t('resetSearch') : t('clearSearch')}
                         onClick={clear}
-                        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                        className="flex size-10 shrink-0 items-center justify-center rounded-md hover:text-chrome-foreground min-[601px]:size-9"
                     >
                         <X className="size-4" />
                     </button>
@@ -410,16 +450,20 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
 
             {open && (
                 <div
+                    style={taking ? { paddingBottom: keyboard } : undefined}
                     className={cn(
-                        'absolute z-50 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-md',
-                        'scrollbar-thin',
+                        'scrollbar-thin overflow-y-auto bg-popover text-popover-foreground',
+                        taking
+                            ? 'fixed inset-x-0 top-11 bottom-0'
+                            : 'absolute z-50 mt-1.5 max-h-[min(70vh,520px)] w-full min-w-[min(440px,calc(100vw-96px))] rounded-md border border-border p-1 shadow-md',
                     )}
                 >
+                    {top}
                     {showList && runTag !== undefined && (
                         <button
                             type="button"
                             onClick={run}
-                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm font-medium hover:bg-accent"
+                            className={cn(rowClass, 'font-medium hover:bg-accent')}
                         >
                             <Search
                                 aria-hidden="true"
@@ -453,7 +497,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                                     }}
                                     onClick={takeShelf}
                                     className={cn(
-                                        'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
+                                        rowClass,
                                         highlighted === 0 && 'bg-accent text-accent-foreground',
                                     )}
                                 >
@@ -507,7 +551,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                                             }}
                                             onClick={() => pick(suggestion)}
                                             className={cn(
-                                                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
+                                                rowClass,
                                                 index === highlighted &&
                                                     'bg-accent text-accent-foreground',
                                             )}
@@ -556,7 +600,14 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                             ))}
                     </ul>
                     {showEmpty && emptyHint && (
-                        <p className="m-0 px-2 py-1.5 text-sm text-muted-foreground">{emptyHint}</p>
+                        <p
+                            className={cn(
+                                'm-0 text-sm text-muted-foreground',
+                                taking ? 'p-4 leading-[1.45]' : 'px-2 py-1.5',
+                            )}
+                        >
+                            {emptyHint}
+                        </p>
                     )}
                 </div>
             )}

@@ -12,7 +12,6 @@ import { useAuth } from '@/context/AuthContext';
 import { filterSupportedLanguages } from '@/shared/lib/languageUtils';
 
 interface SearchBarContextType {
-    selectedSearch: string;
     searchItem: string;
     languages: string[];
     /**
@@ -26,9 +25,7 @@ interface SearchBarContextType {
     selectedLanguage: string;
     setLanguages: (languages: string[]) => void;
     setSearchItem: (searchValue: string) => void;
-    setSelectedSearch: (selectedSearch: string) => void;
     setSelectedLanguage: (language: string) => void;
-    clearSelectedSearch: () => void;
     /**
      * What the list the reader is standing in is called — a genre, a series,
      * a collection. The name is not in the route, which carries only an id,
@@ -43,22 +40,15 @@ const SearchBarContext = createContext<SearchBarContextType | undefined>(undefin
 
 export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [searchItem, setSearchItem] = useState('');
-    const [selectedSearch, setSelectedSearch] = useState('title'); // Initial state set to 'title'
     const [languages, setLanguages] = useState<string[]>([]);
     const [languagesLoaded, setLanguagesLoaded] = useState(false);
     const [selectedLanguage, setSelectedLanguage] = useState<string>('');
     const [scopeName, setScopeName] = useState('');
     const { user, isAuthenticated } = useAuth();
 
-    const clearSelectedSearch = useCallback(() => setSelectedSearch('title'), []);
-
     const memoizedSetLanguages = useCallback((languages: string[]) => setLanguages(languages), []);
     const memoizedSetSearchItem = useCallback(
         (searchValue: string) => setSearchItem(searchValue),
-        [],
-    );
-    const memoizedSetSelectedSearch = useCallback(
-        (selectedSearch: string) => setSelectedSearch(selectedSearch),
         [],
     );
     const memoizedSetSelectedLanguage = useCallback(
@@ -92,29 +82,23 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const contextValue = useMemo(
         () => ({
             searchItem,
-            selectedSearch,
             languages,
             languagesLoaded,
             selectedLanguage,
             setLanguages: memoizedSetLanguages,
             setSearchItem: memoizedSetSearchItem,
-            setSelectedSearch: memoizedSetSelectedSearch,
             setSelectedLanguage: memoizedSetSelectedLanguage,
-            clearSelectedSearch,
             scopeName,
             setScopeName: memoizedSetScopeName,
         }),
         [
             searchItem,
-            selectedSearch,
             languages,
             languagesLoaded,
             selectedLanguage,
             memoizedSetLanguages,
             memoizedSetSearchItem,
-            memoizedSetSelectedSearch,
             memoizedSetSelectedLanguage,
-            clearSelectedSearch,
             scopeName,
             memoizedSetScopeName,
         ],

@@ -34,7 +34,7 @@ const authorState = {
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
-const searchBarState = { setSearchItem: vi.fn(), clearSelectedSearch: vi.fn() };
+const searchBarState = { setSearchItem: vi.fn() };
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 
 // The pager is reduced to the number it was given, so a stale page count is
@@ -344,8 +344,6 @@ describe('AuthorSearch', () => {
             'Толстой',
         );
         expect(landing).toHaveTextContent('type=books');
-        // The panel would otherwise keep answering the next search with authors.
-        expect(searchBarState.clearSelectedSearch).toHaveBeenCalled();
     });
 
     it('offers no book search while there are authors', async () => {

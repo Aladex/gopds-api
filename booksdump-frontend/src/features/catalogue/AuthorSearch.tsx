@@ -3,7 +3,6 @@ import { Link, useLocation, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/lib/utils';
-import { isPlainClick } from '@/shared/lib/isPlainClick';
 import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import * as booksApi from '@/api/books';
 import { pageFromQuery, searchPath } from '@/features/catalogue/addresses';
@@ -65,7 +64,7 @@ const AuthorSearch: React.FC = () => {
     // Which list the total counted: paging keeps it, another search or books
     // language has a total of its own, still on its way.
     const [countedList, setCountedList] = useState('');
-    const { setSearchItem, clearSelectedSearch } = useSearchBar();
+    const { setSearchItem } = useSearchBar();
     const { user } = useAuth();
     const { setAuthorName } = useAuthor();
     const list = `${user?.books_lang ?? ''}:${author}`;
@@ -170,18 +169,7 @@ const AuthorSearch: React.FC = () => {
                             {t('authorSearch.emptyHint')}
                         </p>
                         <Button variant="outline" asChild>
-                            <Link
-                                to={searchPath(author)}
-                                // The panel would stay on authors and answer
-                                // the reader's next search with them.
-                                onClick={(event) => {
-                                    if (isPlainClick(event)) {
-                                        clearSelectedSearch();
-                                    }
-                                }}
-                            >
-                                {t('authorSearch.searchBooks')}
-                            </Link>
+                            <Link to={searchPath(author)}>{t('authorSearch.searchBooks')}</Link>
                         </Button>
                     </div>
                 ) : (
