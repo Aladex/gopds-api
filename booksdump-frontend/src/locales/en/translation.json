@@ -71,6 +71,7 @@
   "lastName": "Last name",
   "emailAddress": "Email address",
   "loading": "Loading...",
+  "typeToSearch": "Type at least 3 characters to search",
   "noOptions": "No options found",
   "search.placeholder": "Book or author",
   "search.placeholderScoped": "Book title",
