@@ -8,7 +8,10 @@ import {
     Plug,
     ShieldCheck,
     UserRound,
+    ChevronRight,
+    ShieldUser,
 } from 'lucide-react';
+import { Link } from 'react-router';
 
 import { Button } from '@/shared/ui/button';
 import { Expandable } from '@/shared/ui/expandable';
@@ -20,6 +23,7 @@ import { cn } from '@/shared/lib/utils';
 import { useProfileForm } from '@/features/profile/useProfileForm';
 import { OpdsConnection } from '@/features/opds/OpdsInfo';
 import InterfaceLanguageToggle from '@/shared/layout/InterfaceLanguageToggle';
+import ThemeChoice from '@/shared/layout/ThemeChoice';
 import KindleSettings, { CardButtonSettings } from '@/features/kindle/KindleSettings';
 import TelegramSettings, {
     telegramBadge,
@@ -200,6 +204,23 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
                 )}
             </div>
 
+            {/* A place to go, not a setting, so it stands above the tabs. A
+                phone's header has no section links; a desktop's row has this. */}
+            {inSheet && user?.is_superuser && (
+                <Link
+                    to="/admin"
+                    onClick={handleClose}
+                    className="mt-3 flex min-h-12 items-center gap-3 rounded-md border border-border px-3 text-[15px] outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-focus"
+                >
+                    <ShieldUser aria-hidden="true" className="size-5 text-muted-foreground" />
+                    {t('adminLink')}
+                    <ChevronRight
+                        aria-hidden="true"
+                        className="ml-auto size-4 text-muted-foreground"
+                    />
+                </Link>
+            )}
+
             {/*
               Three tabs rather than one column of five sections. Stacked, the
               profile ran half again as tall as a phone screen, so it opened on
@@ -243,6 +264,10 @@ const ProfileContent: React.FC<ProfileContentProps> = ({
                         {/* It applies on click, like the books language does; the Save
                             at the foot is for the fields above it. */}
                         <InterfaceLanguageToggle />
+                    </Group>
+
+                    <Group title={t('theme')}>
+                        <ThemeChoice />
                     </Group>
 
                     <Group title={t('profileSection.cardButtons')}>

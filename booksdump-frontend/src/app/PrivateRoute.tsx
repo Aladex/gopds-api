@@ -7,18 +7,21 @@ import { cn } from '@/shared/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/shared/layout/Header';
 import Footer from '@/shared/layout/Footer';
+import PhoneFoot from '@/shared/layout/PhoneFoot';
 import BottomNavigation from '@/shared/layout/BottomNavigation';
 import ProfileDrawer from '@/features/profile/ProfileDrawer';
 import ProfileDialog from '@/features/profile/ProfileDialog';
 import { ProfileOpenerContext, type ProfileSection } from '@/features/profile/ProfileOpenerContext';
 import LoadingSpinner from '@/shared/components/LoadingSpinner';
 import LanguagePrompt from '@/features/catalogue/LanguagePrompt';
+import { useDonateMethods } from '@/shared/hooks/useDonateMethods';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boolean }> = memo(
     ({ children, requireSuperuser = false }) => {
         const { isAuthenticated, user, isLoaded, isLoading } = useAuth();
         const isMobile = useMediaQuery('(max-width: 600px)');
+        const donateMethods = useDonateMethods(isAuthenticated);
         const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
         const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
         // Where the profile should open, when a page asked for a particular
@@ -77,17 +80,17 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
 
         return (
             <ProfileOpenerContext.Provider value={{ openProfile: handleOpenProfile }}>
-                <Header onOpenProfile={() => handleOpenProfile()} />
+                <Header onOpenProfile={() => handleOpenProfile()} donateMethods={donateMethods} />
                 {/* The bars are fixed on a phone, so the page is padded clear of
                     them rather than sliding underneath. */}
                 <main
                     className={cn(
-                        'flex min-h-screen w-full flex-col overflow-x-hidden',
+                        'flex w-full flex-col overflow-x-hidden',
                         isMobile && 'pt-12 pb-20',
                     )}
                 >
                     <div className="flex-1">{children}</div>
-                    {!isMobile && <Footer />}
+                    {isMobile ? <PhoneFoot hasDonate={donateMethods.length > 0} /> : <Footer />}
                 </main>
                 {isMobile && (
                     <BottomNavigation

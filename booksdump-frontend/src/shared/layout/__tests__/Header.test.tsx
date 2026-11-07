@@ -17,8 +17,6 @@ const translate = (key: string, fallback?: string) => fallback ?? key;
 const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
-vi.mock('@/api/system', () => ({ getDonateMethods: vi.fn().mockResolvedValue([]) }));
-
 const authState = {
     logout: vi.fn(),
     user: { username: 'reader', is_superuser: false },
@@ -38,7 +36,7 @@ vi.mock('@/shared/layout/ThemeToggle', () => ({ default: () => null }));
 const renderHeader = (path: string) =>
     render(
         <MemoryRouter initialEntries={[path]}>
-            <Header />
+            <Header donateMethods={[]} />
         </MemoryRouter>,
     );
 

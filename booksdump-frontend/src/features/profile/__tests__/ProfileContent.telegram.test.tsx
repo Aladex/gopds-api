@@ -48,6 +48,7 @@ vi.mock('@/features/telegram/TelegramSettings', () => ({
 }));
 vi.mock('@/features/opds/OpdsInfo', () => ({ OpdsConnection: () => <div>opds-connection</div> }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
+vi.mock('@/shared/layout/ThemeChoice', () => ({ default: () => null }));
 
 it('opens on the Telegram connection when asked for it', () => {
     render(<ProfileContent open section="telegram" onClose={vi.fn()} />);

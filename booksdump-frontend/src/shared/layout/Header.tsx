@@ -6,7 +6,7 @@ import { HeartHandshake, LogOut, ShieldUser } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/utils';
 
-import * as systemApi from '@/api/system';
+import type * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { activeNavItem, onSurface, useNavItems } from '@/shared/layout/navItems';
@@ -23,6 +23,8 @@ import ThemeToggle from '@/shared/layout/ThemeToggle';
 
 type HeaderProps = {
     onOpenProfile?: () => void;
+    /** Nothing to offer means no pill at all. */
+    donateMethods: systemApi.DonateMethod[];
 };
 
 /**
@@ -33,13 +35,12 @@ type HeaderProps = {
  * language and the theme — and the bar itself gets out of the way as the reader
  * scrolls down a long list.
  */
-const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
     const { logout, user } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
     const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
-    const [donateMethods, setDonateMethods] = useState<systemApi.DonateMethod[]>([]);
     const [hiddenByScroll, setHiddenByScroll] = useState(false);
     const lastScrollYRef = useRef(0);
 
@@ -78,26 +79,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         logout();
         navigate('/login');
     };
-
-    // Whether there is anything to offer at all — and, since the answer is the
-    // list itself, the list. It used to keep only whether the list was empty
-    // and let the dialog fetch it again when opened, which meant the dialog
-    // opened as a title with nothing under it and filled in when the second
-    // request landed.
-    useEffect(() => {
-        let cancelled = false;
-        systemApi
-            .getDonateMethods()
-            .then((methods) => {
-                if (!cancelled) setDonateMethods(methods ?? []);
-            })
-            .catch(() => {
-                // Nothing to offer if we cannot find out.
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
 
     useEffect(() => {
         if (!isMobile) {

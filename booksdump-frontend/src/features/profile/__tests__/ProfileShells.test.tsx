@@ -44,6 +44,7 @@ vi.mock('@/features/kindle/KindleSettings', () => ({
 }));
 vi.mock('@/features/opds/OpdsInfo', () => ({ OpdsConnection: () => null }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
+vi.mock('@/shared/layout/ThemeChoice', () => ({ default: () => null }));
 
 const mainTabs = () => screen.getAllByRole('tablist')[0];
 

@@ -43,6 +43,7 @@ vi.mock('@/features/kindle/KindleSettings', () => ({
 }));
 vi.mock('@/features/opds/OpdsInfo', () => ({ OpdsConnection: () => <div>opds-connection</div> }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
+vi.mock('@/shared/layout/ThemeChoice', () => ({ default: () => null }));
 
 it('opens on the connections tab, with the Kindle settings in it, when asked for them', () => {
     render(<ProfileContent open section="kindle" onClose={vi.fn()} />);
