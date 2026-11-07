@@ -12,6 +12,9 @@ import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import AuthorCard, { AuthorCardSkeleton } from '@/features/catalogue/AuthorCard';
 import BookPagination from '@/features/catalogue/BookPagination';
+import { LanguageEmpty } from '@/features/catalogue/EmptyList';
+import { useBookLanguage } from '@/features/catalogue/hooks/useBookLanguage';
+import { ALL_LANGUAGES, languageMapping } from '@/shared/lib/languageUtils';
 import { Button } from '@/shared/ui/button';
 import { scrollToLoadedList, usePageTurn } from '@/shared/layout/landOnList';
 
@@ -64,7 +67,8 @@ const AuthorSearch: React.FC = () => {
     // Which list the total counted: paging keeps it, another search or books
     // language has a total of its own, still on its way.
     const [countedList, setCountedList] = useState('');
-    const { setSearchItem } = useSearchBar();
+    const { setSearchItem, fieldRef } = useSearchBar();
+    const { choose } = useBookLanguage();
     const { user } = useAuth();
     const { setAuthorName } = useAuthor();
     const list = `${user?.books_lang ?? ''}:${author}`;
@@ -114,6 +118,14 @@ const AuthorSearch: React.FC = () => {
         }
     }, [author, list, location.search, page, turned, user?.books_lang]);
 
+    const allLanguages = !user?.books_lang || user.books_lang === ALL_LANGUAGES;
+
+    /** Too many to pick from: back to the words, ready to be added to. */
+    const refine = () => {
+        fieldRef.current?.focus();
+        fieldRef.current?.select();
+    };
+
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
     const handleAuthorClick = (fullName: string) => {
         setSearchItem('');
@@ -140,14 +152,18 @@ const AuthorSearch: React.FC = () => {
                         <>
                             <span>{t('authorSearch.total', { count: total })}</span>
                             {(total ?? 0) > TOO_MANY_AUTHORS && isOneWord(author) && (
-                                <span className="min-w-0 truncate opacity-80">
+                                <button
+                                    type="button"
+                                    onClick={refine}
+                                    className="min-w-0 truncate underline decoration-input underline-offset-3 opacity-80"
+                                >
                                     <span className="hidden card:inline">
                                         {t('authorSearch.narrowDown')}
                                     </span>
                                     <span className="card:hidden">
                                         {t('authorSearch.narrowDownShort')}
                                     </span>
-                                </span>
+                                </button>
                             )}
                         </>
                     )}
@@ -160,6 +176,18 @@ const AuthorSearch: React.FC = () => {
                             <AuthorCardSkeleton key={index} />
                         ))}
                     </div>
+                ) : authors.length === 0 && !allLanguages ? (
+                    <LanguageEmpty
+                        body={t('empty.authors', {
+                            query: author,
+                            language: languageMapping[user?.books_lang ?? '']?.name ?? '',
+                        })}
+                        onShowAll={() => choose(ALL_LANGUAGES)}
+                    >
+                        <Button variant="outline" asChild className="h-11 sm:h-11">
+                            <Link to={searchPath(author)}>{t('authorSearch.searchBooks')}</Link>
+                        </Button>
+                    </LanguageEmpty>
                 ) : authors.length === 0 ? (
                     <div className="rounded border border-border bg-card px-5 py-8 text-center">
                         <h3 className="mt-0 mb-1.5 text-[17px] leading-[1.3] font-semibold">

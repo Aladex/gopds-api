@@ -40,6 +40,7 @@ const authState = {
         is_superuser: false,
         books_lang: 'ru',
     },
+    updateLang: vi.fn(),
 };
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
@@ -547,13 +548,43 @@ describe('BooksList rendering', () => {
         favState.favEnabled = true;
     });
 
-    it('keeps the plain empty result when favourites hold no match', async () => {
+    it('names the language when favourites hold nothing in it', async () => {
         favState.fav = true;
         listBooks.mockResolvedValue({ books: [], length: 0 });
-        renderAt('/books/favorite/1?title=x', '/books/favorite/:page');
+        renderAt('/books/favorite/1', '/books/favorite/:page');
+
+        expect(await screen.findByText('empty.favourites')).toBeInTheDocument();
+        favState.fav = false;
+    });
+
+    it('names the language when a search finds nothing in it', async () => {
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/search?q=x&type=books', '/search');
+
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
+        expect(screen.getByText('empty.books')).toBeInTheDocument();
+    });
+
+    it('offers every language from there, writing it as the sheet does', async () => {
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/search?q=x&type=books', '/search');
+
+        await userEvent.click(await screen.findByRole('button', { name: 'empty.showAll' }));
+
+        expect(authState.updateLang).toHaveBeenCalledWith('all');
+        expect(searchBarState.setSelectedLanguage).toHaveBeenCalledWith('all');
+    });
+
+    it('has no language to blame when every language was searched', async () => {
+        authState.user.books_lang = 'all';
+        searchBarState.selectedLanguage = 'all';
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/search?q=x&type=books', '/search');
 
         expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
-        favState.fav = false;
+        expect(screen.queryByRole('button', { name: 'empty.showAll' })).toBeNull();
+        authState.user.books_lang = 'ru';
+        searchBarState.selectedLanguage = 'ru';
     });
 
     it('renders the empty state when a zero-hit search answers with books: null', async () => {

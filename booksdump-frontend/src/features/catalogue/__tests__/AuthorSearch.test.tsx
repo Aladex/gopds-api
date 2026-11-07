@@ -1,4 +1,5 @@
 import React from 'react';
+import type { Mock } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
@@ -26,7 +27,10 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 vi.mock('@/api/books', () => ({ listAuthors: vi.fn() }));
 
-const authState: { user: { books_lang?: string } | null } = { user: { books_lang: 'ru' } };
+const authState: { user: { books_lang?: string } | null; updateLang: Mock } = {
+    user: { books_lang: 'ru' },
+    updateLang: vi.fn(),
+};
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
 const authorState = {
@@ -34,7 +38,13 @@ const authorState = {
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
-const searchBarState = { setSearchItem: vi.fn() };
+const searchBarState = {
+    setSearchItem: vi.fn(),
+    languages: ['ru'],
+    selectedLanguage: 'ru',
+    setSelectedLanguage: vi.fn(),
+    fieldRef: { current: null as HTMLInputElement | null },
+};
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 
 // The pager is reduced to the number it was given, so a stale page count is
@@ -216,6 +226,66 @@ describe('AuthorSearch', () => {
         finish({ authors: [], length: 3, total: 60 } as never);
     });
 
+    describe('with nothing found under a language', () => {
+        beforeEach(() => {
+            listAuthors.mockResolvedValue({ authors: [], length: 0, total: 0 });
+        });
+
+        it('names the language and offers every language', async () => {
+            renderPage();
+
+            expect(await screen.findByText(/^empty\.authors/)).toBeInTheDocument();
+            await userEvent.click(screen.getByRole('button', { name: 'empty.showAll' }));
+
+            expect(authState.updateLang).toHaveBeenCalledWith('all');
+        });
+
+        it('keeps the way to the books', async () => {
+            renderPage();
+
+            expect(
+                await screen.findByRole('link', { name: 'authorSearch.searchBooks' }),
+            ).toBeInTheDocument();
+        });
+
+        it('goes back to the plain answer when every language was searched', async () => {
+            authState.user = { books_lang: 'all' };
+            renderPage();
+
+            expect(await screen.findByText(/^noAuthorsFound/)).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'empty.showAll' })).toBeNull();
+        });
+    });
+
+    describe('narrowing down', () => {
+        const many = Array.from({ length: 10 }, (_, index) => ({
+            id: index + 1,
+            full_name: `Автор ${index}`,
+            books_count: 1,
+        }));
+
+        it('puts the reader in the field with the words selected', async () => {
+            const field = document.createElement('input');
+            field.value = 'кинг';
+            document.body.appendChild(field);
+            searchBarState.fieldRef.current = field;
+            listAuthors.mockResolvedValue({ authors: many, length: 30, total: 300 });
+            renderPage('/search?q=%D0%BA%D0%B8%D0%BD%D0%B3&type=authors');
+
+            await userEvent.click(
+                await screen
+                    .findAllByRole('button', { name: /authorSearch\.narrowDown/ })
+                    .then((buttons) => buttons[0]),
+            );
+
+            expect(field).toHaveFocus();
+            expect(field.selectionStart).toBe(0);
+            expect(field.selectionEnd).toBe(4);
+            field.remove();
+            searchBarState.fieldRef.current = null;
+        });
+    });
+
     describe('landing', () => {
         const landedOn = () => vi.mocked(scrollToLoadedList).mock.calls.at(-1)?.[0];
         const Turn: React.FC = () => {
@@ -313,7 +383,7 @@ describe('AuthorSearch', () => {
         listAuthors.mockResolvedValue({ authors: [], length: 0 });
         renderPage();
 
-        expect(await screen.findByText('noAuthorsFound:Толстой')).toBeInTheDocument();
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
     });
 
     it('survives the request failing', async () => {
@@ -321,7 +391,7 @@ describe('AuthorSearch', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         renderPage();
 
-        expect(await screen.findByText('noAuthorsFound:Толстой')).toBeInTheDocument();
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
     });
 
     it('asks for ten authors a page', async () => {
@@ -604,7 +674,7 @@ describe('AuthorSearch zero-hit search', () => {
         >);
         await userEvent.click(screen.getByRole('button', { name: 'search-again' }));
 
-        expect(await screen.findByText('noAuthorsFound:zzz')).toBeInTheDocument();
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
         await waitFor(() => expect(screen.queryByRole('link', { name: /Толстой Лев/ })).toBeNull());
         expect(screen.getByTestId('pager')).toHaveTextContent('0');
     });

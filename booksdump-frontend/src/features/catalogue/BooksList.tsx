@@ -25,7 +25,8 @@ import { CARD_WIDE_QUERY, CONTENT_COLUMN, listColumn } from '@/shared/layout/bre
 import ConversionBackdrop from '@/features/catalogue/ConversionBackdrop';
 import BookPagination from '@/features/catalogue/BookPagination';
 import EditBookDialog from '@/features/catalogue/EditBookDialog';
-import EmptyList from '@/features/catalogue/EmptyList';
+import EmptyList, { LanguageEmpty } from '@/features/catalogue/EmptyList';
+import { useBookLanguage } from '@/features/catalogue/hooks/useBookLanguage';
 import RescanPreviewDialog from '@/features/catalogue/RescanPreviewDialog';
 import BookPreviewDialog from '@/features/catalogue/BookPreviewDialog';
 import SkeletonCard from '@/features/catalogue/SkeletonCard';
@@ -40,7 +41,7 @@ import { useSendToKindle } from '@/features/kindle/useSendToKindle';
 import TelegramSendConfirm from '@/features/send/TelegramSendConfirm';
 import { useSendToTelegram } from '@/features/send/useSendToTelegram';
 import { useProfileOpener } from '@/features/profile/ProfileOpenerContext';
-import { ALL_LANGUAGES } from '@/shared/lib/languageUtils';
+import { ALL_LANGUAGES, languageMapping } from '@/shared/lib/languageUtils';
 
 const SKELETON_COUNT = 10;
 
@@ -49,6 +50,7 @@ const BooksList: React.FC = () => {
     const { fav, favEnabled } = useFav();
     const { t } = useTranslation();
     const location = useLocation();
+    const { choose } = useBookLanguage();
     const { state, dispatch, loadBooks, page } = useBooksQuery();
     // The search panel needs to say which genre or series it is confined to,
     // and only the loaded page knows the name.
@@ -107,6 +109,13 @@ const BooksList: React.FC = () => {
     // on each card is noise. Reading the whole library is when it starts to
     // matter which book is in which language.
     const mixedLanguages = !user?.books_lang || user.books_lang === ALL_LANGUAGES;
+
+    // Nothing found under a language is a different answer from nothing found:
+    // the filter may be all that stands in the way, and it can be taken off here.
+    const searched = new URLSearchParams(location.search);
+    const words = searched.get('q') ?? searched.get('title') ?? '';
+    const filteredOut = !mixedLanguages && (fav || words !== '');
+    const languageName = languageMapping[user?.books_lang ?? '']?.name ?? '';
 
     const showDownloadError = (status: number, fallbackMessage?: string) => {
         const byStatus: Record<number, string> = {
@@ -208,6 +217,18 @@ const BooksList: React.FC = () => {
                             icon={<Star aria-hidden="true" className="size-6" />}
                             title={t('empty.favouritesTitle')}
                             body={t('empty.favouritesBody')}
+                        />
+                    ) : filteredOut ? (
+                        <LanguageEmpty
+                            body={
+                                fav
+                                    ? t('empty.favourites', { language: languageName })
+                                    : t('empty.books', {
+                                          query: words,
+                                          language: languageName,
+                                      })
+                            }
+                            onShowAll={() => choose(ALL_LANGUAGES)}
                         />
                     ) : (
                         <div className="rounded border border-border bg-card p-8">

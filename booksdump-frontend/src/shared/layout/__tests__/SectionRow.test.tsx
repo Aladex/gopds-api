@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 
 import SectionRow from '@/shared/layout/SectionRow';
+import * as booksApi from '@/api/books';
 
 // The row under the header is the one place the sections live, on a phone and on
 // a desktop. jsdom lays nothing out, so where the mark ends up was measured in a
@@ -13,7 +14,11 @@ import SectionRow from '@/shared/layout/SectionRow';
 const translation = { t: (key: string) => key };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
-const authState = { user: { username: 'reader', is_superuser: false } };
+vi.mock('@/api/books', () => ({ listBooks: vi.fn(), listAuthors: vi.fn() }));
+const listBooks = vi.mocked(booksApi.listBooks);
+const listAuthors = vi.mocked(booksApi.listAuthors);
+
+const authState = { user: { username: 'reader', is_superuser: false, books_lang: 'ru' } };
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
 const searchState = {
@@ -53,7 +58,9 @@ const link = (name: string) => screen.getByRole('link', { name });
 beforeEach(() => {
     vi.clearAllMocks();
     phone.current = false;
-    authState.user = { username: 'reader', is_superuser: false };
+    authState.user = { username: 'reader', is_superuser: false, books_lang: 'ru' };
+    listBooks.mockResolvedValue({ books: [], length: 1158 });
+    listAuthors.mockResolvedValue({ authors: [], length: 22, total: 213 });
     searchState.searchItem = '';
 });
 
@@ -85,7 +92,6 @@ describe('SectionRow marks', () => {
         ['an author', '/author/42'],
         ['a series', '/books/find/category/7/1'],
         ['a genre', '/books/find/genre/9/1'],
-        ['a search', '/search?q=x&type=books'],
     ])('stays on Книги through %s, a route of no section', (_, path) => {
         // The reader came from the catalogue and the row should say so.
         renderRow(path);
@@ -96,7 +102,7 @@ describe('SectionRow marks', () => {
         // Matched against every section, drawn from a phone's own. Matching only
         // what is drawn would fall through to Книги inside the admin panel.
         phone.current = true;
-        authState.user = { username: 'root', is_superuser: true };
+        authState.user = { username: 'root', is_superuser: true, books_lang: 'ru' };
         renderRow('/admin/users');
 
         expect(screen.queryByRole('link', { current: 'page' })).toBeNull();
@@ -106,7 +112,7 @@ describe('SectionRow marks', () => {
 describe('SectionRow sections', () => {
     it('gives a phone the three a reader has', () => {
         phone.current = true;
-        authState.user = { username: 'root', is_superuser: true };
+        authState.user = { username: 'root', is_superuser: true, books_lang: 'ru' };
         renderRow('/books/page/1');
 
         expect(screen.getAllByRole('link').map((item) => item.textContent)).toEqual([
@@ -121,7 +127,7 @@ describe('SectionRow sections', () => {
         expect(screen.queryByRole('link', { name: 'adminTab' })).toBeNull();
         unmount();
 
-        authState.user = { username: 'root', is_superuser: true };
+        authState.user = { username: 'root', is_superuser: true, books_lang: 'ru' };
         renderRow('/admin');
         expect(current()).toHaveTextContent('adminTab');
     });
@@ -162,10 +168,10 @@ describe('SectionRow and the words in the box', () => {
     });
 
     it('takes the words with it to the catalogue', async () => {
-        // Книги is the way out of a search: left in the box, the words would
-        // read as a search the list is not showing.
+        // Книги is the way out of a scoped list: left in the box, the words
+        // would read as a search the list is not showing.
         searchState.searchItem = 'дюна';
-        renderRow('/search?q=x&type=books');
+        renderRow('/author/42?title=x');
 
         await userEvent.click(link('booksTab'));
 
@@ -175,7 +181,7 @@ describe('SectionRow and the words in the box', () => {
 
     it('leaves a new tab’s click alone', async () => {
         searchState.searchItem = 'дюна';
-        renderRow('/search?q=x&type=books');
+        renderRow('/author/42?title=x');
         const user = userEvent.setup();
 
         const books = link('booksTab');
@@ -185,5 +191,100 @@ describe('SectionRow and the words in the box', () => {
         await user.keyboard('{/Control}');
 
         expect(searchState.setSearchItem).not.toHaveBeenCalled();
+    });
+});
+
+describe('SectionRow on a search', () => {
+    const SEARCH = `/search?q=${encodeURIComponent('кинг')}&type=books`;
+    const AUTHORS = `/search?q=${encodeURIComponent('кинг')}&type=authors`;
+    const tab = (name: RegExp) => screen.getByRole('link', { name });
+
+    it('turns its first places into the two answers, with their sizes', async () => {
+        renderRow(SEARCH);
+
+        expect(await screen.findByRole('link', { name: /booksTab.*1\D?158/ })).toBeInTheDocument();
+        expect(await screen.findByRole('link', { name: /authorsTab.*213/ })).toBeInTheDocument();
+    });
+
+    it('marks the tab of the list on screen', () => {
+        const { unmount } = renderRow(SEARCH);
+        expect(current()).toHaveTextContent('booksTab');
+        unmount();
+
+        renderRow(AUTHORS);
+        expect(current()).toHaveTextContent('authorsTab');
+    });
+
+    it('goes between the tabs on the search’s own words, not the box’s', async () => {
+        searchState.searchItem = 'черновик';
+        renderRow(SEARCH);
+
+        await userEvent.click(tab(/authorsTab/));
+
+        expect(where).toBe(AUTHORS);
+    });
+
+    it('leaves out Подборки on a phone, where the row has no room', () => {
+        phone.current = true;
+        renderRow(SEARCH);
+
+        expect(screen.queryByRole('link', { name: 'collectionsTab' })).toBeNull();
+        expect(link('favouritesTab')).toBeInTheDocument();
+    });
+
+    it('keeps Подборки and Админ from 601 up', () => {
+        authState.user = { username: 'root', is_superuser: true, books_lang: 'ru' };
+        renderRow(SEARCH);
+
+        expect(link('collectionsTab')).toBeInTheDocument();
+        expect(link('adminTab')).toBeInTheDocument();
+    });
+
+    it('carries the words into favourites from a search', async () => {
+        searchState.searchItem = 'кинг';
+        renderRow(SEARCH);
+
+        await userEvent.click(link('favouritesTab'));
+
+        expect(where).toBe(`/books/favorite/1?title=${encodeURIComponent('кинг')}`);
+    });
+
+    it('takes no other list’s address for a search', () => {
+        renderRow('/books/page/1?q=x');
+
+        expect(screen.queryByRole('link', { name: /authorsTab/ })).toBeNull();
+        expect(listBooks).not.toHaveBeenCalled();
+    });
+
+    it('asks for no counts away from a search', () => {
+        renderRow('/books/page/1');
+
+        expect(listBooks).not.toHaveBeenCalled();
+        expect(listAuthors).not.toHaveBeenCalled();
+    });
+
+    it('gives way in steps when the row does not fit', () => {
+        // jsdom has no widths, so the row reports overflow until it has been
+        // tightened as far as this asks.
+        const width = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get');
+        const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get');
+        width.mockImplementation(function (this: HTMLElement) {
+            return this.dataset.squeeze === '2' ? 300 : 340;
+        });
+        client.mockReturnValue(312);
+        try {
+            renderRow(SEARCH);
+
+            expect(screen.getByRole('navigation').dataset.squeeze).toBe('2');
+        } finally {
+            width.mockRestore();
+            client.mockRestore();
+        }
+    });
+
+    it('stays as drawn where the row fits', () => {
+        renderRow(SEARCH);
+
+        expect(screen.getByRole('navigation').dataset.squeeze).toBe('0');
     });
 });

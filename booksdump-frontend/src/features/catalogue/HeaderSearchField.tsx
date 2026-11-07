@@ -35,7 +35,7 @@ const HeaderSearchField: React.FC<HeaderSearchFieldProps> = ({
 }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const { searchItem, setSearchItem } = useSearchBar();
+    const { searchItem, setSearchItem, fieldRef } = useSearchBar();
     const { fav, favEnabled } = useFav();
     const { scope, mode, suggestionScope, reset, submit, pick } = useCatalogueSearchContext();
     const keyboard = useKeyboardInset(taking);
@@ -82,6 +82,7 @@ const HeaderSearchField: React.FC<HeaderSearchFieldProps> = ({
                           }
                         : undefined
                 }
+                inputRef={fieldRef}
                 taking={taking}
                 keyboard={keyboard}
                 onFocused={onTake}

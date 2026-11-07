@@ -5,6 +5,7 @@ import React, {
     useMemo,
     useCallback,
     useEffect,
+    useRef,
     ReactNode,
 } from 'react';
 import * as booksApi from '@/api/books';
@@ -34,6 +35,8 @@ interface SearchBarContextType {
      */
     scopeName: string;
     setScopeName: (name: string) => void;
+    /** The search field, for a page that sends the reader back to it. */
+    fieldRef: React.RefObject<HTMLInputElement | null>;
 }
 
 const SearchBarContext = createContext<SearchBarContextType | undefined>(undefined);
@@ -44,6 +47,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
     const [languagesLoaded, setLanguagesLoaded] = useState(false);
     const [selectedLanguage, setSelectedLanguage] = useState<string>('');
     const [scopeName, setScopeName] = useState('');
+    const fieldRef = useRef<HTMLInputElement | null>(null);
     const { user, isAuthenticated } = useAuth();
 
     const memoizedSetLanguages = useCallback((languages: string[]) => setLanguages(languages), []);
@@ -90,6 +94,7 @@ export const SearchBarProvider: React.FC<{ children: ReactNode }> = ({ children 
             setSelectedLanguage: memoizedSetSelectedLanguage,
             scopeName,
             setScopeName: memoizedSetScopeName,
+            fieldRef,
         }),
         [
             searchItem,

@@ -83,6 +83,8 @@ interface AutocompleteSearchProps {
     keyboard?: number;
     /** Above everything else in the panel. */
     top?: React.ReactNode;
+    /** Lets a page send the reader back to this box. */
+    inputRef?: React.RefObject<HTMLInputElement | null>;
     /** The reader put the caret in the box. */
     onFocused?: () => void;
     /** Escape with nothing filled: the reader wants out. */
@@ -126,6 +128,7 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     taking = false,
     keyboard = 0,
     top,
+    inputRef: givenRef,
     onFocused,
     onDismissed,
 }) => {
@@ -146,7 +149,8 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     const abortControllerRef = useRef<AbortController | null>(null);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const inputRef = useRef<HTMLInputElement | null>(null);
+    const ownRef = useRef<HTMLInputElement | null>(null);
+    const inputRef = givenRef ?? ownRef;
 
     const query = value.trim();
     // Anything fetched for a different query is simply not shown.
