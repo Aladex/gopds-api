@@ -269,13 +269,6 @@ describe('SearchBar in favourites mode', () => {
         expect(screen.getByRole('combobox')).toBeEnabled();
     });
 
-    it('offers the favourites filter only to a reader who has favourites', () => {
-        favState.favEnabled = false;
-        renderBar();
-
-        expect(screen.getByRole('button', { name: 'showFavourites' })).toBeDisabled();
-    });
-
     it('searches inside favourites without leaving the list', async () => {
         favState.fav = true;
         searchState.searchItem = 'война';
@@ -284,33 +277,6 @@ describe('SearchBar in favourites mode', () => {
         await userEvent.click(screen.getByRole('button', { name: 'search' }));
 
         expect(currentPath).toBe(`/books/favorite/1?title=${encodeURIComponent('война')}`);
-    });
-
-    it('carries the query into favourites when the toggle goes on', async () => {
-        searchState.searchItem = 'дюна';
-        renderBar('/books/page/1');
-
-        await userEvent.click(screen.getByRole('button', { name: 'showFavourites' }));
-
-        expect(currentPath).toBe(`/books/favorite/1?title=${encodeURIComponent('дюна')}`);
-    });
-
-    it('hands the query back to a broad search when the toggle goes off', async () => {
-        favState.fav = true;
-        searchState.searchItem = 'дюна';
-        renderBar(`/books/favorite/1?title=${encodeURIComponent('дюна')}`);
-
-        await userEvent.click(screen.getByRole('button', { name: 'showAllBooks' }));
-
-        expect(currentPath).toBe(`/search?q=${encodeURIComponent('дюна')}&type=books`);
-    });
-
-    it('keeps the plain swap when there is no query', async () => {
-        renderBar('/books/page/1');
-
-        await userEvent.click(screen.getByRole('button', { name: 'showFavourites' }));
-
-        expect(currentPath).toBe('/books/favorite/1');
     });
 });
 
@@ -325,7 +291,7 @@ describe('SearchBar books language', () => {
         vi.clearAllMocks();
     });
 
-    it('offers the books language beside the favourites toggle', () => {
+    it('offers the books language', () => {
         renderBar();
 
         expect(screen.getByRole('button', { name: /^booksLanguage:/ })).toBeInTheDocument();

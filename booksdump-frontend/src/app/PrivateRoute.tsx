@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/shared/layout/Header';
 import Footer from '@/shared/layout/Footer';
 import PhoneFoot from '@/shared/layout/PhoneFoot';
-import BottomNavigation from '@/shared/layout/BottomNavigation';
+import SectionRow from '@/shared/layout/SectionRow';
 import ProfileDrawer from '@/features/profile/ProfileDrawer';
 import ProfileDialog from '@/features/profile/ProfileDialog';
 import { ProfileOpenerContext, type ProfileSection } from '@/features/profile/ProfileOpenerContext';
@@ -81,23 +81,13 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
         return (
             <ProfileOpenerContext.Provider value={{ openProfile: handleOpenProfile }}>
                 <Header onOpenProfile={() => handleOpenProfile()} donateMethods={donateMethods} />
-                {/* The bars are fixed on a phone, so the page is padded clear of
-                    them rather than sliding underneath. */}
-                <main
-                    className={cn(
-                        'flex w-full flex-col overflow-x-hidden',
-                        isMobile && 'pt-12 pb-20',
-                    )}
-                >
+                {/* The header is fixed on a phone, so the page is padded clear of
+                    it rather than sliding underneath. */}
+                <main className={cn('flex w-full flex-col overflow-x-hidden', isMobile && 'pt-12')}>
+                    <SectionRow />
                     <div className="flex-1">{children}</div>
                     {isMobile ? <PhoneFoot hasDonate={donateMethods.length > 0} /> : <Footer />}
                 </main>
-                {isMobile && (
-                    <BottomNavigation
-                        isProfileOpen={isProfileDrawerOpen}
-                        onOpenProfile={() => handleOpenProfile()}
-                    />
-                )}
                 <ProfileDrawer
                     open={isProfileDrawerOpen}
                     section={profileSection}

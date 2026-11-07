@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import * as authApi from '@/api/auth';
@@ -15,8 +14,8 @@ import type { BooksListAction } from '@/features/catalogue/hooks/useBooksQuery';
  * The list updates before the request completes so the star responds
  * immediately, and the same action is dispatched again on failure to put it
  * back. The reader is re-read afterwards because the backend decides whether
- * any favourites remain, which is what enables the favourites filter — and if
- * the last one just went, staying on /books/favorite would show an empty page.
+ * any favourites remain. When the last one goes the reader stays where they are:
+ * the page says what favourites are for, and the section is still in the row.
  *
  * The refreshed reader replaces the one held in AuthContext, which owns that
  * record. It used to be written to a copy of the flag kept beside it, leaving
@@ -27,8 +26,6 @@ export function useFavouriteToggle(
     notify: (message: string) => void,
 ) {
     const { t } = useTranslation();
-    const location = useLocation();
-    const navigate = useNavigate();
     const { updateUser } = useAuth();
 
     return useCallback(
@@ -40,9 +37,6 @@ export function useFavouriteToggle(
 
                 const currentUser = await authApi.getCurrentUser();
                 updateUser(currentUser);
-                if (location.pathname.includes('/books/favorite') && !currentUser.have_favs) {
-                    navigate('/books/page/1');
-                }
                 notify(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
             } catch (error) {
                 console.error('Error favoriting book', error);
@@ -50,6 +44,6 @@ export function useFavouriteToggle(
                 notify(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
             }
         },
-        [dispatch, location.pathname, navigate, notify, t, updateUser],
+        [dispatch, notify, t, updateUser],
     );
 }

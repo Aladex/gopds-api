@@ -1,7 +1,7 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { HeartHandshake, LogOut, ShieldUser } from 'lucide-react';
+import { HeartHandshake, LogOut, ShieldUser, User } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/utils';
@@ -9,9 +9,7 @@ import { cn } from '@/shared/lib/utils';
 import type * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { activeNavItem, onSurface, useNavItems } from '@/shared/layout/navItems';
-import { useTravellingUnderline } from '@/shared/hooks/useTravellingUnderline';
-import NavUnderline from '@/shared/layout/NavUnderline';
+import { activeNavItem, useNavItems } from '@/shared/layout/navItems';
 import { takeLanding } from '@/shared/layout/landOnList';
 /*
  * Loaded on demand. The dialog pulls in a QR code generator worth about twenty
@@ -30,10 +28,9 @@ type HeaderProps = {
 /**
  * Header is the application's top bar.
  *
- * It carries the section navigation on a desktop; on a phone that job belongs to
- * the bottom bar, so all that stays up here is the logo, the donate link, the
- * language and the theme — and the bar itself gets out of the way as the reader
- * scrolls down a long list.
+ * The sections live in the row under it. On a phone all that stays up here is
+ * the logo, the donate link, the theme and the way to the profile — and the bar
+ * itself gets out of the way as the reader scrolls down a long list.
  */
 const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
     const { logout, user } = useAuth();
@@ -57,23 +54,9 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
     }
 
     const allItems = useNavItems(Boolean(user?.is_superuser));
-    const navItems = onSurface(allItems, 'header');
     const current = activeNavItem(allItems, location.pathname);
     /** Shown as an icon on a phone, where the header has no room for the row. */
-    const adminItem = navItems.find((item) => item.id === 'admin');
-
-    // One bar that travels between the links; see the hook for why the row has
-    // to be measured rather than styled. The shape covers a language change and
-    // the admin link appearing for a superuser.
-    const {
-        containerRef: navRef,
-        setItemRef,
-        box: underline,
-        placed,
-    } = useTravellingUnderline<HTMLAnchorElement>(
-        current?.id,
-        navItems.map((item) => item.id + item.label).join('|') + String(isMobile),
-    );
+    const adminItem = allItems.find((item) => item.id === 'admin');
 
     const handleLogout = () => {
         logout();
@@ -160,11 +143,9 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
                         <div className="flex items-center gap-0.5">
                             {donateButton}
                             {/*
-                              The narrow header carries no section links, so the
-                              one section that belongs to this surface and not to
-                              the bar at the foot needs saying here or it cannot
-                              be reached from a phone at all — which is how it
-                              stood between taking it out of the bar and this.
+                              The phone's row leaves this section out, so it needs
+                              saying here or it cannot be reached from a phone at
+                              all.
 
                               Taken from the same list rather than gated on
                               is_superuser again: it is in that list only for a
@@ -188,51 +169,27 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
                                 </Link>
                             )}
                             <ThemeToggle />
+                            <button
+                                type="button"
+                                onClick={() => onOpenProfile?.()}
+                                aria-label={t('user')}
+                                title={t('user')}
+                                className="flex size-10 items-center justify-center rounded text-chrome-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-chrome-muted"
+                            >
+                                <User className="size-5" />
+                            </button>
                         </div>
                     </div>
                 ) : (
                     <>
-                        {/*
-                          These navigate rather than switch panels, so they are
-                          links marked with aria-current — not tabs, which would
-                          promise tabpanels that do not exist.
-                        */}
-                        <nav
-                            ref={navRef}
+                        <Link
+                            to="/books/page/1"
                             aria-label={t('booksTab')}
-                            className="relative flex items-center self-stretch"
+                            className="flex items-center"
                         >
-                            {navItems.map((item) => (
-                                <Link
-                                    key={item.id}
-                                    to={item.path}
-                                    ref={setItemRef(item.id)}
-                                    aria-current={current?.id === item.id ? 'page' : undefined}
-                                    className={cn(
-                                        // The transparent border stays on every
-                                        // link so the row keeps the height it
-                                        // had when the border was the mark.
-                                        'flex items-center gap-2 self-stretch border-b-2 border-transparent px-4',
-                                        'text-sm font-medium uppercase tracking-wide',
-                                        'transition-colors duration-200 motion-reduce:transition-none',
-                                        current?.id === item.id
-                                            ? 'text-chrome-foreground'
-                                            : 'text-chrome-muted hover:text-chrome-foreground',
-                                    )}
-                                >
-                                    {item.id === 'books' && (
-                                        <img src="/logo.png" alt="" className="size-6" />
-                                    )}
-                                    {item.label}
-                                </Link>
-                            ))}
-                            <NavUnderline
-                                box={underline}
-                                placed={placed}
-                                className="bg-chrome-foreground"
-                            />
-                            <div className="ml-4 flex items-center">{donateButton}</div>
-                        </nav>
+                            <img src="/logo.png" alt="" className="size-7" />
+                        </Link>
+                        <div className="ml-4 flex items-center">{donateButton}</div>
 
                         <div className="flex-1" />
 

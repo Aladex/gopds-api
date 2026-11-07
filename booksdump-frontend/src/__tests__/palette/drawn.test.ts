@@ -134,16 +134,10 @@ describe.each([
 });
 
 // Everything that draws a focus ring or an invalid field's ring, as written
-// in the source. The header, footer and bottom bar are dark in both themes,
+// in the source. The header and the footers are dark in both themes,
 // so a ring there is measured on them; every other ring on the page, a card
 // and a popover.
-const CHROME = [
-    'Header.tsx',
-    'ThemeToggle.tsx',
-    'BottomNavigation.tsx',
-    'Footer.tsx',
-    'PhoneFoot.tsx',
-];
+const CHROME = ['Header.tsx', 'ThemeToggle.tsx', 'Footer.tsx', 'PhoneFoot.tsx'];
 
 function ringsInSource(): { file: string; variants: string[]; name: string }[] {
     const found: { file: string; variants: string[]; name: string }[] = [];

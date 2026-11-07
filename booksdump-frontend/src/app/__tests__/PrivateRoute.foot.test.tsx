@@ -26,7 +26,7 @@ vi.mock('@/shared/layout/Footer', () => ({ default: () => <div>footer</div> }));
 vi.mock('@/shared/layout/PhoneFoot', () => ({
     default: ({ hasDonate }: { hasDonate: boolean }) => <div>foot:{String(hasDonate)}</div>,
 }));
-vi.mock('@/shared/layout/BottomNavigation', () => ({ default: () => null }));
+vi.mock('@/shared/layout/SectionRow', () => ({ default: () => <nav>sections</nav> }));
 vi.mock('@/features/catalogue/LanguagePrompt', () => ({ default: () => null }));
 vi.mock('@/features/profile/ProfileDrawer', () => ({ default: () => null }));
 vi.mock('@/features/profile/ProfileDialog', () => ({ default: () => null }));
@@ -86,6 +86,18 @@ describe('PrivateRoute', () => {
 
         await waitFor(() => expect(getDonateMethods).toHaveBeenCalled());
         expect(screen.getByText('foot:false')).toBeInTheDocument();
+    });
+
+    it('holds the sections on every private page, in the page', () => {
+        renderRoute();
+
+        expect(screen.getByRole('main')).toContainElement(screen.getByText('sections'));
+    });
+
+    it('keeps no room at the foot for a bar that has gone', () => {
+        renderRoute();
+
+        expect(screen.getByRole('main').className).not.toContain('pb-20');
     });
 
     it('lets a short page end at the end of the screen', () => {

@@ -4,7 +4,6 @@ import { NavigationType, useLocation, useNavigate, useNavigationType } from 'rea
 
 import type { AutocompleteSuggestion, SuggestionScope } from '@/api/autocomplete';
 import { useAuthor } from '@/context/AuthorContext';
-import { useFav } from '@/context/FavContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import { authorPath, isAuthorPath, isSearchPath, searchPath } from '@/features/catalogue/addresses';
 import useSearchScope, {
@@ -30,7 +29,6 @@ export function useCatalogueSearch() {
     const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
     const navigate = useNavigate();
     const location = useLocation();
-    const { fav, favEnabled } = useFav();
 
     // A reload or a pasted link lands on an already filtered list with an
     // empty box, because the query lives in the URL rather than in state.
@@ -165,26 +163,6 @@ export function useCatalogueSearch() {
         }
     };
 
-    const toggleFavourites = () => {
-        if (!favEnabled) {
-            return;
-        }
-        const query = searchItem.trim();
-        if (fav) {
-            // Back to the library: the words return to the broad search they
-            // would have been had favourites never narrowed it.
-            navigate(query ? searchPath(query) : '/books/page/1');
-        } else {
-            // Into favourites, keeping the words: the filter changes, the
-            // search does not.
-            navigate(
-                query
-                    ? `/books/favorite/1?title=${encodeURIComponent(query)}`
-                    : '/books/favorite/1',
-            );
-        }
-    };
-
     return {
         scope,
         scopeApplies,
@@ -194,7 +172,6 @@ export function useCatalogueSearch() {
         submit,
         releaseScope,
         pick,
-        toggleFavourites,
     };
 }
 

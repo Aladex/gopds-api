@@ -22,7 +22,7 @@ vi.mock('@/context/AuthContext', () => ({
 }));
 vi.mock('@/shared/layout/Header', () => ({ default: () => null }));
 vi.mock('@/shared/layout/Footer', () => ({ default: () => null }));
-vi.mock('@/shared/layout/BottomNavigation', () => ({ default: () => null }));
+vi.mock('@/shared/layout/SectionRow', () => ({ default: () => <nav>sections</nav> }));
 vi.mock('@/features/catalogue/LanguagePrompt', () => ({ default: () => null }));
 vi.mock('@/features/profile/ProfileDrawer', () => ({ default: () => null }));
 vi.mock('@/features/profile/ProfileDialog', () => ({

@@ -1,13 +1,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { Heart, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 import { cn } from '@/shared/lib/utils';
 
-import { useFav } from '@/context/FavContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import LanguageSwitcher from '@/shared/layout/LanguageSwitcher';
@@ -22,19 +21,10 @@ import { useBookLanguage } from '@/features/catalogue/hooks/useBookLanguage';
 const SearchPanel: React.FC = () => {
     const { t } = useTranslation();
     const { searchItem, setSearchItem, selectedSearch, setSelectedSearch } = useSearchBar();
-    const { fav, favEnabled } = useFav();
     const { languages, selected, choose } = useBookLanguage();
     const isMobile = useMediaQuery('(max-width: 600px)');
-    const {
-        scope,
-        scopeApplies,
-        suggestionScope,
-        reset,
-        submit,
-        releaseScope,
-        pick,
-        toggleFavourites,
-    } = useCatalogueSearchContext();
+    const { scope, scopeApplies, suggestionScope, reset, submit, releaseScope, pick } =
+        useCatalogueSearchContext();
 
     const searchOptions = [
         { value: 'title', label: t('byTitle') },
@@ -44,13 +34,8 @@ const SearchPanel: React.FC = () => {
     return (
         <div className="mx-auto w-full max-w-[1200px] py-1.5">
             <div className="rounded border border-border bg-card p-3.5">
-                {/*
-                  Narrow screens stack the two fields but keep the search button
-                  and the favourites toggle on one row — the toggle is a small
-                  square and a row of its own leaves it stranded.
-                */}
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-3 md:grid-cols-[minmax(150px,max-content)_minmax(0,1fr)_auto_auto_auto]">
-                    <div className="col-span-3 flex min-w-0 flex-col gap-1.5 md:col-span-1">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 md:grid-cols-[minmax(150px,max-content)_minmax(0,1fr)_auto_auto]">
+                    <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
                         <label htmlFor="search-category" className="text-xs text-muted-foreground">
                             {t('searchWhat')}
                         </label>
@@ -68,7 +53,7 @@ const SearchPanel: React.FC = () => {
                         </Select>
                     </div>
 
-                    <div className="col-span-3 flex min-w-0 flex-col gap-1.5 md:col-span-1">
+                    <div className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
                         {/*
                           The scope rides the label's own row: it costs no
                           height there, and it leaves the field its full width —
@@ -158,32 +143,12 @@ const SearchPanel: React.FC = () => {
                         {t('search')}
                     </Button>
 
-                    {/*
-                      The books language belongs beside the favourites toggle,
-                      not up in the bar: both narrow the catalogue, and one of
-                      them living in the chrome while the other lived here read
-                      as two unrelated things.
-                    */}
                     <LanguageSwitcher
                         languages={languages}
                         selected={selected}
                         onSelect={choose}
                         isMobile={isMobile}
                     />
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={toggleFavourites}
-                        disabled={!favEnabled}
-                        aria-pressed={fav}
-                        title={fav ? t('showAllBooks') : t('showFavourites')}
-                        aria-label={fav ? t('showAllBooks') : t('showFavourites')}
-                        className={cn(fav && 'border-amber-500 text-amber-500')}
-                    >
-                        <Heart className={cn('size-4', fav && 'fill-current')} />
-                    </Button>
                 </div>
             </div>
         </div>

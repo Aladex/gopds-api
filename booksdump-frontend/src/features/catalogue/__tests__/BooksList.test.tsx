@@ -536,6 +536,28 @@ describe('BooksList rendering', () => {
         expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
     });
 
+    it('says what favourites are for, to a reader who has none', async () => {
+        favState.fav = true;
+        favState.favEnabled = false;
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/books/favorite/1', '/books/favorite/:page');
+
+        expect(await screen.findByText('empty.favouritesTitle')).toBeInTheDocument();
+        expect(screen.getByText('empty.favouritesBody')).toBeInTheDocument();
+        expect(screen.queryByText('noBooksFound')).toBeNull();
+        favState.fav = false;
+        favState.favEnabled = true;
+    });
+
+    it('keeps the plain empty result when favourites hold no match', async () => {
+        favState.fav = true;
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/books/favorite/1?title=x', '/books/favorite/:page');
+
+        expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
+        favState.fav = false;
+    });
+
     it('renders the empty state when a zero-hit search answers with books: null', async () => {
         // A nil Go slice marshals to JSON null, so an older backend answers a
         // search that matched nothing with { books: null, length: 0 }. The

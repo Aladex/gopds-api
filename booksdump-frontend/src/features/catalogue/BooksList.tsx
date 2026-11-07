@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { Star } from 'lucide-react';
 
 import type { Book } from '@/api/books';
 import * as adminApi from '@/api/admin';
@@ -18,11 +19,13 @@ import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/utils';
 
 import { useAuth } from '@/context/AuthContext';
+import { useFav } from '@/context/FavContext';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { CARD_WIDE_QUERY, CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import ConversionBackdrop from '@/features/catalogue/ConversionBackdrop';
 import BookPagination from '@/features/catalogue/BookPagination';
 import EditBookDialog from '@/features/catalogue/EditBookDialog';
+import EmptyList from '@/features/catalogue/EmptyList';
 import RescanPreviewDialog from '@/features/catalogue/RescanPreviewDialog';
 import BookPreviewDialog from '@/features/catalogue/BookPreviewDialog';
 import SkeletonCard from '@/features/catalogue/SkeletonCard';
@@ -43,6 +46,7 @@ const SKELETON_COUNT = 10;
 
 const BooksList: React.FC = () => {
     const { user } = useAuth();
+    const { fav, favEnabled } = useFav();
     const { t } = useTranslation();
     const location = useLocation();
     const { state, dispatch, loadBooks, page } = useBooksQuery();
@@ -199,9 +203,17 @@ const BooksList: React.FC = () => {
                 </div>
             ) : state.books.length === 0 ? (
                 <div className={cn(CONTENT_COLUMN, 'py-1.5')}>
-                    <div className="rounded border border-border bg-card p-8">
-                        <p className="text-center text-lg">{t('noBooksFound')}</p>
-                    </div>
+                    {fav && !favEnabled ? (
+                        <EmptyList
+                            icon={<Star aria-hidden="true" className="size-6" />}
+                            title={t('empty.favouritesTitle')}
+                            body={t('empty.favouritesBody')}
+                        />
+                    ) : (
+                        <div className="rounded border border-border bg-card p-8">
+                            <p className="text-center text-lg">{t('noBooksFound')}</p>
+                        </div>
+                    )}
                 </div>
             ) : (
                 /*
