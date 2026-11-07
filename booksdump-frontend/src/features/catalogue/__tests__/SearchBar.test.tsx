@@ -456,6 +456,15 @@ describe('SearchBar suggestion picks', () => {
         expect(screen.getByTestId('picker-scope')).toHaveTextContent('genre:9');
     });
 
+    it('asks the picker for a curated collection, the list the route shows', () => {
+        // The route's collections are the curated ones, and the list reads them
+        // as curated_collection. The picker asked for `collection`, a reader's
+        // own shelf, and production answered nothing inside any collection.
+        renderBar('/collections/48/page/1');
+
+        expect(screen.getByTestId('picker-scope')).toHaveTextContent('curated:48');
+    });
+
     it('widens the picker when the scope is released', async () => {
         renderBar('/books/find/genre/9/1');
 

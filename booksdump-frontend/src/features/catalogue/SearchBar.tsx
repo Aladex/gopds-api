@@ -142,7 +142,7 @@ const SearchBar: React.FC = () => {
     // search will stay in. Releasing the scope widens both together.
     const suggestionScope: SuggestionScope | undefined =
         scoped && scope.kind
-            ? { kind: scope.kind === 'collection' ? 'collection' : scope.kind, id: scope.id }
+            ? { kind: scope.kind === 'collection' ? 'curated' : scope.kind, id: scope.id }
             : undefined;
 
     const resetSearch = () => {
