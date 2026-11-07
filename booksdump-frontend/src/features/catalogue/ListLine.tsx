@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { ChevronLeft } from 'lucide-react';
 
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { PHONE_QUERY } from '@/shared/layout/breakpoints';
+import { CONTENT_COLUMN, PHONE_QUERY } from '@/shared/layout/breakpoints';
+import { cn } from '@/shared/lib/utils';
 import BookLanguage from '@/shared/layout/BookLanguage';
 import { booksLanguageApplies, isSearchPath } from '@/features/catalogue/addresses';
 import { useCatalogueSearchContext } from '@/features/catalogue/CatalogueSearchContext';
@@ -69,24 +70,29 @@ const ListLine: React.FC = () => {
     };
 
     return (
-        <div
-            data-testid="list-line"
-            className="mx-auto mt-2 flex h-8 w-full max-w-[1200px] flex-none items-center gap-1.5 px-4 text-[13px] text-muted-foreground"
-        >
-            {inList ? (
-                <>
-                    {upLink}
-                    <ScopeChip />
-                    <span className="flex-1" />
-                </>
-            ) : (
-                <>
-                    <span className="pl-2 font-medium text-foreground">{heading()}</span>
-                    <span aria-hidden="true">·</span>
-                </>
-            )}
-            <span>{t('booksLanguageLabel')}</span>
-            <BookLanguage where="line" className="h-8" />
+        <div className="mt-2 flex-none px-4">
+            <div
+                data-testid="list-line"
+                className={cn(
+                    CONTENT_COLUMN,
+                    'flex h-8 items-center gap-1.5 text-[13px] text-muted-foreground',
+                )}
+            >
+                {inList ? (
+                    <>
+                        {upLink}
+                        <ScopeChip />
+                        <span className="flex-1" />
+                    </>
+                ) : (
+                    <>
+                        <span className="pl-2 font-medium text-foreground">{heading()}</span>
+                        <span aria-hidden="true">·</span>
+                    </>
+                )}
+                <span>{t('booksLanguageLabel')}</span>
+                <BookLanguage where="line" className="h-8" />
+            </div>
         </div>
     );
 };

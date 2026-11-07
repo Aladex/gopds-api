@@ -11,7 +11,7 @@ import { isSearchPath, searchPath } from '@/features/catalogue/addresses';
 import { useSearchCounts } from '@/features/catalogue/hooks/useSearchCounts';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { useTravellingUnderline } from '@/shared/hooks/useTravellingUnderline';
-import { PHONE_QUERY } from '@/shared/layout/breakpoints';
+import { CONTENT_COLUMN, PHONE_QUERY } from '@/shared/layout/breakpoints';
 import NavUnderline from '@/shared/layout/NavUnderline';
 import { activeNavItem, useNavItems, type NavItem } from '@/shared/layout/navItems';
 
@@ -132,7 +132,7 @@ const SectionRow: React.FC = () => {
             <nav
                 ref={containerRef}
                 aria-label={t('sectionsNav')}
-                className="group/row relative mx-auto flex h-10 max-w-[1200px] min-[601px]:h-11"
+                className={cn(CONTENT_COLUMN, 'group/row relative flex h-10 min-[601px]:h-11')}
             >
                 {asked &&
                     tabs.map((tab) => (

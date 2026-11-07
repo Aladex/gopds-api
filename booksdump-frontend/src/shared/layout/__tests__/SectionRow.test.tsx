@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 
 import SectionRow from '@/shared/layout/SectionRow';
+import { CONTENT_COLUMN } from '@/shared/layout/breakpoints';
 import * as booksApi from '@/api/books';
 
 // The row under the header is the one place the sections live, on a phone and on
@@ -106,6 +107,17 @@ describe('SectionRow marks', () => {
         renderRow('/admin/users');
 
         expect(screen.queryByRole('link', { current: 'page' })).toBeNull();
+    });
+});
+
+describe('SectionRow width', () => {
+    it('keeps its sections in the list column, on a band as wide as the screen', () => {
+        renderRow('/books/page/1');
+
+        const row = screen.getByRole('navigation');
+        expect(row).toHaveClass(...CONTENT_COLUMN.split(' '));
+        expect(row.parentElement?.className).not.toContain('max-w');
+        expect(row.parentElement).toHaveClass('bg-card');
     });
 });
 

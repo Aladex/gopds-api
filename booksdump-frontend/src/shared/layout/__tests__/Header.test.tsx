@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useNavigate } from 'react-router';
 
 import Header from '@/shared/layout/Header';
-import { HEADER_WIDE_QUERY, LIST_COLUMN_ATTR, PHONE_QUERY } from '@/shared/layout/breakpoints';
+import {
+    CONTENT_COLUMN,
+    HEADER_WIDE_QUERY,
+    LIST_COLUMN_ATTR,
+    PHONE_QUERY,
+} from '@/shared/layout/breakpoints';
 import { scrollToLoadedList } from '@/shared/layout/landOnList';
 import type { DonateMethod } from '@/api/system';
 
@@ -105,6 +110,13 @@ beforeEach(() => {
 });
 
 describe('Header on a phone', () => {
+    it('holds no column: its two storeys are the phone’s own width', () => {
+        renderHeader();
+
+        expect(band().className).not.toContain('max-w');
+        expect(band().parentElement?.className ?? '').not.toContain('max-w');
+    });
+
     it('leaves the sections to the row under it', () => {
         renderHeader();
 
@@ -379,6 +391,24 @@ describe('Header takeover across the phone boundary', () => {
 describe('Header from 601 up', () => {
     beforeEach(() => {
         media.phone = false;
+    });
+
+    it('keeps its row in the list column, on a band as wide as the screen', () => {
+        renderHeader();
+
+        const column = screen.getByTestId('field').parentElement as HTMLElement;
+        expect(column).toHaveClass(...CONTENT_COLUMN.split(' '));
+        for (const item of [
+            screen.getByRole('link', { name: 'booksTab' }),
+            screen.getByRole('button', { name: 'reader' }),
+            screen.getByRole('button', { name: 'Выход' }),
+            pill()[0],
+        ]) {
+            expect(column).toContainElement(item);
+        }
+        const band = screen.getByRole('banner');
+        expect(band).toHaveClass('bg-chrome', 'w-full');
+        expect(band.className).not.toContain('max-w');
     });
 
     it('holds the theme, the name and the way out', () => {

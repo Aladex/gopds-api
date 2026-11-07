@@ -6,6 +6,7 @@ import { MemoryRouter, useLocation } from 'react-router';
 import { CatalogueSearchProvider } from '@/features/catalogue/CatalogueSearchContext';
 import HeaderSearchField from '@/features/catalogue/HeaderSearchField';
 import ListLine from '@/features/catalogue/ListLine';
+import { CONTENT_COLUMN } from '@/shared/layout/breakpoints';
 
 // The URLs the field constructs are the contract between the search box and
 // every list route; getting one wrong sends the reader to an empty page with no
@@ -274,6 +275,18 @@ describe('The search field in favourites mode', () => {
 });
 
 // From 601 up the books language stands in the line over the list.
+describe('The line over the list', () => {
+    it('stands in the list column from 601 up, inside the page’s own gutter', () => {
+        renderBar('/books/page/1');
+
+        const line = screen.getByTestId('list-line');
+        expect(line).toHaveClass(...CONTENT_COLUMN.split(' '));
+        // The column's own box: padding here would set it inside the cards.
+        expect(line).not.toHaveClass('px-4');
+        expect(line.parentElement).toHaveClass('px-4');
+    });
+});
+
 describe('The books language over the list', () => {
     beforeEach(() => {
         favState.fav = false;

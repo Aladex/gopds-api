@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { CONTENT_COLUMN } from '@/shared/layout/breakpoints';
+
 /**
  * AppSkeleton stands in for the whole application while the session and the
  * language are still loading.
@@ -26,25 +28,35 @@ const bodyBlock = 'animate-pulse rounded bg-muted';
 const AppSkeleton: React.FC = () => (
     <div aria-hidden="true" className="min-h-screen animate-in fade-in duration-300 bg-background">
         {/* The header: two storeys on a phone, one row above it. */}
-        <div className="flex w-full flex-col bg-chrome min-[601px]:h-16 min-[601px]:flex-row min-[601px]:items-center min-[601px]:gap-4 min-[601px]:px-4">
-            <div className="flex h-10 flex-none items-center justify-between gap-4 px-2 min-[601px]:contents">
-                <div className="size-6 flex-none animate-pulse rounded-full bg-chrome-foreground/15" />
-                <div className="flex items-center gap-2 min-[601px]:order-last">
-                    <div className={`h-4 w-14 ${barBlock}`} />
-                    <div className="size-5 animate-pulse rounded-full bg-chrome-foreground/15" />
+        <div className="w-full bg-chrome min-[601px]:px-4">
+            <div
+                data-testid="skeleton-column"
+                className={`${CONTENT_COLUMN} flex flex-col min-[601px]:h-16 min-[601px]:flex-row min-[601px]:items-center min-[601px]:gap-4`}
+            >
+                <div className="flex h-10 flex-none items-center justify-between gap-4 px-2 min-[601px]:contents">
+                    <div className="size-6 flex-none animate-pulse rounded-full bg-chrome-foreground/15" />
+                    <div className="flex items-center gap-2 min-[601px]:order-last">
+                        <div className={`h-4 w-14 ${barBlock}`} />
+                        <div className="size-5 animate-pulse rounded-full bg-chrome-foreground/15" />
+                    </div>
                 </div>
+                <div className="flex h-11 flex-none items-center px-2 min-[601px]:h-9 min-[601px]:w-[560px] min-[601px]:max-w-[60%] min-[601px]:px-0">
+                    <div className={`h-9 w-full ${barBlock}`} />
+                </div>
+                <div className="hidden flex-1 min-[601px]:block" />
             </div>
-            <div className="flex h-11 flex-none items-center px-2 min-[601px]:h-9 min-[601px]:w-[560px] min-[601px]:max-w-[60%] min-[601px]:px-0">
-                <div className={`h-9 w-full ${barBlock}`} />
-            </div>
-            <div className="hidden flex-1 min-[601px]:block" />
         </div>
 
         {/* The section row, its bottom border outside the row's own height. */}
-        <div className="flex h-[41px] items-center gap-6 border-b border-border bg-card px-4 min-[601px]:h-[45px]">
-            <div className={`h-4 w-14 ${bodyBlock}`} />
-            <div className={`h-4 w-20 ${bodyBlock}`} />
-            <div className={`h-4 w-20 ${bodyBlock}`} />
+        <div className="h-[41px] border-b border-border bg-card px-4 min-[601px]:h-[45px]">
+            <div
+                data-testid="skeleton-column"
+                className={`${CONTENT_COLUMN} flex h-full items-center gap-6`}
+            >
+                <div className={`h-4 w-14 ${bodyBlock}`} />
+                <div className={`h-4 w-20 ${bodyBlock}`} />
+                <div className={`h-4 w-20 ${bodyBlock}`} />
+            </div>
         </div>
 
         {/* The catalogue is the first screen after loading, so it is what the
@@ -52,7 +64,7 @@ const AppSkeleton: React.FC = () => (
             the room ListLine takes: 8px on a phone, 40px from 601 up. */}
         <div data-testid="skeleton-list" className="flex flex-col px-4 pt-2 pb-4 min-[601px]:pt-10">
             {Array.from({ length: CARD_COUNT }).map((_, index) => (
-                <div key={index} className="mx-auto w-full max-w-[1200px] py-1.5">
+                <div key={index} className={`${CONTENT_COLUMN} py-1.5`}>
                     <div className="rounded border border-border bg-card p-4">
                         <div
                             className="grid gap-4"

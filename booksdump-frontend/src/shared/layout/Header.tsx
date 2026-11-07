@@ -13,7 +13,7 @@ import { useCatalogueSearchContext } from '@/features/catalogue/CatalogueSearchC
 import HeaderSearchField from '@/features/catalogue/HeaderSearchField';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import BookLanguage from '@/shared/layout/BookLanguage';
-import { HEADER_WIDE_QUERY, PHONE_QUERY } from '@/shared/layout/breakpoints';
+import { CONTENT_COLUMN, HEADER_WIDE_QUERY, PHONE_QUERY } from '@/shared/layout/breakpoints';
 import { useBarLabel } from '@/shared/layout/useBarLabel';
 import { useChromeScroll } from '@/shared/layout/useChromeScroll';
 /*
@@ -274,8 +274,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
         );
 
     return (
-        <header className="w-full flex-none bg-chrome text-chrome-foreground">
-            <div className="flex h-16 items-center gap-2 px-4">
+        <header className="w-full flex-none bg-chrome px-4 text-chrome-foreground">
+            {/* The band runs the width of the screen; what is on it keeps to the
+                list's column, or a wide monitor sets the logo and the way out a
+                long way either side of the books. */}
+            <div className={cn(CONTENT_COLUMN, 'flex h-16 items-center gap-2')}>
                 <Link
                     to="/books/page/1"
                     aria-label={t('booksTab')}

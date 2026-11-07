@@ -112,9 +112,11 @@ export const ADMIN_TABLE_WIDE_QUERY = `(min-width: ${ADMIN_TABLE_WIDE_MIN_WIDTH_
  *
  * It is a width, not the contract. The admin tables run to their own 1400px
  * column and are no less correct for it; what every list page has to get right
- * is LIST_COLUMN_ATTR below. Several routes that hold no pager still spell the
- * literal — AuthorSearch's own SearchBar, OpdsInfo, AppSkeleton — and changing
- * them is a tidying job of its own rather than part of this one.
+ * is LIST_COLUMN_ATTR below. The chrome over a list keeps to it too, from the
+ * header's row down, so a wide monitor does not set the logo a long way from the
+ * books. That is this width and not the attribute: the attribute marks the one
+ * box a pager and a landing look for. OpdsInfo and CollectionView still spell
+ * the literal, and changing them is a tidying job of its own.
  */
 export const CONTENT_COLUMN = 'mx-auto w-full max-w-[1200px]';
 
