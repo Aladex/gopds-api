@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
@@ -109,5 +112,11 @@ describe('PrivateRoute', () => {
         renderRoute();
 
         expect(screen.getByRole('main').className).not.toContain('min-h-screen');
+        // And the column it relies on: jsdom lays nothing out, so the rule that
+        // fills the screen is read from the stylesheet. The browser check is
+        // what proves the foot lands on the screen's end.
+        const css = readFileSync(join(import.meta.dirname, '../../index.css'), 'utf8');
+        expect(css).toMatch(/#root\s*\{[^}]*flex-direction:\s*column[^}]*min-height:\s*100vh/);
+        expect(css).toMatch(/\bmain\s*\{\s*flex:\s*1;?\s*\}/);
     });
 });

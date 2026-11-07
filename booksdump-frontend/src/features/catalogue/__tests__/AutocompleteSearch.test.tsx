@@ -465,6 +465,9 @@ describe('AutocompleteSearch as one field for books and authors', () => {
 
         expect(options[1]).toHaveAttribute('aria-selected', 'true');
         expect(input).toHaveAttribute('aria-activedescendant', options[1].id);
+        // The fill itself, on that row and no other.
+        expect(options[1]).toHaveClass('bg-accent');
+        expect(options[0]).not.toHaveClass('bg-accent');
     });
 
     it('walks back off the list, not round it', async () => {
