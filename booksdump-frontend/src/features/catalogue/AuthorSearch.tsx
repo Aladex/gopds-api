@@ -14,6 +14,7 @@ import { useSearchBar } from '@/context/SearchBarContext';
 import AuthorCard, { AuthorCardSkeleton } from '@/features/catalogue/AuthorCard';
 import BookPagination from '@/features/catalogue/BookPagination';
 import { Button } from '@/shared/ui/button';
+import { scrollToLoadedList, usePageTurn } from '@/shared/layout/landOnList';
 
 const PAGE_SIZE = 10;
 /** Past this many, nobody is paging: more of the name is the way through. */
@@ -68,12 +69,13 @@ const AuthorSearch: React.FC = () => {
     const { user } = useAuth();
     const { setAuthorName } = useAuthor();
     const list = `${user?.books_lang ?? ''}:${author}`;
+    const turned = usePageTurn();
 
     useEffect(() => {
         const fetchAuthors = async () => {
             setLoading(true);
             try {
-                window.scrollTo(0, 0);
+                scrollToLoadedList(turned);
                 const responseData = await booksApi.listAuthors({
                     limit: PAGE_SIZE,
                     offset: (page - 1) * PAGE_SIZE,
@@ -107,7 +109,7 @@ const AuthorSearch: React.FC = () => {
         if (author) {
             fetchAuthors().then((r) => r);
         }
-    }, [author, list, location.search, page, user?.books_lang]);
+    }, [author, list, location.search, page, turned, user?.books_lang]);
 
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
     const handleAuthorClick = (fullName: string) => {
@@ -204,6 +206,7 @@ const AuthorSearch: React.FC = () => {
                             totalPages={totalPages}
                             currentPage={page}
                             baseUrl={location.pathname + location.search}
+                            pending={loading && list !== countedList}
                         />
                     )}
                 </div>

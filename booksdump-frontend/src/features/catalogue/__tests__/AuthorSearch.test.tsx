@@ -43,12 +43,19 @@ vi.mock('@/features/catalogue/BookPagination', () => ({
         totalPages,
         currentPage,
         baseUrl,
+        pending,
     }: {
         totalPages: number;
         currentPage: number;
         baseUrl: string;
+        pending?: boolean;
     }) => (
-        <div data-testid="pager" data-page={currentPage} data-url={baseUrl}>
+        <div
+            data-testid="pager"
+            data-page={currentPage}
+            data-url={baseUrl}
+            data-pending={pending ? 'yes' : 'no'}
+        >
             {totalPages}
         </div>
     ),
@@ -124,6 +131,81 @@ describe('AuthorSearch', () => {
 
         await waitFor(() => expect(listAuthors).toHaveBeenCalled());
         expect(listAuthors).toHaveBeenCalledWith(expect.objectContaining({ offset: 20 }));
+    });
+
+    it('tells the pager when its total belongs to another language', async () => {
+        // A search with pages keeps its pager through the next load, and the
+        // jump sheet must not open on a total that is about to change.
+        const found = {
+            authors: [{ id: 1, full_name: 'Достоевский Федор', books_count: 184 }],
+            length: 3,
+            total: 60,
+        };
+        listAuthors.mockResolvedValue(found);
+        const tree = () => (
+            <MemoryRouter initialEntries={['/search?q=%D0%A2&type=authors']}>
+                <Routes>
+                    <Route path="/search" element={<SearchRoute />} />
+                </Routes>
+            </MemoryRouter>
+        );
+        const view = render(tree());
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.pending).toBe('no'));
+        await waitFor(() => expect(screen.getByTestId('pager')).toHaveTextContent('3'));
+
+        let finish: (value: typeof found) => void = () => {};
+        listAuthors.mockReturnValueOnce(
+            new Promise((resolve) => {
+                finish = resolve;
+            }),
+        );
+        authState.user = { books_lang: 'en' };
+        view.rerender(tree());
+
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.pending).toBe('yes'));
+
+        finish(found);
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.pending).toBe('no'));
+    });
+
+    it('does not call its own total stale while paging through it', async () => {
+        listAuthors.mockResolvedValue({
+            authors: [{ id: 1, full_name: 'Достоевский Федор', books_count: 184 }],
+            length: 3,
+            total: 60,
+        });
+        const Turn: React.FC = () => {
+            const navigate = useNavigate();
+            return (
+                <button
+                    type="button"
+                    onClick={() => navigate('/search?q=%D0%A2&type=authors&page=2')}
+                >
+                    next
+                </button>
+            );
+        };
+        render(
+            <MemoryRouter initialEntries={['/search?q=%D0%A2&type=authors']}>
+                <Turn />
+                <Routes>
+                    <Route path="/search" element={<SearchRoute />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+        await waitFor(() => expect(screen.getByTestId('pager')).toHaveTextContent('3'));
+
+        let finish: (value: never) => void = () => {};
+        listAuthors.mockReturnValueOnce(
+            new Promise((resolve) => {
+                finish = resolve as (value: never) => void;
+            }),
+        );
+        await userEvent.click(screen.getByRole('button', { name: 'next' }));
+
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.page).toBe('2'));
+        expect(screen.getByTestId('pager').dataset.pending).toBe('no');
+        finish({ authors: [], length: 3, total: 60 } as never);
     });
 
     it('hands the pager the search it is paging through', async () => {

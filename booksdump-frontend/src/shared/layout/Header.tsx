@@ -12,6 +12,7 @@ import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { activeNavItem, onSurface, useNavItems } from '@/shared/layout/navItems';
 import { useTravellingUnderline } from '@/shared/hooks/useTravellingUnderline';
 import NavUnderline from '@/shared/layout/NavUnderline';
+import { takeLanding } from '@/shared/layout/landOnList';
 /*
  * Loaded on demand. The dialog pulls in a QR code generator worth about twenty
  * kilobytes, and most readers never open it — there is no reason for everyone
@@ -106,12 +107,18 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
         const handleScroll = () => {
             const currentScrollY = window.scrollY;
             const previous = lastScrollYRef.current;
+            lastScrollYRef.current = currentScrollY;
+
+            // A turned page landing on its first card is not the reader going
+            // down the list, and the bar stands over that card.
+            if (takeLanding()) {
+                setHiddenByScroll(false);
+                return;
+            }
 
             // Near the top the bar always shows; below that it follows the
             // direction of travel, so reading down a list gives back the space.
             setHiddenByScroll(currentScrollY >= 50 && currentScrollY > previous);
-
-            lastScrollYRef.current = currentScrollY;
         };
 
         window.addEventListener('scroll', handleScroll, { passive: true });

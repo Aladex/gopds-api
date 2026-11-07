@@ -1,9 +1,10 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router';
 
 import CollectionsList from '@/features/collections/CollectionsList';
+import { PAGE_TURN, scrollToLoadedList } from '@/shared/layout/landOnList';
 import * as api from '@/api/collections';
 
 const sampleRows = [
@@ -17,6 +18,13 @@ vi.mock('@/api/collections', () => ({
         .mockResolvedValue({ rows: [], total: 0, page: 1, page_size: 12 }),
 }));
 const samplePage = { rows: sampleRows, total: sampleRows.length, page: 1, page_size: 12 };
+
+vi.mock('@/shared/layout/landOnList', async () => ({
+    ...(await vi.importActual<typeof import('@/shared/layout/landOnList')>(
+        '@/shared/layout/landOnList',
+    )),
+    scrollToLoadedList: vi.fn(),
+}));
 
 // Stub the API config so the component never reaches the network.
 vi.mock('@/api/config', () => ({
@@ -104,6 +112,33 @@ describe('CollectionsList (public)', () => {
         // jsdom has no layout and so no scrollTo; the component calls it after
         // every load to put the reader at the top of the new page.
         window.scrollTo = vi.fn();
+    });
+
+    it('opens a cold page at the top and a turned page on the list', async () => {
+        const Turn: React.FC = () => {
+            const navigate = useNavigate();
+            return (
+                <button
+                    type="button"
+                    onClick={() => navigate('/collections/page/2', { state: PAGE_TURN })}
+                >
+                    turn
+                </button>
+            );
+        };
+        render(
+            <MemoryRouter initialEntries={['/collections/page/1']}>
+                <Turn />
+                <Routes>
+                    <Route path="/collections/page/:page" element={<CollectionsList />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+        await waitFor(() => expect(scrollToLoadedList).toHaveBeenLastCalledWith(false));
+
+        await userEvent.click(screen.getByRole('button', { name: 'turn' }));
+
+        await waitFor(() => expect(scrollToLoadedList).toHaveBeenLastCalledWith(true));
     });
 
     it('asks for the first page when the route carries no page number', async () => {

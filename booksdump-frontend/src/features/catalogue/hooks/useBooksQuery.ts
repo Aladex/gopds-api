@@ -13,6 +13,7 @@ import {
     pagesInQuery,
 } from '@/features/catalogue/addresses';
 import { pageHref } from '@/features/catalogue/paginationRange';
+import { scrollToLoadedList, usePageTurn } from '@/shared/layout/landOnList';
 
 /**
  * useBooksQuery owns everything about *which* books are on screen: it derives
@@ -144,36 +145,41 @@ export function useBooksQuery() {
         return params;
     }, [id, location.pathname, page, searchParams, setAuthorId, user?.books_lang]);
 
-    const loadBooks = useCallback(async () => {
-        // Changing the reading language invalidates deep pages, so start over
-        // rather than showing page 40 of a shorter list. In place: the list
-        // and its search survive, only the page number goes.
-        if (prevLangRef.current !== user?.books_lang && page !== '1') {
-            navigate(pageHref(location.pathname + location.search, 1));
-            return;
-        }
+    const loadBooks = useCallback(
+        async (turned = false) => {
+            // Changing the reading language invalidates deep pages, so start over
+            // rather than showing page 40 of a shorter list. In place: the list
+            // and its search survive, only the page number goes.
+            const sameLanguage = prevLangRef.current === user?.books_lang;
+            if (!sameLanguage && page !== '1') {
+                navigate(pageHref(location.pathname + location.search, 1));
+                return;
+            }
 
-        dispatch({ type: 'SET_LOADING' });
+            dispatch({ type: 'SET_LOADING' });
 
-        try {
-            window.scrollTo(0, 0);
-            const data = await booksApi.listBooks(getParams());
-            dispatch({
-                type: 'FETCH_SUCCESS',
-                payload: { books: data.books, totalPages: data.length },
-            });
-        } catch (error) {
-            console.error('Error fetching books', error);
-            dispatch({ type: 'FETCH_ERROR' });
-        }
+            try {
+                scrollToLoadedList(turned && sameLanguage);
+                const data = await booksApi.listBooks(getParams());
+                dispatch({
+                    type: 'FETCH_SUCCESS',
+                    payload: { books: data.books, totalPages: data.length },
+                });
+            } catch (error) {
+                console.error('Error fetching books', error);
+                dispatch({ type: 'FETCH_ERROR' });
+            }
 
-        // Update language reference after successful fetch to prevent redirect loops
-        prevLangRef.current = user?.books_lang;
-    }, [getParams, location, navigate, page, user?.books_lang]);
+            // Update language reference after successful fetch to prevent redirect loops
+            prevLangRef.current = user?.books_lang;
+        },
+        [getParams, location, navigate, page, user?.books_lang],
+    );
 
+    const turned = usePageTurn();
     useEffect(() => {
-        loadBooks();
-    }, [loadBooks]);
+        loadBooks(turned);
+    }, [loadBooks, turned]);
 
     return { state, dispatch, loadBooks, page: parseInt(page as string, 10) };
 }

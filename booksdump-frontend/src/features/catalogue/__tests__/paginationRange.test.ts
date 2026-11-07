@@ -1,5 +1,6 @@
 import {
     cellWidths,
+    clampPage,
     fitSiblingCount,
     pageBaseUrl,
     pageHref,
@@ -326,6 +327,31 @@ describe('fitSiblingCount on a desktop column', () => {
     it('terminates on a short catalogue in an enormous row', () => {
         // Nothing measured stops the window here, so only the page count can.
         expect(fitSiblingCount(3, 5, { ...desktop1440, row: 5000 }, { boundaryCount: 2 })).toBe(3);
+    });
+});
+
+describe('clampPage', () => {
+    it('reads a number', () => {
+        expect(clampPage('1234', 48159)).toBe(1234);
+    });
+
+    it('holds it to the list', () => {
+        expect(clampPage('99999', 48159)).toBe(48159);
+        expect(clampPage('0', 48159)).toBe(1);
+    });
+
+    it('takes the digits out of whatever a phone keyboard or a paste left', () => {
+        expect(clampPage(' 12 345 ', 48159)).toBe(12345);
+        expect(clampPage('12a3', 48159)).toBe(123);
+    });
+
+    it('survives more digits than a number can hold', () => {
+        expect(clampPage('9'.repeat(400), 48159)).toBe(48159);
+    });
+
+    it('has no answer for nothing', () => {
+        expect(clampPage('', 48159)).toBeNull();
+        expect(clampPage('abc', 48159)).toBeNull();
     });
 });
 

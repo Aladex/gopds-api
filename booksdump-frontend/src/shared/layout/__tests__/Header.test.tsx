@@ -1,8 +1,10 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import Header from '@/shared/layout/Header';
+import { LIST_COLUMN_ATTR } from '@/shared/layout/breakpoints';
+import { scrollToLoadedList } from '@/shared/layout/landOnList';
 
 // The section mark is one bar that moves between links rather than a border
 // that appears on one and vanishes from another. jsdom lays nothing out, so
@@ -165,5 +167,51 @@ describe('Header navigation', () => {
                 'page',
             );
         });
+    });
+});
+
+describe('Header and a landed page', () => {
+    const scrollTo = (y: number) =>
+        act(() => {
+            Object.defineProperty(window, 'scrollY', { value: y, configurable: true });
+            window.dispatchEvent(new Event('scroll'));
+        });
+
+    beforeEach(() => {
+        Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+        window.scrollTo = vi.fn();
+    });
+
+    afterEach(() => {
+        document.querySelectorAll(`[${LIST_COLUMN_ATTR}]`).forEach((el) => el.remove());
+    });
+
+    it('hides as the reader scrolls down', () => {
+        narrow.current = true;
+        renderHeader('/books/page/1');
+
+        scrollTo(300);
+
+        expect(screen.getByRole('banner')).toHaveClass('-translate-y-full');
+    });
+
+    it('stays out when the scroll down was a page landing, not the reader', () => {
+        // Turning a page on a short list scrolls down to the first card, and the
+        // header has to stand over it.
+        narrow.current = true;
+        renderHeader('/books/page/1');
+        const column = document.createElement('div');
+        column.setAttribute(LIST_COLUMN_ATTR, '');
+        column.getBoundingClientRect = () => ({ ...new DOMRect(), top: 348 });
+        document.body.appendChild(column);
+
+        scrollToLoadedList(true);
+        scrollTo(300);
+
+        expect(screen.getByRole('banner')).not.toHaveClass('-translate-y-full');
+
+        // The reader's own next move counts again, from where the page landed.
+        scrollTo(340);
+        expect(screen.getByRole('banner')).toHaveClass('-translate-y-full');
     });
 });

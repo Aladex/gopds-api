@@ -49,6 +49,13 @@ export const CARD_WIDE_VARIANT = 'card';
 export const CARD_WIDE_QUERY = `(min-width: ${CARD_WIDE_MIN_WIDTH_REM}rem)`;
 
 /**
+ * Where a phone's layout ends: the two-sheet split, the phone's pager and the
+ * rest of what a thumb decides. It is the one boundary here written in pixels,
+ * and four components have spelled it out since before this file existed.
+ */
+export const PHONE_QUERY = '(max-width: 600px)';
+
+/**
  * Where the reader can afford a contents column beside the text.
  *
  * This is a different question from the card's, and answering it with the

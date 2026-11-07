@@ -1,37 +1,48 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 
 import BookPagination from '@/features/catalogue/BookPagination';
-import { listColumn } from '@/shared/layout/breakpoints';
+import { PHONE_QUERY, listColumn } from '@/shared/layout/breakpoints';
 
 // The pager is how a reader reaches anything past the first ten books, so what
 // matters is that its links are real addresses and that clicking one moves the
 // router rather than reloading the application.
 
 const translate = (key: string, options?: { page?: number }) =>
-    options?.page !== undefined ? `${key}:${options.page}` : key;
-const translation = { t: translate };
+    options?.page !== undefined && key === 'goToPage' ? `${key}:${options.page}` : key;
+const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 // The pager's shape depends on the width, so the tests drive it rather than
 // leaving it to whatever jsdom reports.
+// Numbers belong to everything above a phone, so `narrow` here is 601 to 779.
 const viewport = { narrow: false };
+const matches = (query: string) => (query === PHONE_QUERY ? false : viewport.narrow);
 vi.mock('@/shared/hooks/useMediaQuery', () => ({
-    useMediaQuery: () => viewport.narrow,
-    default: () => viewport.narrow,
+    useMediaQuery: (query: string) => matches(query),
+    default: (query: string) => matches(query),
 }));
 
 let currentPath = '';
+let currentState: unknown = null;
 const PathProbe: React.FC = () => {
-    const { pathname } = useLocation();
+    const { pathname, state } = useLocation();
     // Recorded in an effect, not during render: writing to the outside world
     // while rendering is the side effect React asks components not to have.
     React.useEffect(() => {
         currentPath = pathname;
-    }, [pathname]);
+        currentState = state;
+    }, [pathname, state]);
     return null;
+};
+
+/** What Radix asks of a pointer and jsdom does not have. */
+const beforeAllPointers = () => {
+    Element.prototype.setPointerCapture ??= () => {};
+    Element.prototype.releasePointerCapture ??= () => {};
+    Element.prototype.hasPointerCapture ??= () => false;
 };
 
 function renderPager(props: Partial<React.ComponentProps<typeof BookPagination>> = {}) {
@@ -942,6 +953,42 @@ describe('BookPagination', () => {
         expect(pad).not.toBeNull();
         expect(pad).toHaveTextContent('');
         expect(pad).not.toHaveAttribute('href');
+    });
+
+    it('opens the jump sheet from an ellipsis, in place of a page it stands for', async () => {
+        beforeAllPointers();
+        const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+            const [first] = screen.getAllByRole('button', { name: 'pager.jumpTitle' });
+            await userEvent.click(first);
+
+            const sheet = await screen.findByRole('dialog');
+            await userEvent.type(within(sheet).getByRole('textbox'), '99999{Enter}');
+
+            expect(currentPath).toBe('/books/page/47377');
+        } finally {
+            restore();
+        }
+    });
+
+    it('does not make a desktop jump a page turn', async () => {
+        // Landing under the header is a phone's: a static header would scroll away.
+        beforeAllPointers();
+        const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+            const [first] = screen.getAllByRole('button', { name: 'pager.jumpTitle' });
+            await userEvent.click(first);
+            const sheet = await screen.findByRole('dialog');
+            await userEvent.type(within(sheet).getByRole('textbox'), '7{Enter}');
+
+            expect(currentState).toBeNull();
+        } finally {
+            restore();
+        }
     });
 
     it('keeps a short catalogue at its content width', () => {

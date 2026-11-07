@@ -214,6 +214,20 @@ export function fitSiblingCount(
 }
 
 /**
+ * clampPage reads a page number typed by hand and holds it to the list. Whatever
+ * is not a digit goes first: a paste brings spaces, and a phone's numeric
+ * keyboard still has a few other keys. Past the end means the end, not a page
+ * that does not exist. With no digits at all there is no page to go to.
+ */
+export function clampPage(raw: string, totalPages: number): number | null {
+    const digits = raw.replace(/\D/g, '');
+    if (digits === '') {
+        return null;
+    }
+    return Math.min(Math.max(Number(digits), 1), totalPages);
+}
+
+/**
  * pageBaseUrl strips a trailing page number off a route, so the pager can build
  * sibling URLs from wherever the reader currently is.
  */

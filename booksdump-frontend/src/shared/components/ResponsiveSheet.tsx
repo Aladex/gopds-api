@@ -15,10 +15,11 @@ import {
     DrawerTitle,
 } from '@/shared/ui/drawer';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import { PHONE_QUERY } from '@/shared/layout/breakpoints';
 import { cn } from '@/shared/lib/utils';
 
 /** The breakpoint every sheet/dialog pair in the app splits at. */
-export const SHEET_QUERY = '(max-width: 600px)';
+export const SHEET_QUERY = PHONE_QUERY;
 
 type ResponsiveSheetProps = {
     open: boolean;
@@ -28,9 +29,12 @@ type ResponsiveSheetProps = {
     description: React.ReactNode;
     /** The rest of the body. */
     children?: React.ReactNode;
-    /** The main action, and the way out. */
-    primary: React.ReactNode;
-    secondary: React.ReactNode;
+    /**
+     * The main action, and the way out. A sheet whose one action belongs beside
+     * a field leaves both out, and has no footer.
+     */
+    primary?: React.ReactNode;
+    secondary?: React.ReactNode;
     /** The dialog close button's accessible name. */
     closeLabel: string;
     /** Width cap of the desktop dialog. */
@@ -71,6 +75,7 @@ const ResponsiveSheet: React.FC<ResponsiveSheetProps> = ({
     const isMobile = useMediaQuery(SHEET_QUERY);
     const scroller = testID ? `${testID}-scroll` : undefined;
     const footer = testID ? `${testID}-footer` : undefined;
+    const hasActions = Boolean(primary || secondary);
 
     if (isMobile) {
         return (
@@ -94,10 +99,12 @@ const ResponsiveSheet: React.FC<ResponsiveSheetProps> = ({
                         </DrawerDescription>
                         {children}
                     </div>
-                    <DrawerFooter data-testid={footer} className="pt-3">
-                        {primary}
-                        {secondary}
-                    </DrawerFooter>
+                    {hasActions && (
+                        <DrawerFooter data-testid={footer} className="pt-3">
+                            {primary}
+                            {secondary}
+                        </DrawerFooter>
+                    )}
                 </DrawerContent>
             </Drawer>
         );
@@ -126,10 +133,12 @@ const ResponsiveSheet: React.FC<ResponsiveSheetProps> = ({
                     </DialogDescription>
                     {children}
                 </div>
-                <DialogFooter data-testid={footer}>
-                    {secondary}
-                    {primary}
-                </DialogFooter>
+                {hasActions && (
+                    <DialogFooter data-testid={footer}>
+                        {secondary}
+                        {primary}
+                    </DialogFooter>
+                )}
             </DialogContent>
         </Dialog>
     );
