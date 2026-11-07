@@ -108,8 +108,8 @@ describe('AutocompleteSearch', () => {
         await waitFor(() => expect(screen.getByRole('listbox')).toBeInTheDocument());
     });
 
-    it('stays shut when the panel seeds it after mount, as navigation does', async () => {
-        // The search panel writes the query into the box from an effect, so
+    it('stays shut when the search seeds it after mount, as navigation does', async () => {
+        // The search writes the query into the box from an effect, so
         // the value arrives a beat after mount rather than with it. Rendering
         // empty and then filling in is what a real navigation looks like.
         const props = {
@@ -185,7 +185,7 @@ describe('AutocompleteSearch', () => {
 
     // Where to search is a prop of its own rather than a value of searchType:
     // what is being looked for and where it is being looked for are separate
-    // questions, and the panel now asks the second one on screen.
+    // questions, and the field now asks the second one on screen.
     it('confines suggestions to the list the search is scoped to', async () => {
         const user = userEvent.setup();
         const { input } = setup({ searchType: 'title', scope: { kind: 'author', id: '42' } });
@@ -361,7 +361,7 @@ describe('AutocompleteSearch', () => {
         expect(input).toHaveAttribute('type', 'text');
     });
 
-    it('keeps no copy of the query — the panel owns it', async () => {
+    it('keeps no copy of the query — the context owns it', async () => {
         const user = userEvent.setup();
         const onChange = vi.fn();
         const { rerender } = render(

@@ -52,7 +52,7 @@ const BooksList: React.FC = () => {
     const location = useLocation();
     const { choose } = useBookLanguage();
     const { state, dispatch, loadBooks, page } = useBooksQuery();
-    // The search panel needs to say which genre or series it is confined to,
+    // The search chip needs to say which genre or series it is confined to,
     // and only the loaded page knows the name.
     useScopeName(state.books);
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -201,7 +201,9 @@ const BooksList: React.FC = () => {
     };
 
     return (
-        <div className="flex min-h-[calc(100vh-200px)] flex-col">
+        // From 601 up the pager is held at the foot of the screen. A phone's page
+        // ends in its own foot, and a height kept here would push that past it.
+        <div className="flex min-[601px]:min-h-[calc(100vh-200px)] flex-col">
             {state.loading ? (
                 <div className={CONTENT_COLUMN}>
                     {Array.from({ length: SKELETON_COUNT }).map((_, index) => (

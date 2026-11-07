@@ -4,7 +4,7 @@ import { Navigate, Route, useLocation, useParams } from 'react-router';
 import { legacyAuthorAddress, legacySearchAddress } from '@/features/catalogue/addresses';
 
 // The redirects stand outside the private layout, so a stale address costs no
-// search panel: the panel only ever sees the address it can read. They replace
+// search field: it only ever sees the address it can read. They replace
 // the old entry, which is what lets the back button pass them.
 
 const LegacyAuthor: React.FC = () => {

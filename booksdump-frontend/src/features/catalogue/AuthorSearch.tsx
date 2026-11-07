@@ -38,7 +38,7 @@ const cardsOnPage = (total: number | undefined, page: number): number => {
 };
 
 /**
- * AuthorSearch lists the authors matching a name from the search panel.
+ * AuthorSearch lists the authors matching a name from the search field.
  *
  * It is a stop on the way to a book list rather than a destination, and the
  * reader is picking which of several same-named authors they meant. A column of
@@ -135,7 +135,7 @@ const AuthorSearch: React.FC = () => {
     };
 
     return (
-        <div className="flex min-h-[calc(100vh-200px)] flex-col">
+        <div className="flex min-[601px]:min-h-[calc(100vh-200px)] flex-col">
             {/*
               One column element, holding the rows and the pager together. The
               pager fills its parent and fits its window to what that row

@@ -380,7 +380,6 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         onEnterPressed?.();
     };
 
-    const hint = runeLength(query) < MIN_QUERY_LENGTH ? t('typeToSearch') : t('noOptions');
     const showList = !dismissed && !disabled && query.length > 0;
     const showEmpty = !dismissed && !disabled && isEmpty && Boolean(shelf || emptyHint);
     const open = taking || showList || showEmpty;
@@ -527,10 +526,6 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                                         >
                                             {t('retry')}
                                         </button>
-                                    </li>
-                                ) : runTag === undefined ? (
-                                    <li className="px-2 py-1.5 text-sm text-muted-foreground">
-                                        {loading ? t('loading') : hint}
                                     </li>
                                 ) : !loading && runeLength(query) >= MIN_QUERY_LENGTH ? (
                                     <li className="px-2 py-1.5 text-sm text-muted-foreground">

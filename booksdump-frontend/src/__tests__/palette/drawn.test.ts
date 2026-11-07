@@ -188,7 +188,7 @@ describe('focus rings as drawn', () => {
                 (chrome
                     ? [
                           ['the header', t['--chrome']],
-                          ['the footer and bottom bar', t['--chrome-raised']],
+                          ['the footer', t['--chrome-raised']],
                       ]
                     : [
                           ['the page', t['--background']],

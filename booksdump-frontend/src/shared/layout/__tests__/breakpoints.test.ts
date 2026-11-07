@@ -8,7 +8,12 @@ import {
     CARD_WIDE_MIN_WIDTH_REM,
     CARD_WIDE_QUERY,
     CARD_WIDE_VARIANT,
+    HEADER_WIDE_MIN_WIDTH_REM,
+    HEADER_WIDE_QUERY,
+    HEADER_WIDE_VARIANT,
+    PHONE_QUERY,
 } from '@/shared/layout/breakpoints';
+import { SHEET_QUERY } from '@/shared/components/ResponsiveSheet';
 
 const projectPath = (relative: string) => fileURLToPath(new URL(relative, import.meta.url));
 
@@ -178,3 +183,15 @@ describe.each(layoutFiles)(
         });
     },
 );
+
+describe('the phone and header boundaries', () => {
+    it('keeps every sheet on the phone’s own boundary', () => {
+        expect(SHEET_QUERY).toBe(PHONE_QUERY);
+    });
+
+    it('states the header’s boundary in the unit of the variant it is named for', () => {
+        expect(HEADER_WIDE_VARIANT).toBe('lg');
+        expect(HEADER_WIDE_MIN_WIDTH_REM).toBe(64);
+        expect(HEADER_WIDE_QUERY).toBe('(min-width: 64rem)');
+    });
+});

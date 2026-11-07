@@ -75,13 +75,9 @@ function pairs(t: Record<string, string>): Record<string, Pair> {
         "a field's outline on a card": [t['--input'], card, OUTLINE],
         "a field's outline in a popover": [t['--input'], popover, OUTLINE],
         'header text on the header': [t['--chrome-foreground'], [t['--chrome']], BODY],
-        'header text on the footer and bottom bar': [
-            t['--chrome-foreground'],
-            [t['--chrome-raised']],
-            BODY,
-        ],
+        'header text on the footer': [t['--chrome-foreground'], [t['--chrome-raised']], BODY],
         'an inactive header link on the header': [t['--chrome-muted'], [t['--chrome']], BODY],
-        'an inactive tab on the bottom bar': [t['--chrome-muted'], [t['--chrome-raised']], BODY],
+        'an inactive tab on raised chrome': [t['--chrome-muted'], [t['--chrome-raised']], BODY],
     };
 }
 

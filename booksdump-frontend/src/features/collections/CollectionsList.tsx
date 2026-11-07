@@ -162,11 +162,14 @@ const CollectionsList: React.FC = () => {
     }
 
     return (
-        <div className="min-h-[calc(100vh-160px)] p-4">
+        <div className="min-[601px]:min-h-[calc(100vh-160px)] p-4">
             {/* One column element: the tiles and the pager share it, because the
                 pager fills its parent and fits its window to what that measures. */}
             <div
-                className={cn(CONTENT_COLUMN, 'flex min-h-[calc(100vh-200px)] flex-col')}
+                className={cn(
+                    CONTENT_COLUMN,
+                    'flex min-[601px]:min-h-[calc(100vh-200px)] flex-col',
+                )}
                 {...listColumn}
             >
                 <h1 className="mb-2 text-2xl font-medium">

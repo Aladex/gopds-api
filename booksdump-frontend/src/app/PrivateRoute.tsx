@@ -15,11 +15,12 @@ import { CatalogueSearchProvider } from '@/features/catalogue/CatalogueSearchCon
 import LanguagePrompt from '@/features/catalogue/LanguagePrompt';
 import { useDonateMethods } from '@/shared/hooks/useDonateMethods';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import { PHONE_QUERY } from '@/shared/layout/breakpoints';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boolean }> = memo(
     ({ children, requireSuperuser = false }) => {
         const { isAuthenticated, user, isLoaded, isLoading } = useAuth();
-        const isMobile = useMediaQuery('(max-width: 600px)');
+        const isMobile = useMediaQuery(PHONE_QUERY);
         const donateMethods = useDonateMethods(isAuthenticated);
         const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
         const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
