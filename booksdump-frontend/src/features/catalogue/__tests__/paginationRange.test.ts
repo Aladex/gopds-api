@@ -1,4 +1,5 @@
 import {
+    cellWidths,
     fitSiblingCount,
     pageBaseUrl,
     pageHref,
@@ -87,16 +88,19 @@ describe('paginationRange', () => {
 // earlier rounds of arithmetic disagreed with the browser by up to 29px, which
 // is how the arrows ended up off the screen, so these are the record of what
 // the layout actually costs.
+/** Cells of one width whatever their digits: the arithmetic these rows pin down. */
+const even = (cell: number) => Array.from({ length: 6 }, () => cell);
+
 const phone360 = {
     // 360px viewport, 328px content column, cells at the five-digit tier.
     row: 328,
     arrow: 28,
-    cell: 48,
+    cells: even(48),
     ellipsis: 28,
     gap: 2,
     breathing: 8,
 };
-const phone360FourDigits = { ...phone360, cell: 40 };
+const phone360FourDigits = { ...phone360, cells: even(40) };
 // The ellipsis is an aria-hidden span holding a 16px glyph, and nobody taps
 // it, so on a phone it drops from a button-sized 28px square to 20px.
 const phone360SlimDots = { ...phone360FourDigits, ellipsis: 20 };
@@ -163,12 +167,107 @@ describe('fitSiblingCount', () => {
 const desktop1440 = {
     row: 1200,
     arrow: 36,
-    cell: 54,
+    cells: even(54),
     ellipsis: 36,
     gap: 4,
     breathing: 8,
 };
 const desktop1024 = { ...desktop1440, row: 977 };
+
+// Page numbers drawn at 7.23px a digit inside 17.33px of padding and border,
+// the figures Chrome gives the numbered cells on a desktop, with the 36px floor.
+const byDigits = {
+    ...desktop1440,
+    cells: cellWidths({ pad: 17.33, widest: 53.5, digits: 5, floor: 36 }),
+};
+
+describe('cellWidths', () => {
+    it('gives each digit count what its digits draw, up to the last page', () => {
+        expect(cellWidths({ pad: 16, widest: 56, digits: 5, floor: 0 })).toEqual([
+            24, 32, 40, 48, 56,
+        ]);
+    });
+
+    it('holds a short number at the floor instead of at the last page', () => {
+        // The complaint: `1` stretched to the width of `48159` to keep a grid.
+        const [one, two, three, , five] = cellWidths({
+            pad: 16,
+            widest: 56,
+            digits: 5,
+            floor: 36,
+        });
+
+        expect(one).toBe(36);
+        expect(two).toBe(36);
+        expect(three).toBe(40);
+        expect(five).toBe(56);
+    });
+
+    it('rounds up, because a fractional minimum wraps the widest number', () => {
+        expect(cellWidths({ pad: 17.33, widest: 53.5, digits: 5, floor: 0 }).at(-1)).toBe(54);
+    });
+
+    it('answers for a one-digit catalogue without dividing by nothing else', () => {
+        expect(cellWidths({ pad: 17, widest: 25, digits: 1, floor: 36 })).toEqual([36]);
+        expect(cellWidths({ pad: 17, widest: 41, digits: 1, floor: 36 })).toEqual([41]);
+    });
+});
+
+describe('pagerRowWidth with cells by their own digits', () => {
+    it('charges every number its own width', () => {
+        const metrics = { ...desktop1440, cells: [36, 36, 40, 48, 56] };
+
+        // 36 + 36 + 56, one ellipsis, three gaps, and both arrows with their air.
+        expect(pagerRowWidth([1, 2, 'ellipsis', 48159], metrics)).toBe(36 + 36 + 56 + 36 + 12 + 88);
+    });
+
+    it('charges a number past the table the widest width it has', () => {
+        // A page cannot run longer than the last page, so this only says the
+        // lookup stays defined rather than answering NaN to the fit.
+        const metrics = { ...desktop1440, cells: [36, 40] };
+
+        expect(pagerRowWidth([123], metrics)).toBe(40 + 88);
+    });
+});
+
+describe('fitSiblingCount with cells by their own digits', () => {
+    it('spends what short numbers saved on showing more of them', () => {
+        const shared = fitSiblingCount(3, 48159, desktop1440, { boundaryCount: 2 });
+        const own = fitSiblingCount(3, 48159, byDigits, { boundaryCount: 2 });
+
+        expect(own).toBeGreaterThan(shared);
+    });
+
+    it('still fits the row at every depth of the catalogue', () => {
+        for (const page of [1, 3, 9, 10, 99, 100, 1234, 9999, 10000, 40903, 48158, 48159]) {
+            for (const row of [569, 748, 1064, 1200]) {
+                const metrics = { ...byDigits, row };
+                const siblings = fitSiblingCount(page, 48159, metrics, { boundaryCount: 2 });
+                const items = paginationRange(page, 48159, {
+                    boundaryCount: 2,
+                    siblingCount: siblings,
+                });
+
+                if (siblings > 0) {
+                    expect(pagerRowWidth(items, metrics)).toBeLessThanOrEqual(row);
+                }
+            }
+        }
+    });
+
+    it('never searches below the true answer', () => {
+        // The ceiling has to stay an upper bound now that cells differ: taken
+        // from the widest cell it would stop the search short of a window of
+        // short numbers that fits.
+        const siblings = fitSiblingCount(3, 48159, byDigits, { boundaryCount: 2 });
+        const wider = paginationRange(3, 48159, {
+            boundaryCount: 2,
+            siblingCount: siblings + 1,
+        });
+
+        expect(pagerRowWidth(wider, byDigits)).toBeGreaterThan(byDigits.row);
+    });
+});
 
 describe('siblingCeiling', () => {
     it('bounds the search by what the row could hold at best', () => {

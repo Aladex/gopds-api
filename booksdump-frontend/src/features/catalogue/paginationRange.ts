@@ -74,8 +74,12 @@ export interface PagerMetrics {
     row: number;
     /** Width of one step arrow. */
     arrow: number;
-    /** Width of one numbered cell; every cell of a pager shares a min-width. */
-    cell: number;
+    /**
+     * Width of a numbered cell by how many digits it holds: `cells[0]` for one
+     * digit, up to the last page's length. A cell is as wide as numbers of its
+     * own length draw, so `1` does not take the width of `48159`.
+     */
+    cells: number[];
     /** Width of one ellipsis. */
     ellipsis: number;
     /** Gap between two neighbouring items. */
@@ -84,23 +88,63 @@ export interface PagerMetrics {
     breathing: number;
 }
 
+/** What the measuring rig reports about the type a pager is drawn in. */
+export interface CellProbe {
+    /** Width of a cell with no digits in it: its padding and its border. */
+    pad: number;
+    /** Width of the widest number as long as the last page. */
+    widest: number;
+    /** How many digits the last page has. */
+    digits: number;
+    /** The least a cell may be, however few digits it holds. */
+    floor: number;
+}
+
+/**
+ * cellWidths turns one reading of the rig into a width per digit count.
+ *
+ * Every cell used to take the width of the widest number the last page could
+ * draw, which kept one grid and stretched `1` to the width of `48159`. The grid
+ * was not what mattered. The pager has to know what a window costs without
+ * reading it off the window, and that needs a width that depends on the type
+ * alone. A width per digit count is such a thing: it is worked out from probes,
+ * so which pages are on screen has no say in it, and numbers of one length still
+ * line up.
+ *
+ * The widest number holds one digit, repeated, so a shorter number of that digit
+ * is the padding plus its share. That is the most any number of that length can
+ * draw; rounded up, because a fractional minimum wraps it.
+ */
+export function cellWidths({ pad, widest, digits, floor }: CellProbe): number[] {
+    const advance = (widest - pad) / digits;
+    return Array.from({ length: digits }, (_, index) =>
+        Math.max(floor, Math.ceil(pad + advance * (index + 1))),
+    );
+}
+
+/** cellWidth reads a number's width off the table, by its length. */
+export function cellWidth(page: number, cells: number[]): number {
+    return cells[Math.min(String(page).length, cells.length) - 1];
+}
+
 /**
  * pagerRowWidth predicts what a window of items would measure.
  *
- * Numbers first, then the two arrows and the gaps that flank them. Every
- * numbered cell shares one measured width, so it does not move when the window
- * grows — which is what makes fitting a window a single calculation rather
- * than a render-and-remeasure loop.
+ * Numbers first, then the two arrows and the gaps that flank them. Each cell's
+ * width comes from its length, not from a reading of it, so nothing here moves
+ * when the window does — which is what makes fitting a window a single
+ * calculation rather than a render-and-remeasure loop.
  */
 export function pagerRowWidth(items: PageItem[], metrics: PagerMetrics): number {
     if (items.length === 0) {
         return 0;
     }
-    const cells = items.filter((item) => item !== 'ellipsis').length;
-    const dots = items.length - cells;
-    const numbers =
-        cells * metrics.cell + dots * metrics.ellipsis + (items.length - 1) * metrics.gap;
-    return numbers + 2 * (metrics.arrow + metrics.breathing);
+    const numbers = items.reduce<number>(
+        (sum, item) =>
+            sum + (item === 'ellipsis' ? metrics.ellipsis : cellWidth(item, metrics.cells)),
+        0,
+    );
+    return numbers + (items.length - 1) * metrics.gap + 2 * (metrics.arrow + metrics.breathing);
 }
 
 /**
@@ -113,13 +157,13 @@ export function pagerRowWidth(items: PageItem[], metrics: PagerMetrics): number 
  * pages would rebuild a 44 500-entry range at every step.
  *
  * Two bounds, both cheap. Every item in the row is at least as wide as the
- * slimmer of a cell and an ellipsis, so the row cannot hold more than that
- * many items; and one extra sibling adds two items, so half the item count
+ * slimmest cell or an ellipsis, so the row cannot hold more than that many
+ * items; and one extra sibling adds two items, so half the item count
  * bounds the siblings. Past half the catalogue the window already covers every
  * page and widening it changes nothing.
  */
 export function siblingCeiling(totalPages: number, metrics: PagerMetrics): number {
-    const slot = Math.min(metrics.cell, metrics.ellipsis) + metrics.gap;
+    const slot = Math.min(...metrics.cells, metrics.ellipsis) + metrics.gap;
     if (slot <= 0) {
         return 0;
     }
