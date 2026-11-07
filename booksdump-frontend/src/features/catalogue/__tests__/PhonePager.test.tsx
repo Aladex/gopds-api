@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 
@@ -110,19 +110,44 @@ describe('the phone pager', () => {
         expect(seen.state).toEqual({ pageTurn: true });
     });
 
-    it('leaves a modified click to the browser', async () => {
-        renderPager();
-        const user = userEvent.setup();
+    describe('a click that means somewhere else', () => {
+        /** Clicks and reports whether the click reached the document uncancelled. */
+        const click = (init: MouseEventInit) => {
+            const link = screen.getByRole('link', { name: 'nextPage' });
+            let cancelled: boolean | undefined;
+            // Read after React has had it, then cancelled, because jsdom has no
+            // navigation to perform and says so on the console.
+            document.addEventListener(
+                'click',
+                (event) => {
+                    cancelled = event.defaultPrevented;
+                    event.preventDefault();
+                },
+                { once: true },
+            );
+            fireEvent.click(link, init);
+            return cancelled;
+        };
 
-        // jsdom has no navigation of its own, so the default is cancelled here;
-        // what is being held is that the router does not take the click.
-        const link = screen.getByRole('link', { name: 'nextPage' });
-        link.addEventListener('click', (event) => event.preventDefault());
-        await user.keyboard('{Control>}');
-        await user.click(link);
-        await user.keyboard('{/Control}');
+        it.each([
+            ['Ctrl', { ctrlKey: true }],
+            ['Cmd', { metaKey: true }],
+            ['Shift', { shiftKey: true }],
+            ['Alt', { altKey: true }],
+            ['the middle button', { button: 1 }],
+        ])('leaves %s to the browser', (_, init) => {
+            renderPager();
 
-        expect(seen.path).toBe('/books/page/3');
+            expect(click(init)).toBe(false);
+            expect(seen.path).toBe('/books/page/3');
+        });
+
+        it('takes a plain click from the browser', () => {
+            renderPager();
+
+            expect(click({})).toBe(true);
+            expect(seen.path).toBe('/books/page/4');
+        });
     });
 });
 

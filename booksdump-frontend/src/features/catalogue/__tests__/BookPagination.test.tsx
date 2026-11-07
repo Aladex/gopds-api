@@ -142,6 +142,10 @@ function stubGeometry(sizes: Geometry) {
         if (el.tagName === 'NAV') return sizes.row;
         const slot = el.getAttribute('data-slot') ?? '';
         if (slot.startsWith('pagination-ellipsis')) return sizes.ellipsis;
+        // An ellipsis stands in a button now, which adds no box of its own.
+        if (el.tagName === 'BUTTON') {
+            return el.firstElementChild ? widthOf(el.firstElementChild) : 0;
+        }
         if (el.tagName === 'A') {
             const label = el.getAttribute('aria-label') ?? '';
             // A probe is measured exactly like the cell it stands in for: same
@@ -953,6 +957,22 @@ describe('BookPagination', () => {
         expect(pad).not.toBeNull();
         expect(pad).toHaveTextContent('');
         expect(pad).not.toHaveAttribute('href');
+    });
+
+    it('draws the ellipsis as the box the fit paid for', () => {
+        // The rig's reading is the cost; the button around a rendered ellipsis
+        // must not add to it, or the row measures wider than the fit allowed.
+        const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+            const [first] = screen.getAllByRole('button', { name: 'pager.jumpTitle' });
+            expect(first.getBoundingClientRect().width).toBe(36);
+            const group = screen.getByRole('link', { name: 'goToPage:22000' }).parentElement;
+            expect(group?.getBoundingClientRect().width).toBeLessThanOrEqual(1200 - 2 * (36 + 8));
+        } finally {
+            restore();
+        }
     });
 
     it('opens the jump sheet from an ellipsis, in place of a page it stands for', async () => {
