@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
@@ -70,12 +70,16 @@ const AuthorSearch: React.FC = () => {
     const { setAuthorName } = useAuthor();
     const list = `${user?.books_lang ?? ''}:${author}`;
     const turned = usePageTurn();
+    const fetchedList = useRef(list);
 
     useEffect(() => {
         const fetchAuthors = async () => {
             setLoading(true);
             try {
-                scrollToLoadedList(turned);
+                // The location keeps its page-turn state through a language
+                // change, and another language is another list.
+                scrollToLoadedList(turned && fetchedList.current === list);
+                fetchedList.current = list;
                 const responseData = await booksApi.listAuthors({
                     limit: PAGE_SIZE,
                     offset: (page - 1) * PAGE_SIZE,

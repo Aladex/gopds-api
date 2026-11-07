@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 
 import AuthorSearch from '@/features/catalogue/AuthorSearch';
+import { PAGE_TURN, scrollToLoadedList } from '@/shared/layout/landOnList';
 import * as booksApi from '@/api/books';
 
 // The page is a stop on the way to a book list: what matters is that it asks
@@ -59,6 +60,13 @@ vi.mock('@/features/catalogue/BookPagination', () => ({
             {totalPages}
         </div>
     ),
+}));
+
+vi.mock('@/shared/layout/landOnList', async () => ({
+    ...(await vi.importActual<typeof import('@/shared/layout/landOnList')>(
+        '@/shared/layout/landOnList',
+    )),
+    scrollToLoadedList: vi.fn(),
 }));
 
 const listAuthors = vi.mocked(booksApi.listAuthors);
@@ -206,6 +214,55 @@ describe('AuthorSearch', () => {
         await waitFor(() => expect(screen.getByTestId('pager').dataset.page).toBe('2'));
         expect(screen.getByTestId('pager').dataset.pending).toBe('no');
         finish({ authors: [], length: 3, total: 60 } as never);
+    });
+
+    describe('landing', () => {
+        const landedOn = () => vi.mocked(scrollToLoadedList).mock.calls.at(-1)?.[0];
+        const Turn: React.FC = () => {
+            const navigate = useNavigate();
+            return (
+                <button
+                    type="button"
+                    onClick={() =>
+                        navigate('/search?q=%D0%A2&type=authors&page=2', { state: PAGE_TURN })
+                    }
+                >
+                    turn
+                </button>
+            );
+        };
+        const tree = () => (
+            <MemoryRouter initialEntries={['/search?q=%D0%A2&type=authors']}>
+                <Turn />
+                <Routes>
+                    <Route path="/search" element={<SearchRoute />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        it('lands on the list when the page is turned', async () => {
+            render(tree());
+            await waitFor(() => expect(landedOn()).toBe(false));
+
+            await userEvent.click(screen.getByRole('button', { name: 'turn' }));
+
+            await waitFor(() => expect(landedOn()).toBe(true));
+        });
+
+        it('opens at the top when the language changes on a turned page', async () => {
+            // The location keeps its page-turn state through a language change,
+            // so the state alone would land this new list past the chrome the
+            // reader has just used.
+            const view = render(tree());
+            await userEvent.click(screen.getByRole('button', { name: 'turn' }));
+            await waitFor(() => expect(landedOn()).toBe(true));
+
+            authState.user = { books_lang: 'en' };
+            view.rerender(tree());
+
+            await waitFor(() => expect(listAuthors).toHaveBeenCalledTimes(3));
+            expect(landedOn()).toBe(false);
+        });
     });
 
     it('hands the pager the search it is paging through', async () => {
