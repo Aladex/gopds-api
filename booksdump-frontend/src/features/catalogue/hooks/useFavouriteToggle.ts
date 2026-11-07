@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { useCallback, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import * as authApi from '@/api/auth';
@@ -7,6 +7,7 @@ import * as booksApi from '@/api/books';
 import type { Book } from '@/api/books';
 
 import { useAuth } from '@/context/AuthContext';
+import { useFav } from '@/context/FavContext';
 import type { BooksListAction } from '@/features/catalogue/hooks/useBooksQuery';
 
 /**
@@ -15,8 +16,9 @@ import type { BooksListAction } from '@/features/catalogue/hooks/useBooksQuery';
  * The list updates before the request completes so the star responds
  * immediately, and the same action is dispatched again on failure to put it
  * back. The reader is re-read afterwards because the backend decides whether
- * any favourites remain, which is what enables the favourites filter — and if
- * the last one just went, staying on /books/favorite would show an empty page.
+ * any favourites remain. When the last one goes the reader stays where they are,
+ * the list empties if it is still the one they did this on, and the page says
+ * what favourites are for.
  *
  * The refreshed reader replaces the one held in AuthContext, which owns that
  * record. It used to be written to a copy of the flag kept beside it, leaving
@@ -27,12 +29,21 @@ export function useFavouriteToggle(
     notify: (message: string) => void,
 ) {
     const { t } = useTranslation();
-    const location = useLocation();
-    const navigate = useNavigate();
     const { updateUser } = useAuth();
+    const { fav } = useFav();
+
+    // The list on screen, as of now and not as of the click: the reader can leave
+    // while the request is out, and one element serves every list route, so the
+    // answer would otherwise land on whatever they went to.
+    const { key } = useLocation();
+    const shownList = useRef(key);
+    useEffect(() => {
+        shownList.current = key;
+    }, [key]);
 
     return useCallback(
         async (book: Book) => {
+            const list = shownList.current;
             try {
                 dispatch({ type: 'TOGGLE_FAV', payload: book.id });
 
@@ -40,8 +51,11 @@ export function useFavouriteToggle(
 
                 const currentUser = await authApi.getCurrentUser();
                 updateUser(currentUser);
-                if (location.pathname.includes('/books/favorite') && !currentUser.have_favs) {
-                    navigate('/books/page/1');
+                // None left means nothing on this list either, wherever it was
+                // paged to. Only the last one: a card that goes while others
+                // remain would take the way to undo it with it.
+                if (fav && !currentUser.have_favs && shownList.current === list) {
+                    dispatch({ type: 'FETCH_SUCCESS', payload: { books: [], totalPages: 0 } });
                 }
                 notify(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
             } catch (error) {
@@ -50,6 +64,6 @@ export function useFavouriteToggle(
                 notify(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
             }
         },
-        [dispatch, location.pathname, navigate, notify, t, updateUser],
+        [dispatch, fav, notify, t, updateUser],
     );
 }

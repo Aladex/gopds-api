@@ -1,10 +1,12 @@
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 
 import BooksList from '@/features/catalogue/BooksList';
-import { CARD_WIDE_QUERY } from '@/shared/layout/breakpoints';
+import { CARD_WIDE_QUERY, PHONE_QUERY } from '@/shared/layout/breakpoints';
+import { PAGE_TURN, scrollToLoadedList } from '@/shared/layout/landOnList';
+import { useBooksQuery } from '@/features/catalogue/hooks/useBooksQuery';
 import { downloadViaIframe } from '@/shared/lib/downloadViaIframe';
 import * as booksApi from '@/api/books';
 import * as authApi from '@/api/auth';
@@ -18,7 +20,8 @@ import * as previewApi from '@/api/preview';
 
 // A stable t: useTranslation must not hand back a fresh function each render,
 // or effects keyed on it loop forever.
-const translate = (key: string, fallback?: string) => fallback ?? key;
+const translate = (key: string, fallback?: string | object) =>
+    typeof fallback === 'string' ? fallback : key;
 const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
@@ -37,6 +40,7 @@ const authState = {
         is_superuser: false,
         books_lang: 'ru',
     },
+    updateLang: vi.fn(),
 };
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
@@ -54,8 +58,6 @@ vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 const searchBarState = {
     searchItem: '',
     setSearchItem: vi.fn(),
-    selectedSearch: 'title',
-    setSelectedSearch: vi.fn(),
     languages: ['ru'],
     selectedLanguage: 'ru',
     setSelectedLanguage: vi.fn(),
@@ -76,6 +78,13 @@ vi.mock('@/context/BookConversionContext', () => ({
 }));
 
 vi.mock('@/shared/lib/downloadViaIframe', () => ({ downloadViaIframe: vi.fn() }));
+
+vi.mock('@/shared/layout/landOnList', async () => ({
+    ...(await vi.importActual<typeof import('@/shared/layout/landOnList')>(
+        '@/shared/layout/landOnList',
+    )),
+    scrollToLoadedList: vi.fn(),
+}));
 
 // The cards' Kindle button asks the socket; nothing here sends a book.
 const webSocketValue = { isConnected: true, subscribe: vi.fn(), sendToKindle: vi.fn() };
@@ -277,6 +286,120 @@ describe('BooksList scoped search', () => {
     });
 });
 
+describe('BooksList landing', () => {
+    const matchMedia = window.matchMedia;
+    const landedOn = () => vi.mocked(scrollToLoadedList).mock.calls.at(-1)?.[0];
+
+    beforeEach(() => {
+        window.matchMedia = ((query: string) => ({
+            matches: query === PHONE_QUERY,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+        })) as unknown as typeof window.matchMedia;
+        listBooks.mockResolvedValue({ books: [makeBook()], length: 48159 });
+    });
+
+    afterEach(() => {
+        window.matchMedia = matchMedia;
+        authState.user.books_lang = 'ru';
+    });
+
+    it('opens a cold page at the top', async () => {
+        renderAt('/books/page/3');
+
+        await screen.findByRole('link', { name: 'nextPage' });
+
+        expect(landedOn()).toBe(false);
+    });
+
+    it('lands on the list when the phone pager turns the page', async () => {
+        renderAt('/books/page/3');
+
+        await userEvent.click(await screen.findByRole('link', { name: 'nextPage' }));
+        await waitFor(() => expect(listBooks).toHaveBeenCalledTimes(2));
+
+        expect(landedOn()).toBe(true);
+    });
+
+    it('goes to the top when a loaded page is read again, not by the pager', async () => {
+        // An edit or a rescan reloads the list where it stands; nothing was turned.
+        const Reader: React.FC = () => {
+            const { loadBooks } = useBooksQuery();
+            const navigate = useNavigate();
+            return (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/books/page/4', { state: PAGE_TURN })}
+                    >
+                        turn
+                    </button>
+                    <button type="button" onClick={() => void loadBooks()}>
+                        reload
+                    </button>
+                </>
+            );
+        };
+        render(
+            <MemoryRouter initialEntries={['/books/page/3']}>
+                <Routes>
+                    <Route path="/books/page/:page" element={<Reader />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+
+        await userEvent.click(screen.getByRole('button', { name: 'turn' }));
+        await waitFor(() => expect(landedOn()).toBe(true));
+
+        await userEvent.click(screen.getByRole('button', { name: 'reload' }));
+
+        await waitFor(() => expect(landedOn()).toBe(false));
+    });
+
+    it('does not land when the language changes on a page turned back to the first', async () => {
+        // Page one has nothing to redirect to, so the list reloads on the same
+        // location, which still reads as a page turn.
+        const tree = () => (
+            <MemoryRouter initialEntries={['/books/page/2']}>
+                <Routes>
+                    <Route path="/books/page/:page" element={<BooksList />} />
+                </Routes>
+            </MemoryRouter>
+        );
+        const view = render(tree());
+        await userEvent.click(await screen.findByRole('link', { name: 'previousPage' }));
+        await waitFor(() => expect(landedOn()).toBe(true));
+        await screen.findByRole('link', { name: 'nextPage' });
+
+        authState.user.books_lang = 'en';
+        view.rerender(tree());
+        await waitFor(() => expect(listBooks).toHaveBeenCalledTimes(3));
+
+        expect(landedOn()).toBe(false);
+    });
+
+    it('does not land when the language changes on a turned page', async () => {
+        const tree = () => (
+            <MemoryRouter initialEntries={['/books/page/3']}>
+                <Routes>
+                    <Route path="/books/page/:page" element={<BooksList />} />
+                </Routes>
+            </MemoryRouter>
+        );
+        const view = render(tree());
+        await userEvent.click(await screen.findByRole('link', { name: 'nextPage' }));
+        await waitFor(() => expect(landedOn()).toBe(true));
+
+        // The first load after the language moved is the redirect to page one;
+        // it reads as a plain push and has no page-turn state.
+        authState.user.books_lang = 'en';
+        view.rerender(tree());
+        await waitFor(() => expect(listBooks).toHaveBeenCalledTimes(3));
+
+        expect(landedOn()).toBe(false);
+    });
+});
+
 describe('BooksList language change', () => {
     afterEach(() => {
         authState.user.books_lang = 'ru';
@@ -410,6 +533,58 @@ describe('BooksList rendering', () => {
         renderAt('/books/page/1');
 
         expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
+    });
+
+    it('says what favourites are for, to a reader who has none', async () => {
+        favState.fav = true;
+        favState.favEnabled = false;
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/books/favorite/1', '/books/favorite/:page');
+
+        expect(await screen.findByText('empty.favouritesTitle')).toBeInTheDocument();
+        expect(screen.getByText('empty.favouritesBody')).toBeInTheDocument();
+        expect(screen.queryByText('noBooksFound')).toBeNull();
+        favState.fav = false;
+        favState.favEnabled = true;
+    });
+
+    it('names the language when favourites hold nothing in it', async () => {
+        favState.fav = true;
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/books/favorite/1', '/books/favorite/:page');
+
+        expect(await screen.findByText('empty.favourites')).toBeInTheDocument();
+        favState.fav = false;
+    });
+
+    it('names the language when a search finds nothing in it', async () => {
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/search?q=x&type=books', '/search');
+
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
+        expect(screen.getByText('empty.books')).toBeInTheDocument();
+    });
+
+    it('offers every language from there, writing it as the sheet does', async () => {
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/search?q=x&type=books', '/search');
+
+        await userEvent.click(await screen.findByRole('button', { name: 'empty.showAll' }));
+
+        expect(authState.updateLang).toHaveBeenCalledWith('all');
+        expect(searchBarState.setSelectedLanguage).toHaveBeenCalledWith('all');
+    });
+
+    it('has no language to blame when every language was searched', async () => {
+        authState.user.books_lang = 'all';
+        searchBarState.selectedLanguage = 'all';
+        listBooks.mockResolvedValue({ books: [], length: 0 });
+        renderAt('/search?q=x&type=books', '/search');
+
+        expect(await screen.findByText('noBooksFound')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'empty.showAll' })).toBeNull();
+        authState.user.books_lang = 'ru';
+        searchBarState.selectedLanguage = 'ru';
     });
 
     it('renders the empty state when a zero-hit search answers with books: null', async () => {

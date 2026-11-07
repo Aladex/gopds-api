@@ -3,10 +3,12 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 
-import SearchBar from '@/features/catalogue/SearchBar';
+import { CatalogueSearchProvider } from '@/features/catalogue/CatalogueSearchContext';
+import HeaderSearchField from '@/features/catalogue/HeaderSearchField';
+import ListLine from '@/features/catalogue/ListLine';
+import { CONTENT_COLUMN } from '@/shared/layout/breakpoints';
 
-// Characterisation tests written before the search panel is rebuilt on shadcn.
-// The URLs this panel constructs are the contract between the search box and
+// The URLs the field constructs are the contract between the search box and
 // every list route; getting one wrong sends the reader to an empty page with no
 // error to explain it.
 
@@ -47,10 +49,6 @@ const searchState = {
     setSearchItem: vi.fn((v: string) => {
         searchState.searchItem = v;
     }),
-    selectedSearch: 'title',
-    setSelectedSearch: vi.fn((v: string) => {
-        searchState.selectedSearch = v;
-    }),
 };
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchState }));
 
@@ -58,7 +56,7 @@ vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchState }
 // keyed on it, so a mock that returns a fresh function every call spins the
 // component in an endless render loop — real react-i18next memoises it.
 const translate = (key: string, fallback?: string) => fallback ?? key;
-const translation = { t: translate };
+const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 // The autocomplete talks to the network; the panel's own behaviour is what is
@@ -68,8 +66,8 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 // leaving it to whatever jsdom reports.
 const viewport = { mobile: false };
 vi.mock('@/shared/hooks/useMediaQuery', () => ({
-    useMediaQuery: () => viewport.mobile,
-    default: () => viewport.mobile,
+    useMediaQuery: (query: string) => query === '(max-width: 600px)' && viewport.mobile,
+    default: (query: string) => query === '(max-width: 600px)' && viewport.mobile,
 }));
 
 vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
@@ -82,6 +80,10 @@ vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
         scope,
         disabled,
         placeholder,
+        searchType,
+        runTag,
+        hint,
+        shelf,
     }: {
         value: string;
         onChange: (v: string) => void;
@@ -95,11 +97,23 @@ vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
         scope?: { kind: string; id: string };
         disabled?: boolean;
         placeholder?: string;
+        searchType?: string;
+        runTag?: string;
+        hint?: string;
+        shelf?: { label: string; onPick: () => void };
     }) => (
         <div>
             {/* The picker answers from the list the reader is in; the panel is
                 what tells it which list that is. */}
             <span data-testid="picker-scope">{scope ? `${scope.kind}:${scope.id}` : 'none'}</span>
+            <span data-testid="picker-lanes">{searchType}</span>
+            <span data-testid="picker-run">{runTag}</span>
+            <span data-testid="picker-hint">{hint}</span>
+            {shelf && (
+                <button type="button" onClick={shelf.onPick}>
+                    {shelf.label}
+                </button>
+            )}
             {/* The real field's cross carries the reset when it is given one,
                 and says so; without one it only empties the box. */}
             {value.length > 0 && (
@@ -142,7 +156,10 @@ vi.mock('@/features/catalogue/AutocompleteSearch', () => ({
 function renderBar(path = '/books/page/1') {
     return render(
         <MemoryRouter initialEntries={[path]}>
-            <SearchBar />
+            <CatalogueSearchProvider>
+                <HeaderSearchField />
+                <ListLine />
+            </CatalogueSearchProvider>
             <PathProbe />
         </MemoryRouter>,
     );
@@ -155,25 +172,23 @@ beforeEach(() => {
     favState.fav = false;
     favState.favEnabled = true;
     searchState.searchItem = '';
-    searchState.selectedSearch = 'title';
 });
 
-describe('SearchBar routing', () => {
+describe('The search field routing', () => {
     it('searches by title through /search', async () => {
         searchState.searchItem = 'дюна';
         renderBar();
 
-        await userEvent.click(screen.getByRole('button', { name: 'search' }));
+        await userEvent.type(screen.getByLabelText('searchItem'), '{Enter}');
 
         expect(currentPath).toBe('/search?q=%D0%B4%D1%8E%D0%BD%D0%B0&type=books');
     });
 
-    it('searches by author through /search', async () => {
+    it('stays among authors under a list of authors', async () => {
         searchState.searchItem = 'Герберт';
-        searchState.selectedSearch = 'author';
-        renderBar();
+        renderBar(`/search?q=${encodeURIComponent('Азимов')}&type=authors`);
 
-        await userEvent.click(screen.getByRole('button', { name: 'search' }));
+        await userEvent.type(screen.getByLabelText('searchItem'), '{Enter}');
 
         expect(currentPath).toBe(`/search?q=${encodeURIComponent('Герберт')}&type=authors`);
     });
@@ -182,7 +197,7 @@ describe('SearchBar routing', () => {
         searchState.searchItem = 'а/б?в%г+д';
         renderBar();
 
-        await userEvent.click(screen.getByRole('button', { name: 'search' }));
+        await userEvent.type(screen.getByLabelText('searchItem'), '{Enter}');
 
         expect(new URLSearchParams(currentPath.split('?')[1]).get('q')).toBe('а/б?в%г+д');
         expect(currentPath).toContain('%2F');
@@ -192,25 +207,16 @@ describe('SearchBar routing', () => {
         searchState.searchItem = '   ';
         renderBar();
 
-        await userEvent.click(screen.getByRole('button', { name: 'search' }));
-
-        expect(currentPath).toBe('/books/page/1');
-    });
-
-    it('submits on Enter as well as on the button', async () => {
-        searchState.searchItem = 'дюна';
-        renderBar();
-
         await userEvent.type(screen.getByLabelText('searchItem'), '{Enter}');
 
-        expect(currentPath).not.toBe('/books/page/1');
+        expect(currentPath).toBe('/books/page/1');
     });
 });
 
 // A reload or a pasted link lands on an already filtered list. The query lives
 // in the URL, so the field can show what is being searched instead of sitting
 // blank over a narrowed list.
-describe('SearchBar on a cold reload', () => {
+describe('The search field on a cold reload', () => {
     // The mocked context keeps its state in a plain object, so a seed shows up
     // as what the panel asked the context to hold — the input itself is
     // controlled and follows that state in the real chain.
@@ -226,11 +232,11 @@ describe('SearchBar on a cold reload', () => {
         await waitFor(() => expect(searchState.setSearchItem).toHaveBeenCalledWith('дюна'));
     });
 
-    it('seeds the field and the mode from a search for an author by name', async () => {
+    it('seeds the field from a search for an author by name', async () => {
         renderBar(`/search?q=${encodeURIComponent('кинг')}&type=authors`);
 
         await waitFor(() => expect(searchState.setSearchItem).toHaveBeenCalledWith('кинг'));
-        expect(searchState.setSelectedSearch).toHaveBeenCalledWith('author');
+        expect(screen.getByTestId('picker-run')).toHaveTextContent('search.runAuthors');
     });
 
     it('asks for no clearing control on a search by name', () => {
@@ -247,33 +253,14 @@ describe('SearchBar on a cold reload', () => {
     });
 });
 
-describe('SearchBar in favourites mode', () => {
+describe('The search field in favourites mode', () => {
     it('stays usable while the favourites filter is on', () => {
         // Favourites are a scope like any other now: the backend searches
         // inside them, so a disabled panel would only hide that.
         favState.fav = true;
         renderBar('/books/favorite/1');
 
-        expect(screen.getByRole('button', { name: 'search' })).toBeEnabled();
         expect(screen.getByLabelText('searchItem')).toBeEnabled();
-        // Radix marks the trigger disabled for real rather than announcing it
-        // through aria-disabled, so keyboard focus skips it too.
-        expect(screen.getByRole('combobox')).toBeEnabled();
-    });
-
-    it('leaves the panel usable when the filter is off', () => {
-        renderBar();
-
-        expect(screen.getByRole('button', { name: 'search' })).toBeEnabled();
-        expect(screen.getByLabelText('searchItem')).toBeEnabled();
-        expect(screen.getByRole('combobox')).toBeEnabled();
-    });
-
-    it('offers the favourites filter only to a reader who has favourites', () => {
-        favState.favEnabled = false;
-        renderBar();
-
-        expect(screen.getByRole('button', { name: 'showFavourites' })).toBeDisabled();
     });
 
     it('searches inside favourites without leaving the list', async () => {
@@ -281,43 +268,26 @@ describe('SearchBar in favourites mode', () => {
         searchState.searchItem = 'война';
         renderBar('/books/favorite/2');
 
-        await userEvent.click(screen.getByRole('button', { name: 'search' }));
+        await userEvent.type(screen.getByLabelText('searchItem'), '{Enter}');
 
         expect(currentPath).toBe(`/books/favorite/1?title=${encodeURIComponent('война')}`);
     });
+});
 
-    it('carries the query into favourites when the toggle goes on', async () => {
-        searchState.searchItem = 'дюна';
+// From 601 up the books language stands in the line over the list.
+describe('The line over the list', () => {
+    it('stands in the list column from 601 up, inside the page’s own gutter', () => {
         renderBar('/books/page/1');
 
-        await userEvent.click(screen.getByRole('button', { name: 'showFavourites' }));
-
-        expect(currentPath).toBe(`/books/favorite/1?title=${encodeURIComponent('дюна')}`);
-    });
-
-    it('hands the query back to a broad search when the toggle goes off', async () => {
-        favState.fav = true;
-        searchState.searchItem = 'дюна';
-        renderBar(`/books/favorite/1?title=${encodeURIComponent('дюна')}`);
-
-        await userEvent.click(screen.getByRole('button', { name: 'showAllBooks' }));
-
-        expect(currentPath).toBe(`/search?q=${encodeURIComponent('дюна')}&type=books`);
-    });
-
-    it('keeps the plain swap when there is no query', async () => {
-        renderBar('/books/page/1');
-
-        await userEvent.click(screen.getByRole('button', { name: 'showFavourites' }));
-
-        expect(currentPath).toBe('/books/favorite/1');
+        const line = screen.getByTestId('list-line');
+        expect(line).toHaveClass(...CONTENT_COLUMN.split(' '));
+        // The column's own box: padding here would set it inside the cards.
+        expect(line).not.toHaveClass('px-4');
+        expect(line.parentElement).toHaveClass('px-4');
     });
 });
 
-// The books language moved here from the header, where it sat among the site
-// chrome while the favourites toggle — the other catalogue filter — was in this
-// panel. Both narrow the list, so both belong in the same place.
-describe('SearchBar books language', () => {
+describe('The books language over the list', () => {
     beforeEach(() => {
         favState.fav = false;
         favState.favEnabled = true;
@@ -325,7 +295,7 @@ describe('SearchBar books language', () => {
         vi.clearAllMocks();
     });
 
-    it('offers the books language beside the favourites toggle', () => {
+    it('offers the books language', () => {
         renderBar();
 
         expect(screen.getByRole('button', { name: /^booksLanguage:/ })).toBeInTheDocument();
@@ -337,7 +307,7 @@ describe('SearchBar books language', () => {
         renderBar();
 
         await userEvent.click(screen.getByRole('button', { name: /^booksLanguage:/ }));
-        await userEvent.click(screen.getByRole('button', { name: 'allLanguages' }));
+        await userEvent.click(await screen.findByRole('button', { name: 'allLanguages' }));
 
         expect(authState.updateLang).toHaveBeenCalledWith('all');
         expect(searchState.setSelectedLanguage).toHaveBeenCalledWith('all');
@@ -354,12 +324,12 @@ describe('SearchBar books language', () => {
 // The scope is read from the route, so any scoped list — author, series,
 // genre, collection, favourites — confines the next title search to itself,
 // and the query rides the URL where a reload can find it.
-describe('SearchBar scoped search', () => {
+describe('The search field scoped search', () => {
     it("searches within an author's list instead of starting over", async () => {
         searchState.searchItem = 'война';
         renderBar('/author/42?page=3');
 
-        await userEvent.click(screen.getByRole('button', { name: 'search' }));
+        await userEvent.type(screen.getByLabelText('searchItem'), '{Enter}');
 
         expect(currentPath).toBe(`/author/42?title=${encodeURIComponent('война')}`);
     });
@@ -368,15 +338,18 @@ describe('SearchBar scoped search', () => {
         searchState.searchItem = 'война';
         renderBar('/books/find/genre/9/2');
 
-        await userEvent.click(screen.getByRole('button', { name: 'search' }));
+        await userEvent.type(screen.getByLabelText('searchItem'), '{Enter}');
 
         expect(currentPath).toBe(`/books/find/genre/9/1?title=${encodeURIComponent('война')}`);
     });
 
     it('shows the scope on a scoped list and nowhere else', () => {
         renderBar('/author/42');
-
         expect(screen.getByText('searchWithinThisAuthor')).toBeInTheDocument();
+
+        cleanup();
+        renderBar('/books/page/1');
+        expect(screen.queryByRole('button', { name: 'searchEverywhere' })).toBeNull();
     });
 
     it('releasing the scope widens the search but keeps the words', async () => {
@@ -404,7 +377,7 @@ describe('SearchBar scoped search', () => {
     });
 });
 
-describe('SearchBar suggestion picks', () => {
+describe('The search field suggestion picks', () => {
     it("navigates to the author's books when an author suggestion is picked", async () => {
         renderBar('/books/page/1');
 
@@ -413,36 +386,89 @@ describe('SearchBar suggestion picks', () => {
         expect(currentPath).toBe('/author/42');
     });
 
-    it('gives the row to the chip on a phone, and keeps the row', () => {
-        // The chip needs the whole width on 360px, so the label yields — but
-        // the row it stood in stays, which is what keeps the card from
-        // growing thirty pixels under the reader.
+    it('keeps the line whether the scope is on or released', async () => {
+        // Releasing must not move the list. The chip changes; the line stays.
         viewport.mobile = true;
-
-        renderBar('/books/page/1');
-        const plain = screen.getByText('searchQuery');
-        const row = plain.parentElement as HTMLElement;
-        expect(row).toBeInTheDocument();
-
-        cleanup();
         renderBar('/books/find/genre/9/1');
-        expect(screen.queryByText('searchQuery')).not.toBeInTheDocument();
-        const chip = screen.getByText('searchWithinThisGenre');
-        // Same row, now holding the chip instead of the label.
-        expect(chip.closest('div')?.className).toContain('min-h-6');
+        expect(screen.getByTestId('list-line')).toHaveTextContent('searchWithinThisGenre');
+
+        await userEvent.click(screen.getByRole('button', { name: 'searchEverywhere' }));
+
+        expect(screen.getByTestId('list-line')).toHaveTextContent('searchWithinThisGenre');
+        expect(screen.getByRole('button', { name: 'searchScopeRestore' })).toBeInTheDocument();
     });
 
-    it('keeps the label row whether or not a scope is showing', () => {
-        // A conditional row is what made the card grow the moment a reader
-        // stepped into a genre. The row stays; only its content changes.
+    it('offers the scope back once released', async () => {
+        renderBar('/books/find/genre/9/1');
+        await userEvent.click(screen.getByRole('button', { name: 'searchEverywhere' }));
+
+        await userEvent.click(screen.getByRole('button', { name: 'searchScopeRestore' }));
+
+        expect(screen.getByTestId('picker-scope')).toHaveTextContent('genre:9');
+    });
+
+    it('keeps a long label reachable', () => {
+        renderBar('/books/find/genre/9/1');
+
+        expect(screen.getByText('searchWithinThisGenre')).toHaveAttribute(
+            'title',
+            'searchWithinThisGenre',
+        );
+    });
+
+    it('asks a confined field for books alone', () => {
+        // Nothing but books can be reached from inside a list, so a name offered
+        // there would lead out of it.
+        renderBar('/books/find/genre/9/1');
+
+        expect(screen.getByTestId('picker-lanes')).toHaveTextContent('title');
+        expect(screen.getByTestId('picker-run')).toHaveTextContent('search.runHere');
+        expect(screen.getByTestId('picker-hint')).toHaveTextContent('search.hintScoped');
+        expect(screen.getByLabelText('searchItem')).toHaveAttribute(
+            'placeholder',
+            'search.placeholderScoped',
+        );
+    });
+
+    it('asks for both lanes once the scope is released', async () => {
+        renderBar('/books/find/genre/9/1');
+
+        await userEvent.click(screen.getByRole('button', { name: 'searchEverywhere' }));
+
+        expect(screen.getByTestId('picker-lanes')).toHaveTextContent('all');
+        expect(screen.getByTestId('picker-run')).toHaveTextContent('search.runBooks');
+        expect(screen.getByLabelText('searchItem')).toHaveAttribute(
+            'placeholder',
+            'search.placeholder',
+        );
+    });
+
+    it('names both lanes and the books on a plain list', () => {
         renderBar('/books/page/1');
-        expect(screen.getByText('searchQuery')).toBeInTheDocument();
+
+        expect(screen.getByTestId('picker-lanes')).toHaveTextContent('all');
+        expect(screen.getByTestId('picker-run')).toHaveTextContent('search.runBooks');
+        expect(screen.getByTestId('picker-hint')).toHaveTextContent('search.hint');
+    });
+
+    it('offers favourites in the empty field to a reader who has them', async () => {
+        renderBar('/books/page/1');
+
+        await userEvent.click(screen.getByRole('button', { name: 'favouritesTab' }));
+
+        expect(currentPath).toBe('/books/favorite/1');
+    });
+
+    it('offers no shelf to a reader without one, or on the shelf itself', () => {
+        favState.favEnabled = false;
+        renderBar('/books/page/1');
+        expect(screen.queryByRole('button', { name: 'favouritesTab' })).toBeNull();
 
         cleanup();
-        renderBar('/books/find/genre/9/1');
-        // Desktop has width for both; the test environment is not mobile.
-        expect(screen.getByText('searchQuery')).toBeInTheDocument();
-        expect(screen.getByText('searchWithinThisGenre')).toBeInTheDocument();
+        favState.favEnabled = true;
+        favState.fav = true;
+        renderBar('/books/favorite/1');
+        expect(screen.queryByRole('button', { name: 'favouritesTab' })).toBeNull();
     });
 
     it('tells the picker which list the reader is in', async () => {
@@ -454,6 +480,15 @@ describe('SearchBar suggestion picks', () => {
         cleanup();
         renderBar('/books/find/genre/9/1');
         expect(screen.getByTestId('picker-scope')).toHaveTextContent('genre:9');
+    });
+
+    it('asks the picker for a curated collection, the list the route shows', () => {
+        // The route's collections are the curated ones, and the list reads them
+        // as curated_collection. The picker asked for `collection`, a reader's
+        // own shelf, and production answered nothing inside any collection.
+        renderBar('/collections/48/page/1');
+
+        expect(screen.getByTestId('picker-scope')).toHaveTextContent('curated:48');
     });
 
     it('widens the picker when the scope is released', async () => {

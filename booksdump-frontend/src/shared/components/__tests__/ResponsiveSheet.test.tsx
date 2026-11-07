@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 
+import ResponsiveSheet from '@/shared/components/ResponsiveSheet';
 import KindleSendConfirm from '@/features/kindle/KindleSendConfirm';
 import KindleSetupDialog from '@/features/kindle/KindleSetupDialog';
 import type { Book } from '@/api/books';
@@ -141,5 +142,29 @@ describe.each([
         for (const author of AUTHORS) expect(body).toHaveTextContent(author);
         expect(within(body).getByTestId('kindle-confirm-address')).toBeInTheDocument();
         expect(within(body).queryByRole('button', { name: 'sendToKindle.confirm' })).toBeNull();
+    });
+});
+
+describe('ResponsiveSheet with its actions in the body', () => {
+    it.each([
+        ['a phone', true],
+        ['a desktop', false],
+    ])('draws no empty footer on %s', (_, phone) => {
+        matches.current = phone;
+        render(
+            <ResponsiveSheet
+                open
+                onOpenChange={() => {}}
+                title="title"
+                description="description"
+                closeLabel="close"
+                data-testid="sheet"
+            >
+                <button type="button">go</button>
+            </ResponsiveSheet>,
+        );
+
+        expect(screen.getByRole('button', { name: 'go' })).toBeInTheDocument();
+        expect(screen.queryByTestId('sheet-footer')).toBeNull();
     });
 });

@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Loader2, User, X } from 'lucide-react';
+import { BookOpen, Loader2, Search, Star, User, X } from 'lucide-react';
 
-import { inputFocusRing, inputFrame } from '@/shared/ui/input';
 import { cn } from '@/shared/lib/utils';
 
 import { autocompleteService, AutocompleteSuggestion, SuggestionScope } from '@/api/autocomplete';
 import { useSearchBar } from '@/context/SearchBarContext';
+import { orderSuggestions } from '@/features/catalogue/suggestionOrder';
 
 /**
  * AutocompleteSearch is a free-text search box that offers suggestions.
@@ -65,6 +65,30 @@ interface AutocompleteSearchProps {
      */
     onClear?: () => void;
     placeholder?: string;
+    /**
+     * Where the search goes, said on a row of its own above the suggestions.
+     * Without it there is no such row.
+     */
+    runTag?: string;
+    /** What the open field says while it is empty. */
+    hint?: string;
+    /** One place to go, offered in the open field while it is empty. */
+    shelf?: { label: string; onPick: () => void };
+    /**
+     * Whether the panel has the phone's screen. It then stays open whatever
+     * there is to show, and its rows take a thumb's height.
+     */
+    taking?: boolean;
+    /** How much of that screen a keyboard covers, in pixels. */
+    keyboard?: number;
+    /** Above everything else in the panel. */
+    top?: React.ReactNode;
+    /** Lets a page send the reader back to this box. */
+    inputRef?: React.RefObject<HTMLInputElement | null>;
+    /** The reader put the caret in the box. */
+    onFocused?: () => void;
+    /** Escape with nothing filled: the reader wants out. */
+    onDismissed?: () => void;
 }
 
 interface Answer {
@@ -98,6 +122,15 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     onSuggestionSelected,
     onClear,
     placeholder,
+    runTag,
+    hint: emptyHint,
+    shelf,
+    taking = false,
+    keyboard = 0,
+    top,
+    inputRef: givenRef,
+    onFocused,
+    onDismissed,
 }) => {
     const { t } = useTranslation();
     const { selectedLanguage } = useSearchBar();
@@ -109,18 +142,22 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
     // the box — at mount, and again on every navigation, which the panel does
     // from an effect rather than at render. Both used to spring the picker
     // open across the results underneath it. Focusing or typing opens it.
-    const [dismissed, setDismissed] = useState(() => value.length > 0);
+    const [dismissed, setDismissed] = useState(true);
     const typed = useRef(value);
     const [highlighted, setHighlighted] = useState(-1);
 
     const abortControllerRef = useRef<AbortController | null>(null);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
-    const inputRef = useRef<HTMLInputElement | null>(null);
+    const ownRef = useRef<HTMLInputElement | null>(null);
+    const inputRef = givenRef ?? ownRef;
 
     const query = value.trim();
     // Anything fetched for a different query is simply not shown.
-    const suggestions = answer.query === query ? answer.items : [];
+    const answered = answer.query === query ? answer.items : [];
+    const suggestions = searchType === 'all' ? orderSuggestions(answered, query) : answered;
+    const listId = useId();
+    const optionId = (index: number) => `${listId}-${index}`;
     const failed = answer.query === query && answer.error;
 
     const fetchSuggestions = useCallback(
@@ -188,6 +225,15 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         [],
     );
 
+    // The caret goes with the takeover, or the keyboard stays up over the page.
+    const wasTaking = useRef(taking);
+    useEffect(() => {
+        if (wasTaking.current && !taking) {
+            inputRef.current?.blur();
+        }
+        wasTaking.current = taking;
+    }, [taking]);
+
     useEffect(() => {
         if (dismissed) return;
         const onPointerDown = (event: MouseEvent) => {
@@ -227,13 +273,16 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
      * second chip squeezed the scope down to its cross.
      */
     const clear = () => {
+        typed.current = '';
         onChange('');
-        setDismissed(true);
         setHighlighted(-1);
         if (onClear) {
+            setDismissed(true);
             onClear();
             return;
         }
+        // Back to what the empty field offers, if it offers anything.
+        setDismissed(!emptyHint && !shelf);
         inputRef.current?.focus();
     };
 
@@ -244,6 +293,19 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
      */
     const asideOf = (suggestion: AutocompleteSuggestion) =>
         suggestion.secondary || suggestion.label;
+
+    /** How much a row stands for: an author's books, a title's editions. */
+    const countOf = (suggestion: AutocompleteSuggestion) => {
+        const count = suggestion.books_count ?? 0;
+        if (suggestion.type === 'author') {
+            return count > 0 ? t('bookCount', { count }) : '';
+        }
+        return count > 1 ? t('editionCount', { count }) : '';
+    };
+
+    const isEmpty = query.length === 0;
+    const onShelf = isEmpty && shelf !== undefined;
+    const optionCount = onShelf ? 1 : suggestions.length;
 
     const pick = (suggestion: AutocompleteSuggestion) => {
         onChange(suggestion.value);
@@ -261,21 +323,34 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         void fetchSuggestions(query, searchType, scope, selectedLanguage);
     };
 
-    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-        const listOpen = !dismissed && suggestions.length > 0;
+    const takeShelf = () => {
+        setDismissed(true);
+        setHighlighted(-1);
+        shelf?.onPick();
+    };
 
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        const listOpen = !dismissed && optionCount > 0;
+
+        // The arrows stop at the ends rather than going round: above the first
+        // row is nothing filled, and Enter there is a search of the words.
         if (event.key === 'ArrowDown' && listOpen) {
             event.preventDefault();
-            setHighlighted((index) => (index + 1) % suggestions.length);
+            setHighlighted((index) => Math.min(index + 1, optionCount - 1));
             return;
         }
         if (event.key === 'ArrowUp' && listOpen) {
             event.preventDefault();
-            setHighlighted((index) => (index <= 0 ? suggestions.length - 1 : index - 1));
+            setHighlighted((index) => Math.max(index - 1, -1));
             return;
         }
         if (event.key === 'Escape') {
+            if (highlighted >= 0) {
+                setHighlighted(-1);
+                return;
+            }
             setDismissed(true);
+            onDismissed?.();
             return;
         }
         if (event.key === 'Enter') {
@@ -283,7 +358,11 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
             // was typed.
             if (listOpen && highlighted >= 0) {
                 event.preventDefault();
-                pick(suggestions[highlighted]);
+                if (onShelf) {
+                    takeShelf();
+                } else {
+                    pick(suggestions[highlighted]);
+                }
                 return;
             }
             setDismissed(true);
@@ -291,8 +370,19 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         }
     };
 
-    const hint = runeLength(query) < MIN_QUERY_LENGTH ? t('typeToSearch') : t('noOptions');
+    const rowClass = cn(
+        'flex w-full items-center gap-2 rounded text-left',
+        taking ? 'min-h-12 px-4 text-[15px]' : 'px-2 py-1.5 text-sm',
+    );
+
+    const run = () => {
+        setDismissed(true);
+        onEnterPressed?.();
+    };
+
     const showList = !dismissed && !disabled && query.length > 0;
+    const showEmpty = !dismissed && !disabled && isEmpty && Boolean(shelf || emptyHint);
+    const open = taking || showList || showEmpty;
     const clearable = value.length > 0 && !disabled;
 
     return (
@@ -310,33 +400,40 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
             */}
             <div
                 className={cn(
-                    inputFrame,
-                    inputFocusRing.replace(/focus-visible:/g, 'focus-within:'),
-                    'flex items-center gap-1.5 py-0',
-                    (clearable || loading) && 'pr-1',
+                    'flex h-10 items-center gap-2 rounded-md bg-chrome-raised pl-2.5 text-chrome-muted',
+                    'focus-within:ring-2 focus-within:ring-chrome-muted min-[601px]:h-9',
+                    !clearable && 'pr-2.5',
                     disabled && 'pointer-events-none cursor-not-allowed opacity-50',
                 )}
             >
+                <Search aria-hidden="true" className="size-4 shrink-0" />
                 <input
                     ref={inputRef}
                     type="text"
                     role="combobox"
-                    aria-expanded={showList}
+                    aria-expanded={open}
                     aria-autocomplete="list"
-                    aria-label={placeholder || t('searchItem')}
+                    aria-controls={open ? listId : undefined}
+                    aria-activedescendant={highlighted >= 0 ? optionId(highlighted) : undefined}
+                    aria-label={t('searchItem')}
                     placeholder={placeholder || t('searchItem')}
+                    autoComplete="off"
+                    enterKeyHint="search"
                     value={value}
                     disabled={disabled}
                     onChange={(event) => handleInput(event.target.value)}
-                    onFocus={() => setDismissed(false)}
+                    onFocus={() => {
+                        setDismissed(false);
+                        onFocused?.();
+                    }}
                     onKeyDown={handleKeyDown}
-                    className="h-full min-w-0 flex-1 bg-transparent text-inherit outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                    className="h-full min-w-0 flex-1 bg-transparent text-base text-chrome-foreground outline-none placeholder:text-chrome-muted placeholder:opacity-100 disabled:cursor-not-allowed min-[601px]:text-sm"
                 />
 
                 {loading && (
                     <Loader2
                         aria-hidden="true"
-                        className="pointer-events-none size-4 shrink-0 animate-spin text-muted-foreground"
+                        className="pointer-events-none size-4 shrink-0 animate-spin"
                     />
                 )}
 
@@ -347,95 +444,171 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                         aria-label={onClear ? t('resetSearch') : t('clearSearch')}
                         title={onClear ? t('resetSearch') : t('clearSearch')}
                         onClick={clear}
-                        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                        className="flex size-10 shrink-0 items-center justify-center rounded-md hover:text-chrome-foreground min-[601px]:size-9"
                     >
                         <X className="size-4" />
                     </button>
                 )}
             </div>
 
-            {showList && (
-                <ul
-                    role="listbox"
+            {open && (
+                <div
+                    style={taking ? { paddingBottom: keyboard } : undefined}
                     className={cn(
-                        // list-none: Tailwind is loaded without preflight here, so
-                        // a bare <li> would still show its marker.
-                        'absolute z-50 mt-1 max-h-72 w-full list-none overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-md',
-                        'scrollbar-thin',
+                        'scrollbar-thin overflow-y-auto bg-popover text-popover-foreground',
+                        taking
+                            ? 'fixed inset-x-0 top-11 bottom-0'
+                            : 'absolute z-50 mt-1.5 max-h-[min(70vh,520px)] w-full min-w-[min(440px,calc(100vw-96px))] rounded-md border border-border p-1 shadow-md',
                     )}
                 >
-                    {suggestions.length === 0 ? (
-                        failed ? (
-                            <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm text-muted-foreground">
-                                <span className="min-w-0 truncate">
-                                    {t('searchSuggestionsError')}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={retry}
-                                    className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-accent"
-                                >
-                                    {t('retry')}
-                                </button>
-                            </li>
-                        ) : (
-                            <li className="px-2 py-1.5 text-sm text-muted-foreground">
-                                {loading ? t('loading') : hint}
-                            </li>
-                        )
-                    ) : (
-                        suggestions.map((suggestion, index) => (
-                            <li key={`${suggestion.type}-${suggestion.value}-${index}`}>
+                    {top}
+                    {showList && runTag !== undefined && (
+                        <button
+                            type="button"
+                            onClick={run}
+                            className={cn(rowClass, 'font-medium hover:bg-accent')}
+                        >
+                            <Search
+                                aria-hidden="true"
+                                className="size-4 shrink-0 text-muted-foreground"
+                            />
+                            <span className="min-w-0 flex-1 truncate">
+                                {t('search.run', { query })}
+                            </span>
+                            <span className="shrink-0 text-xs text-muted-foreground">{runTag}</span>
+                        </button>
+                    )}
+                    {/* list-none: a bare <ul> keeps its marker and its indent. */}
+                    <ul
+                        id={listId}
+                        role="listbox"
+                        aria-label={t('search.suggestions')}
+                        onPointerLeave={(event) => {
+                            if (event.pointerType === 'mouse') setHighlighted(-1);
+                        }}
+                        className="m-0 list-none p-0"
+                    >
+                        {showEmpty && shelf && (
+                            <li>
                                 <button
                                     type="button"
                                     role="option"
-                                    aria-selected={index === highlighted}
-                                    onMouseEnter={() => setHighlighted(index)}
-                                    onClick={() => pick(suggestion)}
+                                    id={optionId(0)}
+                                    aria-selected={highlighted === 0}
+                                    onPointerMove={(event) => {
+                                        if (event.pointerType === 'mouse') setHighlighted(0);
+                                    }}
+                                    onClick={takeShelf}
                                     className={cn(
-                                        'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
-                                        index === highlighted && 'bg-accent text-accent-foreground',
+                                        rowClass,
+                                        highlighted === 0 && 'bg-accent text-accent-foreground',
                                     )}
                                 >
-                                    {suggestion.type === 'author' ? (
-                                        <User
-                                            aria-hidden="true"
-                                            className="size-4 shrink-0 text-muted-foreground"
-                                        />
-                                    ) : (
-                                        <BookOpen
-                                            aria-hidden="true"
-                                            className="size-4 shrink-0 text-muted-foreground"
-                                        />
-                                    )}
-                                    <span className="min-w-0 flex-1 truncate">
-                                        {suggestion.value}
-                                        {asideOf(suggestion) && (
-                                            <span className="ml-1.5 text-xs text-muted-foreground">
-                                                {asideOf(suggestion)}
-                                            </span>
-                                        )}
-                                    </span>
-                                    {/*
-                                      Both kinds say how much is behind the
-                                      row. A title used to say only "Книга",
-                                      once per writer who had used it, so the
-                                      same words filled the picker as if they
-                                      were different choices.
-                                    */}
-                                    <span className="shrink-0 text-xs text-muted-foreground">
-                                        {suggestion.books_count !== undefined &&
-                                        suggestion.books_count > 0
-                                            ? t('bookCount', { count: suggestion.books_count })
-                                            : suggestion.type === 'author'
-                                              ? t('author')
-                                              : t('book')}
-                                    </span>
+                                    <Star
+                                        aria-hidden="true"
+                                        className="size-4 shrink-0 text-muted-foreground"
+                                    />
+                                    {shelf.label}
                                 </button>
                             </li>
-                        ))
+                        )}
+                        {showList &&
+                            (suggestions.length === 0 ? (
+                                failed ? (
+                                    <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm text-muted-foreground">
+                                        <span className="min-w-0 truncate">
+                                            {t('searchSuggestionsError')}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={retry}
+                                            className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-accent"
+                                        >
+                                            {t('retry')}
+                                        </button>
+                                    </li>
+                                ) : !loading && runeLength(query) >= MIN_QUERY_LENGTH ? (
+                                    <li className="px-2 py-1.5 text-sm text-muted-foreground">
+                                        {t('noOptions')}
+                                    </li>
+                                ) : null
+                            ) : (
+                                suggestions.map((suggestion, index) => (
+                                    <li key={`${suggestion.type}-${suggestion.value}-${index}`}>
+                                        <button
+                                            type="button"
+                                            role="option"
+                                            id={optionId(index)}
+                                            aria-selected={index === highlighted}
+                                            onPointerMove={(event) => {
+                                                // The fill means Enter takes this
+                                                // row, and a finger never leaves
+                                                // one behind.
+                                                if (event.pointerType === 'mouse') {
+                                                    setHighlighted(index);
+                                                }
+                                            }}
+                                            onClick={() => pick(suggestion)}
+                                            className={cn(
+                                                rowClass,
+                                                index === highlighted &&
+                                                    'bg-accent text-accent-foreground',
+                                            )}
+                                        >
+                                            {suggestion.type === 'author' ? (
+                                                <User
+                                                    aria-hidden="true"
+                                                    className="size-4 shrink-0 text-muted-foreground"
+                                                />
+                                            ) : (
+                                                <BookOpen
+                                                    aria-hidden="true"
+                                                    className="size-4 shrink-0 text-muted-foreground"
+                                                />
+                                            )}
+                                            <span className="min-w-0 flex-1 truncate">
+                                                {suggestion.value}
+                                                {asideOf(suggestion) && (
+                                                    <span className="ml-1.5 text-xs text-muted-foreground">
+                                                        {asideOf(suggestion)}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            {/*
+                                              Every row names its kind in words,
+                                              since one list holds both now, and
+                                              says how much is behind it. A title
+                                              used to say only "Книга", once per
+                                              writer who had used it, so the same
+                                              words filled the picker as if they
+                                              were different choices.
+                                            */}
+                                            <span className="shrink-0 text-xs text-muted-foreground">
+                                                {suggestion.type === 'author'
+                                                    ? t('author')
+                                                    : t('book')}
+                                            </span>
+                                            {countOf(suggestion) && (
+                                                <span className="shrink-0 text-xs text-muted-foreground">
+                                                    {countOf(suggestion)}
+                                                </span>
+                                            )}
+                                        </button>
+                                    </li>
+                                ))
+                            ))}
+                    </ul>
+                    {showEmpty && emptyHint && (
+                        <p
+                            className={cn(
+                                'm-0 text-sm text-muted-foreground',
+                                taking ? 'p-4 leading-[1.45]' : 'px-2 py-1.5',
+                            )}
+                        >
+                            {emptyHint}
+                        </p>
                     )}
-                </ul>
+                </div>
             )}
         </div>
     );

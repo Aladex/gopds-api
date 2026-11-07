@@ -1,9 +1,11 @@
 import React from 'react';
+import type { Mock } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 
 import AuthorSearch from '@/features/catalogue/AuthorSearch';
+import { PAGE_TURN, scrollToLoadedList } from '@/shared/layout/landOnList';
 import * as booksApi from '@/api/books';
 
 // The page is a stop on the way to a book list: what matters is that it asks
@@ -25,7 +27,10 @@ vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 vi.mock('@/api/books', () => ({ listAuthors: vi.fn() }));
 
-const authState: { user: { books_lang?: string } | null } = { user: { books_lang: 'ru' } };
+const authState: { user: { books_lang?: string } | null; updateLang: Mock } = {
+    user: { books_lang: 'ru' },
+    updateLang: vi.fn(),
+};
 vi.mock('@/context/AuthContext', () => ({ useAuth: () => authState }));
 
 const authorState = {
@@ -33,7 +38,13 @@ const authorState = {
 };
 vi.mock('@/context/AuthorContext', () => ({ useAuthor: () => authorState }));
 
-const searchBarState = { setSearchItem: vi.fn(), clearSelectedSearch: vi.fn() };
+const searchBarState = {
+    setSearchItem: vi.fn(),
+    languages: ['ru'],
+    selectedLanguage: 'ru',
+    setSelectedLanguage: vi.fn(),
+    fieldRef: { current: null as HTMLInputElement | null },
+};
 vi.mock('@/context/SearchBarContext', () => ({ useSearchBar: () => searchBarState }));
 
 // The pager is reduced to the number it was given, so a stale page count is
@@ -43,15 +54,29 @@ vi.mock('@/features/catalogue/BookPagination', () => ({
         totalPages,
         currentPage,
         baseUrl,
+        pending,
     }: {
         totalPages: number;
         currentPage: number;
         baseUrl: string;
+        pending?: boolean;
     }) => (
-        <div data-testid="pager" data-page={currentPage} data-url={baseUrl}>
+        <div
+            data-testid="pager"
+            data-page={currentPage}
+            data-url={baseUrl}
+            data-pending={pending ? 'yes' : 'no'}
+        >
             {totalPages}
         </div>
     ),
+}));
+
+vi.mock('@/shared/layout/landOnList', async () => ({
+    ...(await vi.importActual<typeof import('@/shared/layout/landOnList')>(
+        '@/shared/layout/landOnList',
+    )),
+    scrollToLoadedList: vi.fn(),
 }));
 
 const listAuthors = vi.mocked(booksApi.listAuthors);
@@ -126,6 +151,190 @@ describe('AuthorSearch', () => {
         expect(listAuthors).toHaveBeenCalledWith(expect.objectContaining({ offset: 20 }));
     });
 
+    it('tells the pager when its total belongs to another language', async () => {
+        // A search with pages keeps its pager through the next load, and the
+        // jump sheet must not open on a total that is about to change.
+        const found = {
+            authors: [{ id: 1, full_name: 'Достоевский Федор', books_count: 184 }],
+            length: 3,
+            total: 60,
+        };
+        listAuthors.mockResolvedValue(found);
+        const tree = () => (
+            <MemoryRouter initialEntries={['/search?q=%D0%A2&type=authors']}>
+                <Routes>
+                    <Route path="/search" element={<SearchRoute />} />
+                </Routes>
+            </MemoryRouter>
+        );
+        const view = render(tree());
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.pending).toBe('no'));
+        await waitFor(() => expect(screen.getByTestId('pager')).toHaveTextContent('3'));
+
+        let finish: (value: typeof found) => void = () => {};
+        listAuthors.mockReturnValueOnce(
+            new Promise((resolve) => {
+                finish = resolve;
+            }),
+        );
+        authState.user = { books_lang: 'en' };
+        view.rerender(tree());
+
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.pending).toBe('yes'));
+
+        finish(found);
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.pending).toBe('no'));
+    });
+
+    it('does not call its own total stale while paging through it', async () => {
+        listAuthors.mockResolvedValue({
+            authors: [{ id: 1, full_name: 'Достоевский Федор', books_count: 184 }],
+            length: 3,
+            total: 60,
+        });
+        const Turn: React.FC = () => {
+            const navigate = useNavigate();
+            return (
+                <button
+                    type="button"
+                    onClick={() => navigate('/search?q=%D0%A2&type=authors&page=2')}
+                >
+                    next
+                </button>
+            );
+        };
+        render(
+            <MemoryRouter initialEntries={['/search?q=%D0%A2&type=authors']}>
+                <Turn />
+                <Routes>
+                    <Route path="/search" element={<SearchRoute />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+        await waitFor(() => expect(screen.getByTestId('pager')).toHaveTextContent('3'));
+
+        let finish: (value: never) => void = () => {};
+        listAuthors.mockReturnValueOnce(
+            new Promise((resolve) => {
+                finish = resolve as (value: never) => void;
+            }),
+        );
+        await userEvent.click(screen.getByRole('button', { name: 'next' }));
+
+        await waitFor(() => expect(screen.getByTestId('pager').dataset.page).toBe('2'));
+        expect(screen.getByTestId('pager').dataset.pending).toBe('no');
+        finish({ authors: [], length: 3, total: 60 } as never);
+    });
+
+    describe('with nothing found under a language', () => {
+        beforeEach(() => {
+            listAuthors.mockResolvedValue({ authors: [], length: 0, total: 0 });
+        });
+
+        it('names the language and offers every language', async () => {
+            renderPage();
+
+            expect(await screen.findByText(/^empty\.authors/)).toBeInTheDocument();
+            await userEvent.click(screen.getByRole('button', { name: 'empty.showAll' }));
+
+            expect(authState.updateLang).toHaveBeenCalledWith('all');
+        });
+
+        it('keeps the way to the books', async () => {
+            renderPage();
+
+            expect(
+                await screen.findByRole('link', { name: 'authorSearch.searchBooks' }),
+            ).toBeInTheDocument();
+        });
+
+        it('goes back to the plain answer when every language was searched', async () => {
+            authState.user = { books_lang: 'all' };
+            renderPage();
+
+            expect(await screen.findByText(/^noAuthorsFound/)).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: 'empty.showAll' })).toBeNull();
+        });
+    });
+
+    describe('narrowing down', () => {
+        const many = Array.from({ length: 10 }, (_, index) => ({
+            id: index + 1,
+            full_name: `Автор ${index}`,
+            books_count: 1,
+        }));
+
+        it('puts the reader in the field with the words selected', async () => {
+            const field = document.createElement('input');
+            field.value = 'кинг';
+            document.body.appendChild(field);
+            searchBarState.fieldRef.current = field;
+            listAuthors.mockResolvedValue({ authors: many, length: 30, total: 300 });
+            renderPage('/search?q=%D0%BA%D0%B8%D0%BD%D0%B3&type=authors');
+
+            await userEvent.click(
+                await screen
+                    .findAllByRole('button', { name: /authorSearch\.narrowDown/ })
+                    .then((buttons) => buttons[0]),
+            );
+
+            expect(field).toHaveFocus();
+            expect(field.selectionStart).toBe(0);
+            expect(field.selectionEnd).toBe(4);
+            field.remove();
+            searchBarState.fieldRef.current = null;
+        });
+    });
+
+    describe('landing', () => {
+        const landedOn = () => vi.mocked(scrollToLoadedList).mock.calls.at(-1)?.[0];
+        const Turn: React.FC = () => {
+            const navigate = useNavigate();
+            return (
+                <button
+                    type="button"
+                    onClick={() =>
+                        navigate('/search?q=%D0%A2&type=authors&page=2', { state: PAGE_TURN })
+                    }
+                >
+                    turn
+                </button>
+            );
+        };
+        const tree = () => (
+            <MemoryRouter initialEntries={['/search?q=%D0%A2&type=authors']}>
+                <Turn />
+                <Routes>
+                    <Route path="/search" element={<SearchRoute />} />
+                </Routes>
+            </MemoryRouter>
+        );
+
+        it('lands on the list when the page is turned', async () => {
+            render(tree());
+            await waitFor(() => expect(landedOn()).toBe(false));
+
+            await userEvent.click(screen.getByRole('button', { name: 'turn' }));
+
+            await waitFor(() => expect(landedOn()).toBe(true));
+        });
+
+        it('opens at the top when the language changes on a turned page', async () => {
+            // The location keeps its page-turn state through a language change,
+            // so the state alone would land this new list past the chrome the
+            // reader has just used.
+            const view = render(tree());
+            await userEvent.click(screen.getByRole('button', { name: 'turn' }));
+            await waitFor(() => expect(landedOn()).toBe(true));
+
+            authState.user = { books_lang: 'en' };
+            view.rerender(tree());
+
+            await waitFor(() => expect(listAuthors).toHaveBeenCalledTimes(3));
+            expect(landedOn()).toBe(false);
+        });
+    });
+
     it('hands the pager the search it is paging through', async () => {
         // The pager builds the next address from this; without the query,
         // page two of a search is a search for nothing.
@@ -174,7 +383,7 @@ describe('AuthorSearch', () => {
         listAuthors.mockResolvedValue({ authors: [], length: 0 });
         renderPage();
 
-        expect(await screen.findByText('noAuthorsFound:Толстой')).toBeInTheDocument();
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
     });
 
     it('survives the request failing', async () => {
@@ -182,7 +391,7 @@ describe('AuthorSearch', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         renderPage();
 
-        expect(await screen.findByText('noAuthorsFound:Толстой')).toBeInTheDocument();
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
     });
 
     it('asks for ten authors a page', async () => {
@@ -205,8 +414,6 @@ describe('AuthorSearch', () => {
             'Толстой',
         );
         expect(landing).toHaveTextContent('type=books');
-        // The panel would otherwise keep answering the next search with authors.
-        expect(searchBarState.clearSelectedSearch).toHaveBeenCalled();
     });
 
     it('offers no book search while there are authors', async () => {
@@ -467,7 +674,7 @@ describe('AuthorSearch zero-hit search', () => {
         >);
         await userEvent.click(screen.getByRole('button', { name: 'search-again' }));
 
-        expect(await screen.findByText('noAuthorsFound:zzz')).toBeInTheDocument();
+        expect(await screen.findByText('empty.nothing')).toBeInTheDocument();
         await waitFor(() => expect(screen.queryByRole('link', { name: /Толстой Лев/ })).toBeNull());
         expect(screen.getByTestId('pager')).toHaveTextContent('0');
     });

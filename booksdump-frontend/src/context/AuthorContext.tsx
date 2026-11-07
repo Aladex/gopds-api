@@ -13,7 +13,7 @@ interface AuthorContextType {
     /**
      * The author's name, for saying whose books are being searched. It is only
      * ever a cache: whoever knows the name puts it here — a book card knows it
-     * from the link that was clicked — and the search panel fetches it by id
+     * from the link that was clicked — and the search chip fetches it by id
      * when nobody did, which is what happens on a reload or a pasted URL.
      */
     authorName: string;

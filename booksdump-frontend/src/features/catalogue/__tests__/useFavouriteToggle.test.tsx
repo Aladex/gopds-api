@@ -138,15 +138,16 @@ describe('useFavouriteToggle', () => {
         await waitFor(() => expect(screen.getByTestId('enabled')).toHaveTextContent('true'));
     });
 
-    it('carries the reader off the favourites page when it empties', async () => {
+    it('leaves the reader on the favourites page when it empties', async () => {
         const user = userEvent.setup();
         mockedGetUser.mockResolvedValue({ username: 'reader', have_favs: false } as never);
         renderAt('/books/favorite/1', { id: 7, fav: true } as Book);
 
         await user.click(screen.getByRole('button', { name: 'toggle' }));
 
-        // Staying would leave them looking at an empty list.
-        await waitFor(() => expect(currentPath).toBe('/books/page/1'));
+        // Избранное stays in the row now, and the page says what it is for.
+        await waitFor(() => expect(screen.getByTestId('enabled')).toHaveTextContent('false'));
+        expect(currentPath).toBe('/books/favorite/1');
     });
 
     it('leaves them on the favourites page while any remain', async () => {

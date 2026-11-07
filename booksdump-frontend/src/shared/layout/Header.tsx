@@ -1,286 +1,303 @@
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { HeartHandshake, LogOut, ShieldUser } from 'lucide-react';
+import { ArrowLeft, HeartHandshake, LogOut, User } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/utils';
 
-import * as systemApi from '@/api/system';
+import type * as systemApi from '@/api/system';
 import { useAuth } from '@/context/AuthContext';
+import { booksLanguageApplies } from '@/features/catalogue/addresses';
+import { useCatalogueSearchContext } from '@/features/catalogue/CatalogueSearchContext';
+import HeaderSearchField from '@/features/catalogue/HeaderSearchField';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { activeNavItem, onSurface, useNavItems } from '@/shared/layout/navItems';
-import { useTravellingUnderline } from '@/shared/hooks/useTravellingUnderline';
-import NavUnderline from '@/shared/layout/NavUnderline';
-/*
- * Loaded on demand. The dialog pulls in a QR code generator worth about twenty
- * kilobytes, and most readers never open it — there is no reason for everyone
- * to download it on first paint.
- */
-const DonateModal = React.lazy(() => import('@/shared/layout/DonateModal'));
+import BookLanguage from '@/shared/layout/BookLanguage';
+import { CONTENT_COLUMN, HEADER_WIDE_QUERY, PHONE_QUERY } from '@/shared/layout/breakpoints';
+import { useBarLabel } from '@/shared/layout/useBarLabel';
+import { useChromeScroll } from '@/shared/layout/useChromeScroll';
 import ThemeToggle from '@/shared/layout/ThemeToggle';
 
 type HeaderProps = {
     onOpenProfile?: () => void;
+    onOpenDonate?: () => void;
+    /** Nothing to offer means no pill at all. */
+    donateMethods: systemApi.DonateMethod[];
 };
 
+const iconClass =
+    'flex size-10 flex-none items-center justify-center rounded text-chrome-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-chrome-muted';
+
 /**
- * Header is the application's top bar.
+ * Header is the application's top bar. The sections live in the row under it.
  *
- * It carries the section navigation on a desktop; on a phone that job belongs to
- * the bottom bar, so all that stays up here is the logo, the donate link, the
- * language and the theme — and the bar itself gets out of the way as the reader
- * scrolls down a long list.
+ * On a phone it is two storeys, one dark block. The bar holds the logo, the books
+ * language, the donate pill and the profile, and goes with the page. The band
+ * under it holds the field and docks at the top of the screen, and on the way
+ * back up it brings the pill and the profile with it. Nothing green stands to the
+ * right of the field in its band: it would read as the button that submits it.
+ *
+ * Focusing the field gives it the screen: the bar goes, pill included, the band
+ * takes the top and the suggestions the rest. The input stays the same element
+ * through all of it, or a phone would drop its keyboard.
+ *
+ * It is `display: contents` on a phone so that the band can stick to the page and
+ * not to the header, whose box it would otherwise leave with.
  */
-const Header: React.FC<HeaderProps> = ({ onOpenProfile }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenProfile, onOpenDonate, donateMethods }) => {
     const { logout, user } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
-    const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
-    const [donateMethods, setDonateMethods] = useState<systemApi.DonateMethod[]>([]);
-    const [hiddenByScroll, setHiddenByScroll] = useState(false);
-    const lastScrollYRef = useRef(0);
+    const { restoreWords } = useCatalogueSearchContext();
+    const [taking, setTaking] = useState(false);
 
-    const isMobile = useMediaQuery('(max-width: 600px)');
+    const isPhone = useMediaQuery(PHONE_QUERY);
+    const isWide = useMediaQuery(HEADER_WIDE_QUERY);
+    const { hidden, docked } = useChromeScroll(isPhone);
 
-    // Coming back to the narrow layout brings the bar back. Only the scroll
-    // handler hides it, and it only runs while narrow, so a value left over from
-    // an earlier narrow session would otherwise keep the bar hidden until the
-    // reader happened to scroll.
-    const [wasMobile, setWasMobile] = useState(isMobile);
-    if (wasMobile !== isMobile) {
-        setWasMobile(isMobile);
-        setHiddenByScroll(false);
+    const barRef = useRef<HTMLDivElement | null>(null);
+    const language = booksLanguageApplies(location.pathname);
+    // The pill arrives after the first paint, with the methods, and takes room.
+    const { label, group, rig } = useBarLabel(barRef, `${language}|${donateMethods.length}`);
+
+    // Any arrival somewhere else ends the takeover: a Back from a phone's own
+    // button goes round everything that would have closed it.
+    const [seenKey, setSeenKey] = useState(location.key);
+    if (seenKey !== location.key) {
+        setSeenKey(location.key);
+        setTaking(false);
     }
 
-    const allItems = useNavItems(Boolean(user?.is_superuser));
-    const navItems = onSurface(allItems, 'header');
-    const current = activeNavItem(allItems, location.pathname);
-    /** Shown as an icon on a phone, where the header has no room for the row. */
-    const adminItem = navItems.find((item) => item.id === 'admin');
+    // A rotation past the phone's width takes the band and its arrow away, so it
+    // has to take the takeover and its lock with it.
+    if (taking && !isPhone) {
+        setTaking(false);
+    }
 
-    // One bar that travels between the links; see the hook for why the row has
-    // to be measured rather than styled. The shape covers a language change and
-    // the admin link appearing for a superuser.
-    const {
-        containerRef: navRef,
-        setItemRef,
-        box: underline,
-        placed,
-    } = useTravellingUnderline<HTMLAnchorElement>(
-        current?.id,
-        navItems.map((item) => item.id + item.label).join('|') + String(isMobile),
-    );
+    // The page stays where it was under the panel, and does not scroll with it.
+    useEffect(() => {
+        if (!taking) {
+            return;
+        }
+        const { overflow } = document.body.style;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = overflow;
+        };
+    }, [taking]);
 
     const handleLogout = () => {
         logout();
         navigate('/login');
     };
 
-    // Whether there is anything to offer at all — and, since the answer is the
-    // list itself, the list. It used to keep only whether the list was empty
-    // and let the dialog fetch it again when opened, which meant the dialog
-    // opened as a title with nothing under it and filled in when the second
-    // request landed.
-    useEffect(() => {
-        let cancelled = false;
-        systemApi
-            .getDonateMethods()
-            .then((methods) => {
-                if (!cancelled) setDonateMethods(methods ?? []);
-            })
-            .catch(() => {
-                // Nothing to offer if we cannot find out.
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    /** The arrow out: nothing typed there stands, and the page's own words return. */
+    const closeTakeover = () => {
+        setTaking(false);
+        restoreWords();
+    };
 
-    useEffect(() => {
-        if (!isMobile) {
-            return;
-        }
+    /*
+      Filled rather than lettered, and a pill rather than a bar. The shape says
+      what it is before the colour does: it opens a dialog rather than going
+      anywhere.
 
-        const handleScroll = () => {
-            const currentScrollY = window.scrollY;
-            const previous = lastScrollYRef.current;
-
-            // Near the top the bar always shows; below that it follows the
-            // direction of travel, so reading down a list gives back the space.
-            setHiddenByScroll(currentScrollY >= 50 && currentScrollY > previous);
-
-            lastScrollYRef.current = currentScrollY;
-        };
-
-        window.addEventListener('scroll', handleScroll, { passive: true });
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, [isMobile]);
-
-    const donateButton =
+      No dark: variant, because the header has no light one. It is the chrome
+      colour under both themes — a dark band across a light page or a dark one
+      — so this is the same button either way.
+    */
+    const pillClass = 'rounded-full bg-green-400 font-medium text-green-950 uppercase';
+    const phonePill = (inBand: boolean) =>
         donateMethods.length === 0 ? null : (
             <button
                 type="button"
-                onClick={() => setIsDonateModalOpen(true)}
+                onClick={onOpenDonate}
                 className={cn(
-                    /*
-                      Filled rather than lettered, and a pill rather than a bar.
-                      It sat in the same grey as the section links, at the same
-                      height, immediately after them — so it read as a fourth
-                      section while behaving like none of them: it opens a dialog
-                      rather than going anywhere. The shape says which of the two
-                      it is before the colour does.
-
-                      No dark: variant, because the header has no light one. It
-                      is the chrome colour under both themes — a dark band across a
-                      light page or a dark one — so this is the same button
-                      either way.
-                    */
-                    'flex items-center gap-1.5 rounded-full font-medium uppercase',
-                    'bg-green-400 text-green-950 hover:bg-green-300',
-                    'focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2',
-                    'focus-visible:ring-offset-chrome focus-visible:outline-none',
-                    isMobile ? 'h-8 px-2.5 text-[0.7rem]' : 'h-9 px-3 text-sm',
+                    'group flex h-10 flex-none items-center px-1 outline-none',
+                    inBand && 'max-[359px]:px-0.5',
                 )}
             >
-                <HeartHandshake className={isMobile ? 'size-4' : 'size-5'} />
+                <span
+                    className={cn(
+                        pillClass,
+                        'flex h-8 items-center gap-1.5 px-2.5 text-[0.7rem] group-hover:bg-green-300',
+                        'group-focus-visible:ring-2 group-focus-visible:ring-green-300 group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-chrome',
+                    )}
+                >
+                    <HeartHandshake className={cn('size-4', inBand && 'max-[359px]:hidden')} />
+                    {t('donate', 'Донат')}
+                </span>
+            </button>
+        );
+
+    const logo = (
+        <Link to="/books/page/1" aria-label={t('booksTab')} className={iconClass}>
+            <img src="/logo.png" alt="" className="size-6" />
+        </Link>
+    );
+
+    const profile = (
+        <button
+            type="button"
+            onClick={() => onOpenProfile?.()}
+            aria-label={t('user')}
+            title={t('user')}
+            className={iconClass}
+        >
+            <User className="size-5" />
+        </button>
+    );
+
+    if (isPhone) {
+        const showing = docked && !taking;
+        return (
+            <header className="contents">
+                <div
+                    ref={barRef}
+                    className={cn(
+                        'flex h-10 flex-none items-center bg-chrome text-chrome-foreground',
+                        taking && 'invisible',
+                    )}
+                >
+                    {language ? (
+                        logo
+                    ) : (
+                        <Link
+                            to="/books/page/1"
+                            aria-label={t('booksTab')}
+                            className="flex h-10 flex-none items-center gap-1.5 rounded px-2 outline-none focus-visible:ring-[3px] focus-visible:ring-chrome-muted"
+                        >
+                            <img src="/logo.png" alt="" className="size-6" />
+                            {/* The product's name, not a word to translate. */}
+                            <span className="text-[17px] leading-none font-semibold tracking-[-0.01em]">
+                                booksdump
+                            </span>
+                        </Link>
+                    )}
+                    {language && (
+                        <span
+                            ref={group}
+                            className="relative flex flex-none items-center text-[13px] text-chrome-muted"
+                        >
+                            <span
+                                ref={rig}
+                                aria-hidden="true"
+                                className="pointer-events-none invisible absolute flex whitespace-nowrap"
+                            >
+                                <span>{t('booksLanguageLabel')}</span>
+                                <span>{t('booksLanguageLabelShort')}</span>
+                            </span>
+                            {label !== 'none' && (
+                                <span className="px-px whitespace-nowrap">
+                                    {t(
+                                        label === 'long'
+                                            ? 'booksLanguageLabel'
+                                            : 'booksLanguageLabelShort',
+                                    )}
+                                </span>
+                            )}
+                            <BookLanguage where="bar" className="focus-visible:ring-chrome-muted" />
+                        </span>
+                    )}
+                    <span data-bar-spring="" className="min-w-0 flex-1" />
+                    {phonePill(false)}
+                    {profile}
+                </div>
+                {/* Held open while the band has left the flow, so the page does
+                    not move under the panel. */}
+                {taking && <div aria-hidden="true" className="h-11 flex-none" />}
+                <div
+                    data-testid="search-band"
+                    className={cn(
+                        'z-chrome-top flex h-11 flex-none items-center bg-chrome text-chrome-foreground',
+                        'transition-transform duration-300 motion-reduce:transition-none',
+                        taking ? 'fixed inset-x-0 top-0 pr-2' : 'sticky top-0',
+                        !taking && !showing && 'px-2',
+                        hidden && !taking && '-translate-y-full',
+                    )}
+                >
+                    {taking && (
+                        <button
+                            type="button"
+                            onClick={closeTakeover}
+                            aria-label={t('search.close')}
+                            className={iconClass}
+                        >
+                            <ArrowLeft className="size-5" />
+                        </button>
+                    )}
+                    {showing && logo}
+                    {showing && phonePill(true)}
+                    <HeaderSearchField
+                        className="relative min-w-0 flex-1"
+                        taking={taking}
+                        onTake={() => setTaking(true)}
+                        onDone={() => setTaking(false)}
+                    />
+                    {showing && profile}
+                </div>
+            </header>
+        );
+    }
+
+    const desktopPill =
+        donateMethods.length === 0 ? null : (
+            <button
+                type="button"
+                onClick={onOpenDonate}
+                className={cn(
+                    pillClass,
+                    'flex h-9 flex-none items-center gap-1.5 px-3 text-sm hover:bg-green-300',
+                    'focus-visible:ring-2 focus-visible:ring-green-300 focus-visible:ring-offset-2',
+                    'focus-visible:ring-offset-chrome focus-visible:outline-none',
+                )}
+            >
+                <HeartHandshake className="size-5" />
                 {t('donate', 'Донат')}
             </button>
         );
 
     return (
-        <header
-            className={cn(
-                'w-full bg-chrome text-chrome-foreground',
-                isMobile
-                    ? 'fixed inset-x-0 top-0 z-chrome-top transition-transform duration-300'
-                    : 'static',
-                isMobile && hiddenByScroll && '-translate-y-full',
-            )}
-        >
-            <div className={cn('flex items-center px-4', isMobile ? 'h-12' : 'h-16')}>
-                {isMobile ? (
-                    <div className="flex w-full items-center justify-between">
-                        <Link
-                            to="/books/page/1"
-                            aria-label={t('booksTab')}
-                            className="flex items-center"
-                        >
-                            <img src="/logo.png" alt="" className="size-6" />
-                        </Link>
-                        <div className="flex items-center gap-0.5">
-                            {donateButton}
-                            {/*
-                              The narrow header carries no section links, so the
-                              one section that belongs to this surface and not to
-                              the bar at the foot needs saying here or it cannot
-                              be reached from a phone at all — which is how it
-                              stood between taking it out of the bar and this.
-
-                              Taken from the same list rather than gated on
-                              is_superuser again: it is in that list only for a
-                              superuser, so who sees it stays decided in one
-                              place.
-                            */}
-                            {adminItem && (
-                                <Link
-                                    to={adminItem.path}
-                                    aria-label={adminItem.label}
-                                    title={adminItem.label}
-                                    aria-current={current?.id === 'admin' ? 'page' : undefined}
-                                    className={cn(
-                                        'flex size-8 items-center justify-center rounded',
-                                        current?.id === 'admin'
-                                            ? 'text-chrome-foreground'
-                                            : 'text-chrome-muted hover:text-chrome-foreground',
-                                    )}
-                                >
-                                    <ShieldUser className="size-5" />
-                                </Link>
-                            )}
-                            <ThemeToggle />
-                        </div>
-                    </div>
-                ) : (
-                    <>
-                        {/*
-                          These navigate rather than switch panels, so they are
-                          links marked with aria-current — not tabs, which would
-                          promise tabpanels that do not exist.
-                        */}
-                        <nav
-                            ref={navRef}
-                            aria-label={t('booksTab')}
-                            className="relative flex items-center self-stretch"
-                        >
-                            {navItems.map((item) => (
-                                <Link
-                                    key={item.id}
-                                    to={item.path}
-                                    ref={setItemRef(item.id)}
-                                    aria-current={current?.id === item.id ? 'page' : undefined}
-                                    className={cn(
-                                        // The transparent border stays on every
-                                        // link so the row keeps the height it
-                                        // had when the border was the mark.
-                                        'flex items-center gap-2 self-stretch border-b-2 border-transparent px-4',
-                                        'text-sm font-medium uppercase tracking-wide',
-                                        'transition-colors duration-200 motion-reduce:transition-none',
-                                        current?.id === item.id
-                                            ? 'text-chrome-foreground'
-                                            : 'text-chrome-muted hover:text-chrome-foreground',
-                                    )}
-                                >
-                                    {item.id === 'books' && (
-                                        <img src="/logo.png" alt="" className="size-6" />
-                                    )}
-                                    {item.label}
-                                </Link>
-                            ))}
-                            <NavUnderline
-                                box={underline}
-                                placed={placed}
-                                className="bg-chrome-foreground"
-                            />
-                            <div className="ml-4 flex items-center">{donateButton}</div>
-                        </nav>
-
-                        <div className="flex-1" />
-
-                        <div className="flex items-center gap-1">
-                            <ThemeToggle />
-                            <Button
-                                variant="ghost"
-                                onClick={() => onOpenProfile?.()}
-                                className="text-chrome-foreground hover:bg-chrome-foreground/10 hover:text-chrome-foreground focus-visible:ring-chrome-muted"
-                            >
-                                {user?.username}
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleLogout}
-                                title={t('logout', 'Выход')}
-                                aria-label={t('logout', 'Выход')}
-                                className="text-chrome-foreground hover:bg-chrome-foreground/10 hover:text-chrome-foreground focus-visible:ring-chrome-muted"
-                            >
-                                <LogOut className="size-5" />
-                            </Button>
-                        </div>
-                    </>
-                )}
+        <header className="w-full flex-none bg-chrome px-4 text-chrome-foreground">
+            {/* The band runs the width of the screen; what is on it keeps to the
+                list's column, or a wide monitor sets the logo and the way out a
+                long way either side of the books. */}
+            <div className={cn(CONTENT_COLUMN, 'flex h-16 items-center gap-2')}>
+                <Link
+                    to="/books/page/1"
+                    aria-label={t('booksTab')}
+                    className="flex flex-none items-center"
+                >
+                    <img src="/logo.png" alt="" className="size-7" />
+                </Link>
+                {/* Green beside a field reads as its submit, so the pill goes to
+                    the left of it until the field stops short of the row's end. */}
+                {!isWide && desktopPill}
+                <HeaderSearchField className="relative max-w-[560px] min-w-0 flex-[1_1_560px]" />
+                <div className="flex-1" />
+                {isWide && desktopPill}
+                <div className="flex flex-none items-center gap-1">
+                    <ThemeToggle />
+                    <Button
+                        variant="ghost"
+                        onClick={() => onOpenProfile?.()}
+                        className="max-w-40 min-w-0 text-chrome-foreground hover:bg-chrome-foreground/10 hover:text-chrome-foreground focus-visible:ring-chrome-muted"
+                    >
+                        <span className="truncate">{user?.username}</span>
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleLogout}
+                        title={t('logout', 'Выход')}
+                        aria-label={t('logout', 'Выход')}
+                        className="text-chrome-foreground hover:bg-chrome-foreground/10 hover:text-chrome-foreground focus-visible:ring-chrome-muted"
+                    >
+                        <LogOut className="size-5" />
+                    </Button>
+                </div>
             </div>
-
-            {isDonateModalOpen && (
-                <Suspense fallback={null}>
-                    <DonateModal
-                        open
-                        methods={donateMethods}
-                        onClose={() => setIsDonateModalOpen(false)}
-                    />
-                </Suspense>
-            )}
         </header>
     );
 };

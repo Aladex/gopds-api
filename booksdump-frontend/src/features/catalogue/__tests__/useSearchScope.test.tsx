@@ -189,30 +189,6 @@ describe('useSearchScope', () => {
         expect(scope.active).toBe(true);
     });
 
-    it('puts the panel in the mode the scope belongs to on arrival', () => {
-        const onEnter = vi.fn();
-
-        renderHook(() => useSearchScope(onEnter), {
-            wrapper: ({ children }: { children: React.ReactNode }) => (
-                <MemoryRouter initialEntries={['/books/favorite/1']}>{children}</MemoryRouter>
-            ),
-        });
-
-        expect(onEnter).toHaveBeenCalledTimes(1);
-    });
-
-    it('does not announce an arrival that did not happen', () => {
-        const onEnter = vi.fn();
-
-        renderHook(() => useSearchScope(onEnter), {
-            wrapper: ({ children }: { children: React.ReactNode }) => (
-                <MemoryRouter initialEntries={['/books/page/1']}>{children}</MemoryRouter>
-            ),
-        });
-
-        expect(onEnter).not.toHaveBeenCalled();
-    });
-
     it('names the author from the cache without asking the server', () => {
         authorState.authorId = '42';
         authorState.authorName = 'Пришвин Михаил';

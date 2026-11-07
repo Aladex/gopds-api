@@ -472,7 +472,7 @@ const BookCard: React.FC<BookCardProps> = ({
                         bookTitle={book.title}
                         onGo={(scopeName) => {
                             leaveScope();
-                            // The name is on screen already, so the search panel
+                            // The name is on screen already, so the search chip
                             // need not fetch it to say whose books it is scoped to.
                             setAuthorName(scopeName);
                         }}

@@ -27,15 +27,6 @@ export interface SearchScope {
     reclaim: () => void;
 }
 
-/**
- * Called on arriving in a scoped list, so the panel can put itself in the
- * mode the scope belongs to. A reader who got here by searching for a name is
- * still in "authors by name", and a scope over that means nothing — their
- * next search is almost certainly among the books in front of them, so the
- * panel switches to titles and lets the scope apply.
- */
-type OnEnter = () => void;
-
 interface RouteScope {
     kind: SearchScopeKind;
     id: string;
@@ -43,7 +34,7 @@ interface RouteScope {
 }
 
 // The scope is read from the route rather than held in context, so it
-// survives a reload and a pasted URL. SearchBar lives outside <Routes> and
+// survives a reload and a pasted URL. The search sits above the routes and
 // cannot use useParams, hence plain pathname matching.
 const SCOPED_ROUTES: Array<{ match: RegExp; build: (id: string) => RouteScope }> = [
     {
@@ -149,7 +140,7 @@ export const unsearchedPathFrom = (pathname: string, search: string): string => 
  * may release it, and that decision stands until they cross into another
  * scope — a different list is a fresh decision.
  */
-const useSearchScope = (onEnter?: OnEnter): SearchScope => {
+const useSearchScope = (): SearchScope => {
     const { t } = useTranslation();
     const location = useLocation();
     const { authorId, authorName, setAuthorName } = useAuthor();
@@ -171,25 +162,13 @@ const useSearchScope = (onEnter?: OnEnter): SearchScope => {
     const scopeKey = kind ? `${kind}:${id}` : '';
     const previousKey = useRef('');
 
-    // onEnter is held in a ref so a caller passing a fresh closure on every
-    // render does not re-fire the crossing. It is updated in an effect rather
-    // than during render: a render that never commits would otherwise leave
-    // the ref holding a callback belonging to a state that never existed.
-    const enter = useRef(onEnter);
-    useEffect(() => {
-        enter.current = onEnter;
-    });
-
     useEffect(() => {
         if (previousKey.current === scopeKey) {
             return;
         }
         previousKey.current = scopeKey;
         setReleased(false);
-        if (kind) {
-            enter.current?.();
-        }
-    }, [scopeKey, kind]);
+    }, [scopeKey]);
 
     // The context caches one author name per id, so it is only this scope's
     // name when the cached id is the route's. A cold arrival has neither; the

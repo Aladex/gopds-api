@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/lib/utils';
-import { isPlainClick } from '@/shared/lib/isPlainClick';
 import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
 import * as booksApi from '@/api/books';
 import { pageFromQuery, searchPath } from '@/features/catalogue/addresses';
@@ -13,7 +12,11 @@ import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
 import AuthorCard, { AuthorCardSkeleton } from '@/features/catalogue/AuthorCard';
 import BookPagination from '@/features/catalogue/BookPagination';
+import { LanguageEmpty } from '@/features/catalogue/EmptyList';
+import { useBookLanguage } from '@/features/catalogue/hooks/useBookLanguage';
+import { ALL_LANGUAGES, languageMapping } from '@/shared/lib/languageUtils';
 import { Button } from '@/shared/ui/button';
+import { scrollToLoadedList, usePageTurn } from '@/shared/layout/landOnList';
 
 const PAGE_SIZE = 10;
 /** Past this many, nobody is paging: more of the name is the way through. */
@@ -35,7 +38,7 @@ const cardsOnPage = (total: number | undefined, page: number): number => {
 };
 
 /**
- * AuthorSearch lists the authors matching a name from the search panel.
+ * AuthorSearch lists the authors matching a name from the search field.
  *
  * It is a stop on the way to a book list rather than a destination, and the
  * reader is picking which of several same-named authors they meant. A column of
@@ -64,16 +67,22 @@ const AuthorSearch: React.FC = () => {
     // Which list the total counted: paging keeps it, another search or books
     // language has a total of its own, still on its way.
     const [countedList, setCountedList] = useState('');
-    const { setSearchItem, clearSelectedSearch } = useSearchBar();
+    const { setSearchItem, fieldRef } = useSearchBar();
+    const { choose } = useBookLanguage();
     const { user } = useAuth();
     const { setAuthorName } = useAuthor();
     const list = `${user?.books_lang ?? ''}:${author}`;
+    const turned = usePageTurn();
+    const fetchedList = useRef(list);
 
     useEffect(() => {
         const fetchAuthors = async () => {
             setLoading(true);
             try {
-                window.scrollTo(0, 0);
+                // The location keeps its page-turn state through a language
+                // change, and another language is another list.
+                scrollToLoadedList(turned && fetchedList.current === list);
+                fetchedList.current = list;
                 const responseData = await booksApi.listAuthors({
                     limit: PAGE_SIZE,
                     offset: (page - 1) * PAGE_SIZE,
@@ -107,7 +116,15 @@ const AuthorSearch: React.FC = () => {
         if (author) {
             fetchAuthors().then((r) => r);
         }
-    }, [author, list, location.search, page, user?.books_lang]);
+    }, [author, list, location.search, page, turned, user?.books_lang]);
+
+    const allLanguages = !user?.books_lang || user.books_lang === ALL_LANGUAGES;
+
+    /** Too many to pick from: back to the words, ready to be added to. */
+    const refine = () => {
+        fieldRef.current?.focus();
+        fieldRef.current?.select();
+    };
 
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
     const handleAuthorClick = (fullName: string) => {
@@ -118,7 +135,7 @@ const AuthorSearch: React.FC = () => {
     };
 
     return (
-        <div className="flex min-h-[calc(100vh-200px)] flex-col">
+        <div className="flex min-[601px]:min-h-[calc(100vh-200px)] flex-col">
             {/*
               One column element, holding the rows and the pager together. The
               pager fills its parent and fits its window to what that row
@@ -135,14 +152,18 @@ const AuthorSearch: React.FC = () => {
                         <>
                             <span>{t('authorSearch.total', { count: total })}</span>
                             {(total ?? 0) > TOO_MANY_AUTHORS && isOneWord(author) && (
-                                <span className="min-w-0 truncate opacity-80">
+                                <button
+                                    type="button"
+                                    onClick={refine}
+                                    className="min-w-0 truncate underline decoration-input underline-offset-3 opacity-80"
+                                >
                                     <span className="hidden card:inline">
                                         {t('authorSearch.narrowDown')}
                                     </span>
                                     <span className="card:hidden">
                                         {t('authorSearch.narrowDownShort')}
                                     </span>
-                                </span>
+                                </button>
                             )}
                         </>
                     )}
@@ -155,6 +176,18 @@ const AuthorSearch: React.FC = () => {
                             <AuthorCardSkeleton key={index} />
                         ))}
                     </div>
+                ) : authors.length === 0 && !allLanguages ? (
+                    <LanguageEmpty
+                        body={t('empty.authors', {
+                            query: author,
+                            language: languageMapping[user?.books_lang ?? '']?.name ?? '',
+                        })}
+                        onShowAll={() => choose(ALL_LANGUAGES)}
+                    >
+                        <Button variant="outline" asChild className="h-11 sm:h-11">
+                            <Link to={searchPath(author)}>{t('authorSearch.searchBooks')}</Link>
+                        </Button>
+                    </LanguageEmpty>
                 ) : authors.length === 0 ? (
                     <div className="rounded border border-border bg-card px-5 py-8 text-center">
                         <h3 className="mt-0 mb-1.5 text-[17px] leading-[1.3] font-semibold">
@@ -164,18 +197,7 @@ const AuthorSearch: React.FC = () => {
                             {t('authorSearch.emptyHint')}
                         </p>
                         <Button variant="outline" asChild>
-                            <Link
-                                to={searchPath(author)}
-                                // The panel would stay on authors and answer
-                                // the reader's next search with them.
-                                onClick={(event) => {
-                                    if (isPlainClick(event)) {
-                                        clearSelectedSearch();
-                                    }
-                                }}
-                            >
-                                {t('authorSearch.searchBooks')}
-                            </Link>
+                            <Link to={searchPath(author)}>{t('authorSearch.searchBooks')}</Link>
                         </Button>
                     </div>
                 ) : (
@@ -204,6 +226,7 @@ const AuthorSearch: React.FC = () => {
                             totalPages={totalPages}
                             currentPage={page}
                             baseUrl={location.pathname + location.search}
+                            pending={loading && list !== countedList}
                         />
                     )}
                 </div>

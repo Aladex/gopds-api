@@ -18,6 +18,14 @@ export const isSearchPath = (pathname: string): boolean => SEARCH_ROUTE.test(pat
 
 export const isAuthorPath = (pathname: string): boolean => AUTHOR_ROUTE.test(pathname);
 
+/**
+ * Whether the books language narrows what this address shows. It filters every
+ * list of books and the search for authors. The index of collections takes no
+ * language, and neither does anything that is not a list.
+ */
+export const booksLanguageApplies = (pathname: string): boolean =>
+    /^\/(books\/|author\/|search\/?$|collections\/\d+\/page(\/|$))/.test(pathname);
+
 /** Whether a list at this address keeps its page in the query, not the path. */
 export const pagesInQuery = (pathname: string): boolean =>
     isSearchPath(pathname) || isAuthorPath(pathname);

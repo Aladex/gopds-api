@@ -134,10 +134,16 @@ describe.each([
 });
 
 // Everything that draws a focus ring or an invalid field's ring, as written
-// in the source. The header, footer and bottom bar are dark in both themes,
+// in the source. The header and the footers are dark in both themes,
 // so a ring there is measured on them; every other ring on the page, a card
 // and a popover.
-const CHROME = ['Header.tsx', 'ThemeToggle.tsx', 'BottomNavigation.tsx', 'Footer.tsx'];
+const CHROME = [
+    'Header.tsx',
+    'ThemeToggle.tsx',
+    'Footer.tsx',
+    'PhoneFoot.tsx',
+    'AutocompleteSearch.tsx',
+];
 
 function ringsInSource(): { file: string; variants: string[]; name: string }[] {
     const found: { file: string; variants: string[]; name: string }[] = [];
@@ -175,14 +181,14 @@ describe('focus rings as drawn', () => {
     });
 
     const cases = rings.flatMap((r) => {
-        const chrome = CHROME.some((f) => r.file.endsWith(`layout/${f}`));
+        const chrome = CHROME.some((f) => r.file.endsWith(`/${f}`));
         return themes
             .filter(([theme]) => theme === 'dark' || !r.variants.includes('dark'))
             .flatMap(([theme, t]) =>
                 (chrome
                     ? [
                           ['the header', t['--chrome']],
-                          ['the footer and bottom bar', t['--chrome-raised']],
+                          ['the footer', t['--chrome-raised']],
                       ]
                     : [
                           ['the page', t['--background']],

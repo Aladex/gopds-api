@@ -43,6 +43,7 @@ vi.mock('@/features/kindle/KindleSettings', () => ({
 }));
 vi.mock('@/features/opds/OpdsInfo', () => ({ OpdsConnection: () => <div>opds-connection</div> }));
 vi.mock('@/shared/layout/InterfaceLanguageToggle', () => ({ default: () => null }));
+vi.mock('@/shared/layout/ThemeChoice', () => ({ default: () => null }));
 
 it('opens on the connections tab, with the Kindle settings in it, when asked for them', () => {
     render(<ProfileContent open section="kindle" onClose={vi.fn()} />);
@@ -151,6 +152,16 @@ describe('the connections tab', () => {
 
         await userEvent.click(subTab('profileConnectionTab.kindle'));
         onlyShows('kindle');
+    });
+
+    it('lands on OPDS when asked for it', () => {
+        render(<ProfileContent open section="opds" onClose={vi.fn()} />);
+
+        expect(screen.getByRole('tab', { name: 'profileTab.connections' })).toHaveAttribute(
+            'aria-selected',
+            'true',
+        );
+        onlyShows('opds');
     });
 
     it('remembers the connection last chosen when the profile opens again', async () => {

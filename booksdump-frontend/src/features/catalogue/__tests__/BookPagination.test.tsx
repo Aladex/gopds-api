@@ -1,37 +1,48 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router';
 
 import BookPagination from '@/features/catalogue/BookPagination';
-import { listColumn } from '@/shared/layout/breakpoints';
+import { PHONE_QUERY, listColumn } from '@/shared/layout/breakpoints';
 
 // The pager is how a reader reaches anything past the first ten books, so what
 // matters is that its links are real addresses and that clicking one moves the
 // router rather than reloading the application.
 
 const translate = (key: string, options?: { page?: number }) =>
-    options?.page !== undefined ? `${key}:${options.page}` : key;
-const translation = { t: translate };
+    options?.page !== undefined && key === 'goToPage' ? `${key}:${options.page}` : key;
+const translation = { t: translate, i18n: { language: 'ru' } };
 vi.mock('react-i18next', () => ({ useTranslation: () => translation }));
 
 // The pager's shape depends on the width, so the tests drive it rather than
 // leaving it to whatever jsdom reports.
+// Numbers belong to everything above a phone, so `narrow` here is 601 to 779.
 const viewport = { narrow: false };
+const matches = (query: string) => (query === PHONE_QUERY ? false : viewport.narrow);
 vi.mock('@/shared/hooks/useMediaQuery', () => ({
-    useMediaQuery: () => viewport.narrow,
-    default: () => viewport.narrow,
+    useMediaQuery: (query: string) => matches(query),
+    default: (query: string) => matches(query),
 }));
 
 let currentPath = '';
+let currentState: unknown = null;
 const PathProbe: React.FC = () => {
-    const { pathname } = useLocation();
+    const { pathname, state } = useLocation();
     // Recorded in an effect, not during render: writing to the outside world
     // while rendering is the side effect React asks components not to have.
     React.useEffect(() => {
         currentPath = pathname;
-    }, [pathname]);
+        currentState = state;
+    }, [pathname, state]);
     return null;
+};
+
+/** What Radix asks of a pointer and jsdom does not have. */
+const beforeAllPointers = () => {
+    Element.prototype.setPointerCapture ??= () => {};
+    Element.prototype.releasePointerCapture ??= () => {};
+    Element.prototype.hasPointerCapture ??= () => false;
 };
 
 function renderPager(props: Partial<React.ComponentProps<typeof BookPagination>> = {}) {
@@ -131,12 +142,16 @@ function stubGeometry(sizes: Geometry) {
         if (el.tagName === 'NAV') return sizes.row;
         const slot = el.getAttribute('data-slot') ?? '';
         if (slot.startsWith('pagination-ellipsis')) return sizes.ellipsis;
+        // An ellipsis stands in a button now, which adds no box of its own.
+        if (el.tagName === 'BUTTON') {
+            return el.firstElementChild ? widthOf(el.firstElementChild) : 0;
+        }
         if (el.tagName === 'A') {
             const label = el.getAttribute('aria-label') ?? '';
             // A probe is measured exactly like the cell it stands in for: same
             // typography, same padding, same border, and no minimum of its own
             // — which is what lets it shrink when the type does.
-            const probe = slot === 'pagination-probe';
+            const probe = slot === 'pagination-probe' || slot === 'pagination-pad-probe';
             if (!probe && !label.startsWith('goToPage')) return sizes.arrow;
 
             const glyphs = [...(el.textContent ?? '').trim()];
@@ -245,7 +260,7 @@ function stubResizeObserver() {
      *
      * One callback per observer per round, not one per box. A browser hands
      * its callback the whole batch of entries at once, and a double that calls
-     * it once per due box would run the measurement twelve times on a cold
+     * it once per due box would run the measurement thirteen times on a cold
      * mount while claiming the pager reads twice.
      */
     const deliver = () => {
@@ -393,22 +408,34 @@ describe('BookPagination', () => {
         expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
     });
 
-    it('gives every page cell the width of the longest page number', () => {
-        // Five-digit totals made short numbers airy and long ones cramped: the
-        // air came from the min-width slack, not from a shared grid. All cells
-        // of one pager take the tier of the longest number instead.
+    it('does not stretch a one-digit cell to the last page', () => {
+        // Where nothing can be measured a cell still takes the tier of its own
+        // digits. Sharing the last page's tier held `1` at the width of `47377`.
         renderPager({ totalPages: 47377, currentPage: 23000, baseUrl: '/books/page/23000' });
 
         expect(screen.getByRole('link', { name: 'goToPage:23000' })).toHaveClass('min-w-14');
-        expect(screen.getByRole('link', { name: 'goToPage:1' })).toHaveClass('min-w-14');
+        expect(screen.getByRole('link', { name: 'goToPage:1' })).toHaveClass('min-w-9');
     });
 
-    it('sizes the cell tier by the last page', () => {
+    it('sizes the cell tier by its own number', () => {
         renderPager({ totalPages: 995, currentPage: 500, baseUrl: '/books/page/500' });
         expect(screen.getByRole('link', { name: 'goToPage:500' })).toHaveClass('min-w-10');
+        expect(screen.getByRole('link', { name: 'goToPage:1' })).toHaveClass('min-w-9');
 
         renderPager({ totalPages: 8, currentPage: 4, baseUrl: '/books/page/4' });
         expect(screen.getByRole('link', { name: 'goToPage:4' })).toHaveClass('min-w-9');
+    });
+
+    it('does not animate the arrow the row is fitted against', () => {
+        // The fit reads the arrow's width. shadcn's transition-all animates it
+        // when the text size changes, so the reading is a frame of the animation
+        // and nothing wakes the pager once it ends: measured in Chrome, a text
+        // zoom and back left 13 numbers in a row that had held 15.
+        renderPager({ totalPages: 47377, currentPage: 23000, baseUrl: '/books/page/23000' });
+
+        const arrow = screen.getByRole('link', { name: 'previousPage' });
+        expect(arrow).toHaveClass('transition-colors');
+        expect(arrow).not.toHaveClass('transition-all');
     });
 
     it('lets a long page number grow past the icon square', () => {
@@ -553,10 +580,10 @@ describe('BookPagination', () => {
     it('sizes the cell from what the digits measure, not from a tier', () => {
         // The ladder handed five digits a 56px tier where Chrome measured the
         // text and its padding at 54. A pager's worth of that slack is a page
-        // number's worth of column thrown away, so the shared width is
-        // whatever the widest number actually draws. The geometry here is
-        // stubbed a shade under a whole pixel as well, because a fractional
-        // min-width leaves the widest number short of its own text.
+        // number's worth of column thrown away, so a cell's minimum is whatever
+        // numbers of its length actually draw. The geometry here is stubbed a
+        // shade under a whole pixel as well, because a fractional min-width
+        // leaves the widest number short of its own text.
         const restore = stubGeometry({ row: 1200, cell: 52.2, arrow: 36, ellipsis: 36 });
         try {
             renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
@@ -567,9 +594,9 @@ describe('BookPagination', () => {
             // width that was applied: 56 is the tier having measured itself,
             // 52.2 is a fractional minimum the widest number would wrap under.
             expect(cell.style.minWidth).toBe('53px');
-            // One shared width, active page included: the rhythm has to stay
-            // even whichever page the reader is on.
-            expect(first.style.minWidth).toBe('53px');
+            // The floor, not the last page's width: the one-digit cell that
+            // used to be held at five digits for the sake of a shared grid.
+            expect(first.style.minWidth).toBe('36px');
             // Markup hygiene rather than a behaviour guard: the inline minimum
             // already outranks the tier by cascade priority, so leaving the
             // class on would change nothing a reader could see. It goes anyway
@@ -588,16 +615,17 @@ describe('BookPagination', () => {
     });
 
     it('fills a desktop column instead of stopping at three neighbours', () => {
-        // Measured on the stand at 1440px: 1200px of column, 36px arrows, 54px
-        // cells, 4px gaps. Nineteen elements measure 1150px of that; the old
-        // cap of three siblings stopped at thirteen and left the rest as air.
+        // A 1200px column, 36px arrows, 54px cells for five digits and 2px gaps.
+        // The two first pages cost the 36px floor, so seven siblings measure
+        // 1190px of that; the old cap of three stopped far short and left the
+        // rest as air.
         const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36 });
         try {
             renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
 
-            expect(screen.getByRole('link', { name: 'goToPage:21994' })).toBeInTheDocument();
-            expect(screen.getByRole('link', { name: 'goToPage:22006' })).toBeInTheDocument();
-            expect(screen.queryByRole('link', { name: 'goToPage:21993' })).not.toBeInTheDocument();
+            expect(screen.getByRole('link', { name: 'goToPage:21993' })).toBeInTheDocument();
+            expect(screen.getByRole('link', { name: 'goToPage:22007' })).toBeInTheDocument();
+            expect(screen.queryByRole('link', { name: 'goToPage:21992' })).not.toBeInTheDocument();
         } finally {
             restore();
         }
@@ -623,7 +651,7 @@ describe('BookPagination', () => {
             geometry = stubGeometry({ row: 1200, cell: 80, arrow: 36, ellipsis: 36, gap: 4 });
             observer.fire();
 
-            expect(screen.getAllByRole('link', { name: /goToPage/ })).toHaveLength(11);
+            expect(screen.getAllByRole('link', { name: /goToPage/ })).toHaveLength(13);
             expect(screen.getByRole('link', { name: 'goToPage:22000' })).toHaveStyle({
                 minWidth: '80px',
             });
@@ -666,16 +694,16 @@ describe('BookPagination', () => {
         // The count the comments have been claiming, now counted. The layout
         // effect reads once itself; the observer owes an observation for every
         // box it starts watching and pays them in one batch, as a browser does,
-        // so the callback runs once and the measurement with it. Twelve boxes
-        // are watched here — the nav, ten digit probes and the ellipsis — and
-        // a double that notified per box rather than per batch would make that
-        // twelve readings while the comment said two.
+        // so the callback runs once and the measurement with it. Thirteen boxes
+        // are watched here — the nav, ten digit probes, the empty cell and the
+        // ellipsis — and a double that notified per box rather than per batch
+        // would make that thirteen readings while the comment said two.
         const observer = stubResizeObserver();
         const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
         try {
             renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
 
-            expect(observer.watched()).toHaveLength(12);
+            expect(observer.watched()).toHaveLength(13);
             expect(observer.settle()).toBe(2);
             expect(observer.deliveries()).toBe(1);
         } finally {
@@ -706,12 +734,12 @@ describe('BookPagination', () => {
             geometry();
             geometry = stubGeometry({ row: 1200, cell: 80, arrow: 36, ellipsis: 36, gap: 4 });
 
-            // Two again: the probes grow and the window closes to eleven in
+            // Two again: the probes grow and the window closes to thirteen in
             // answer, and the second round finds nothing left to report.
             // Bounded, not merely "it stopped this time" — settle() throws
             // past eight.
             expect(observer.settle()).toBe(2);
-            expect(screen.getAllByRole('link', { name: /goToPage/ })).toHaveLength(11);
+            expect(screen.getAllByRole('link', { name: /goToPage/ })).toHaveLength(13);
         } finally {
             geometry();
             observer.restore();
@@ -720,7 +748,7 @@ describe('BookPagination', () => {
 
     it('re-fits when the text shrinks back again', () => {
         // The other direction, and the harder one: every numbered cell is held
-        // at the shared minimum, so when the type gets smaller none of them
+        // at its minimum, so when the type gets smaller none of them
         // moves and nothing would wake an observer watching the numbers. The
         // row would keep the larger grid — measured in Chrome, 71px cells for
         // 13px digits that draw 54 — until the reader happened to change page.
@@ -731,7 +759,7 @@ describe('BookPagination', () => {
             // Drained first, or the delivery still owed from mount would do the
             // re-measuring and the shrink would never be what was observed.
             observer.settle();
-            expect(screen.getAllByRole('link', { name: /goToPage/ })).toHaveLength(11);
+            expect(screen.getAllByRole('link', { name: /goToPage/ })).toHaveLength(13);
 
             geometry();
             geometry = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
@@ -768,8 +796,8 @@ describe('BookPagination', () => {
     };
 
     it('does not let the window it chose decide how wide a cell is', () => {
-        // The shared width has to be a property of the type and the catalogue,
-        // not of which pages happen to be on screen — otherwise measuring is a
+        // A cell's width has to be a property of the type and the catalogue, not
+        // of which pages happen to be on screen — otherwise measuring is a
         // feedback loop. Under proportional figures the widest five-digit
         // string is not the last page, 44500, but five of the widest digit:
         // 5 x 8.5 + 16 of padding + 1.3333 of border is 59.83, so 60px.
@@ -830,7 +858,9 @@ describe('BookPagination', () => {
 
             const cell = screen.getByRole('link', { name: 'goToPage:44500' }).style.minWidth;
             expect(cell).toBe('60px');
-            // 128 x 4 + 484 = 996 of the 1064; five siblings would need 1124.
+            // The two first pages now cost the floor rather than five digits,
+            // and the window takes back what that saved: 128 x 4 + 437 = 949 of
+            // the 1064 at four siblings, 1077 at five.
             expect(screen.getAllByRole('link', { name: /goToPage/ })).toHaveLength(13);
 
             // And it stays there: a second run changes nothing.
@@ -839,6 +869,145 @@ describe('BookPagination', () => {
         } finally {
             restore();
             observer.restore();
+        }
+    });
+
+    it('gives numbers of one length one width, and no two lengths the same', () => {
+        // The grid that is left: `40898` must not stand a pixel wider than
+        // `40899` under proportional figures, or the row moves as the reader
+        // pages through it. Width follows the length of the number alone.
+        const restore = stubGeometry({
+            row: 1064,
+            cell: 54,
+            advances: PROPORTIONAL,
+            pad: 16,
+            border: 1.3333,
+            arrow: 36,
+            ellipsis: 36,
+            gap: 4,
+        });
+        try {
+            renderPager({ totalPages: 44500, currentPage: 40903, baseUrl: '/books/page/40903' });
+
+            const widthOf = (page: number) =>
+                screen.getByRole('link', { name: `goToPage:${page}` }).style.minWidth;
+
+            expect(widthOf(40903)).toBe('60px');
+            expect(widthOf(40902)).toBe('60px');
+            expect(widthOf(44500)).toBe('60px');
+            expect(widthOf(1)).toBe('36px');
+        } finally {
+            restore();
+        }
+    });
+
+    it('charges a shorter number its padding as well as its digits', () => {
+        // Padding does not scale with the digits: three of 8px drawn inside 16px
+        // of padding need 40px, not three fifths of the 56px five digits take.
+        const restore = stubGeometry({
+            row: 1200,
+            cell: 56,
+            digit: 8,
+            pad: 16,
+            arrow: 36,
+            ellipsis: 36,
+            gap: 4,
+        });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 500, baseUrl: '/books/page/500' });
+
+            expect(screen.getByRole('link', { name: 'goToPage:500' }).style.minWidth).toBe('40px');
+            expect(screen.getByRole('link', { name: 'goToPage:47377' }).style.minWidth).toBe(
+                '56px',
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('takes the floor of the row it is in', () => {
+        // 601 to 779 keeps its 28px cells, so its floor is a 28px square.
+        const restore = stubGeometry({
+            row: 700,
+            cell: 44,
+            digit: 6,
+            pad: 14,
+            arrow: 28,
+            ellipsis: 20,
+        });
+        viewport.narrow = true;
+        try {
+            renderPager({ totalPages: 47377, currentPage: 3, baseUrl: '/books/page/3' });
+
+            expect(screen.getByRole('link', { name: 'goToPage:1' }).style.minWidth).toBe('28px');
+            expect(screen.getByRole('link', { name: 'goToPage:47377' }).style.minWidth).toBe(
+                '44px',
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('asks the rig for the padding as well as for the digits', () => {
+        // One empty cell: what a number costs before it has any digits. Without
+        // it the widths of the shorter numbers could only be guessed.
+        renderPager({ totalPages: 47377, currentPage: 3, baseUrl: '/books/page/3' });
+
+        const pad = document.querySelector('[data-slot="pagination-pad-probe"]');
+        expect(pad).not.toBeNull();
+        expect(pad).toHaveTextContent('');
+        expect(pad).not.toHaveAttribute('href');
+    });
+
+    it('draws the ellipsis as the box the fit paid for', () => {
+        // The rig's reading is the cost; the button around a rendered ellipsis
+        // must not add to it, or the row measures wider than the fit allowed.
+        const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+            const [first] = screen.getAllByRole('button', { name: 'pager.jumpTitle' });
+            expect(first.getBoundingClientRect().width).toBe(36);
+            const group = screen.getByRole('link', { name: 'goToPage:22000' }).parentElement;
+            expect(group?.getBoundingClientRect().width).toBeLessThanOrEqual(1200 - 2 * (36 + 8));
+        } finally {
+            restore();
+        }
+    });
+
+    it('opens the jump sheet from an ellipsis, in place of a page it stands for', async () => {
+        beforeAllPointers();
+        const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+            const [first] = screen.getAllByRole('button', { name: 'pager.jumpTitle' });
+            await userEvent.click(first);
+
+            const sheet = await screen.findByRole('dialog');
+            await userEvent.type(within(sheet).getByRole('textbox'), '99999{Enter}');
+
+            expect(currentPath).toBe('/books/page/47377');
+        } finally {
+            restore();
+        }
+    });
+
+    it('does not make a desktop jump a page turn', async () => {
+        // Landing under the header is a phone's: a static header would scroll away.
+        beforeAllPointers();
+        const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
+        try {
+            renderPager({ totalPages: 47377, currentPage: 22000, baseUrl: '/books/page/22000' });
+
+            const [first] = screen.getAllByRole('button', { name: 'pager.jumpTitle' });
+            await userEvent.click(first);
+            const sheet = await screen.findByRole('dialog');
+            await userEvent.type(within(sheet).getByRole('textbox'), '7{Enter}');
+
+            expect(currentState).toBeNull();
+        } finally {
+            restore();
         }
     });
 
@@ -863,10 +1032,11 @@ describe('BookPagination', () => {
 
     it('spreads to the column edges as soon as the window hides a page', () => {
         // One page more than the row can hold, and the window starts standing
-        // pages in — which is when the arrows have somewhere to be.
+        // pages in — which is when the arrows have somewhere to be. Nine pages
+        // cost the 36px floor and the rest 54, so twenty-two fit and this does not.
         const restore = stubGeometry({ row: 1200, cell: 54, arrow: 36, ellipsis: 36, gap: 4 });
         try {
-            renderPager({ totalPages: 20, currentPage: 10, baseUrl: '/books/page/10' });
+            renderPager({ totalPages: 23, currentPage: 10, baseUrl: '/books/page/10' });
 
             expect(document.querySelector('[data-slot="pagination-ellipsis"]')).not.toBeNull();
             expect(screen.getByRole('list')).toHaveClass('w-full', 'justify-between');

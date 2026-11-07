@@ -12,8 +12,12 @@ import {
 import { cn } from '@/shared/lib/utils';
 
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
-import { LIST_COLUMN_ATTR, LIST_COLUMN_SELECTOR } from '@/shared/layout/breakpoints';
+import { LIST_COLUMN_ATTR, LIST_COLUMN_SELECTOR, PHONE_QUERY } from '@/shared/layout/breakpoints';
+import JumpSheet from '@/features/catalogue/JumpSheet';
+import PhonePager from '@/features/catalogue/PhonePager';
 import {
+    cellWidth,
+    cellWidths,
     fitSiblingCount,
     pageHref,
     paginationRange,
@@ -26,24 +30,27 @@ const BREATHING = 8;
 /** Every digit a page number can be made of. */
 const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
+/** The least a numbered cell may be: as wide as its row is tall, near enough. */
+const CELL_FLOOR = 36;
+const NARROW_CELL_FLOOR = 28;
+
 /**
- * measureCellWidth asks how wide the widest page number the pager could ever
- * show would draw — not the widest one it happens to be showing.
+ * measureCells asks how wide a number of each length could ever draw — not how
+ * wide the ones on screen happen to be.
  *
  * The difference is the whole of the fixed point. Reading the rendered cells
- * makes the shared width a function of the window, and the window is a
- * function of the shared width, so the two can chase each other: driven with
- * proportional advances, a 44 500-page list at page 40 903 in a 1064px row
- * settled nowhere. Four siblings read a 56px cell and fit five; the
- * five-sibling window admits page 40 898 — two of the widest digit where
- * 40 899 has one — which reads 57px and fits only four; dropping it returns
- * the reading to 56px. The reader sees a row flickering between nine and
- * eleven numbers.
+ * makes the widths a function of the window, and the window is a function of
+ * the widths, so the two can chase each other: driven with proportional
+ * advances, a 44 500-page list at page 40 903 in a 1064px row settled nowhere.
+ * Four siblings read a 56px cell and fit five; the five-sibling window admits
+ * page 40 898 — two of the widest digit where 40 899 has one — which reads 57px
+ * and fits only four; dropping it returns the reading to 56px. The reader sees
+ * a row flickering between nine and eleven numbers.
  *
- * So the answer comes from a rig of probes instead, one per digit, each
- * holding as many copies of that digit as the last page has. None of them is a
- * page; all of them are boxes a page could need, and which one is widest does
- * not depend on where the reader is.
+ * So the answer comes from a rig of probes instead, one per digit, each holding
+ * as many copies of that digit as the last page has, and one holding none, which
+ * is the padding. None of them is a page; all of them are boxes a page could
+ * need, and which one is widest does not depend on where the reader is.
  *
  * This is not a precaution against a font nobody has. Measured in Chrome on
  * the stand, with the cells' computed font-variant-numeric reading
@@ -55,15 +62,18 @@ const DIGITS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
  * at most a pixel or two, which costs a sibling and never an overflow — the
  * same trade the ellipsis already makes.
  */
-function measureCellWidth(rig: HTMLElement): number {
+function measureCells(rig: HTMLElement, digits: number, floor: number): number[] {
     const probes = [...rig.querySelectorAll<HTMLElement>('[data-slot="pagination-probe"]')];
     if (probes.length === 0) {
-        return 0;
+        return [];
     }
     const widest = Math.max(...probes.map((probe) => probe.getBoundingClientRect().width));
-    // Rounded up to a whole pixel: a fractional min-width leaves the widest
-    // number a hair short of its own text and wraps it.
-    return widest > 0 ? Math.ceil(widest) : 0;
+    if (widest <= 0) {
+        return [];
+    }
+    const pad =
+        rig.querySelector('[data-slot="pagination-pad-probe"]')?.getBoundingClientRect().width ?? 0;
+    return cellWidths({ pad, widest, digits, floor });
 }
 
 /**
@@ -84,18 +94,19 @@ function readMetrics(
     nav: HTMLElement,
     group: HTMLElement,
     rig: HTMLElement,
-    cell: number,
+    cells: number[],
 ): PagerMetrics | null {
     const row = nav.getBoundingClientRect().width;
-    if (row <= 0 || cell <= 0) {
+    if (row <= 0 || cells.length === 0) {
         return null;
     }
-    const arrow = nav.querySelector('a')?.getBoundingClientRect().width ?? cell;
+    const widest = cells[cells.length - 1];
+    const arrow = nav.querySelector('a')?.getBoundingClientRect().width ?? widest;
     const ellipsis =
         rig.querySelector('[data-slot="pagination-ellipsis-probe"]')?.getBoundingClientRect()
-            .width ?? cell;
+            .width ?? widest;
     const gap = parseFloat(getComputedStyle(group).columnGap) || 0;
-    return { row, arrow, cell, ellipsis, gap, breathing: BREATHING };
+    return { row, arrow, cells, ellipsis, gap, breathing: BREATHING };
 }
 
 interface PaginationProps {
@@ -103,17 +114,18 @@ interface PaginationProps {
     currentPage: number;
     /** Where the reader is, query string included — it carries the search. */
     baseUrl: string;
+    /** The total belongs to another list and a new one is on its way. */
+    pending?: boolean;
 }
 
 /**
  * pageCellMinWidth is what a pager falls back on where nothing can be measured
  * — jsdom, and any viewport that reports zero-width boxes.
  *
- * It sizes every numbered cell by the digit count of the last page, so the
- * rhythm stays even whether the reader is on page 7 or 44557 and the active
- * tile keeps one size. A tier is necessarily wider than the text it was chosen
- * for; where there is a layout to read, measureCellWidth replaces it with what
- * the digits actually draw.
+ * It sizes a numbered cell by its own digits, so numbers of one length keep one
+ * size and `1` does not stand as wide as the last page. A tier is necessarily
+ * wider than the text it was chosen for; where there is a layout to read,
+ * measureCells replaces it with what the digits actually draw.
  */
 function pageCellMinWidth(digits: number, narrow: boolean): string {
     if (narrow) {
@@ -131,17 +143,24 @@ function pageCellMinWidth(digits: number, narrow: boolean): string {
 }
 
 /**
- * BookPagination pages through a list route.
+ * NumberedPager pages through a list route on anything wider than a phone.
  *
  * Every page is a real link, so a reader can open one in a new tab or copy its
  * address; the click handler only takes over to keep navigation client-side.
  */
-const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, baseUrl }) => {
+const NumberedPager: React.FC<PaginationProps> = ({
+    totalPages,
+    currentPage,
+    baseUrl,
+    pending = false,
+}) => {
     const navigate = useNavigate();
     const { t } = useTranslation();
+    const [jumping, setJumping] = React.useState(false);
 
     // A narrow screen has no room for seven pages either side, and long page
-    // numbers make wide cells, so how many neighbours fit depends on both.
+    // numbers make wide cells, so how many neighbours fit depends on both. This
+    // is 601 to 779 now: a phone has a pager of its own.
     const isNarrow = useMediaQuery('(max-width: 779px)');
     const digits = String(totalPages).length;
     const compact = digits >= 4;
@@ -156,7 +175,7 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
     // Both answers land in one piece of state because they are one answer: the
     // cell width decides how many cells fit, and setting them apart would
     // render a window fitted to a width it is not being drawn at.
-    const [fitted, setFitted] = React.useState<{ siblings: number; cell: number } | null>(null);
+    const [fitted, setFitted] = React.useState<{ siblings: number; cells: number[] } | null>(null);
     const navRef = React.useRef<HTMLElement | null>(null);
     const groupRef = React.useRef<HTMLLIElement | null>(null);
     const rigRef = React.useRef<HTMLSpanElement | null>(null);
@@ -169,8 +188,8 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
             return;
         }
         const measure = () => {
-            const cell = measureCellWidth(rig);
-            const metrics = readMetrics(nav, group, rig, cell);
+            const cells = measureCells(rig, digits, isNarrow ? NARROW_CELL_FLOOR : CELL_FLOOR);
+            const metrics = readMetrics(nav, group, rig, cells);
             // Leave the fallback in place rather than fitting to a zero-width
             // row: a hidden pager would come back showing one page number.
             if (!metrics) {
@@ -180,9 +199,9 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
             // Only on a real change, so a redundant callback costs a render
             // rather than starting one.
             setFitted((previous) =>
-                previous?.siblings === siblings && previous.cell === cell
+                previous?.siblings === siblings && previous.cells.join() === cells.join()
                     ? previous
-                    : { siblings, cell },
+                    : { siblings, cells },
             );
         };
         // Read once here and then whenever something it depends on moves. A
@@ -195,8 +214,8 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
         const observer = new ResizeObserver(measure);
         // Two things are watched, and neither of them is anything this state
         // resizes. The nav is the column the row has to fit inside. The probes
-        // are the type: they carry no shared minimum, so unlike the numbered
-        // cells they are free to get smaller as well as larger, and a text
+        // are the type: they carry no minimum, so unlike the numbered cells
+        // they are free to get smaller as well as larger, and a text
         // zoom, a minimum-font-size setting or a webfont arriving late moves
         // them in both directions.
         //
@@ -207,7 +226,7 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
         observer.observe(nav);
         [...rig.children].forEach((probe) => observer.observe(probe));
         return () => observer.disconnect();
-    }, [boundaryCount, currentPage, totalPages]);
+    }, [boundaryCount, currentPage, digits, isNarrow, totalPages]);
 
     // Development only, and compiled out of a production build: the pager
     // fills its parent and fits its window to what that row measures, so a
@@ -243,7 +262,6 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
 
     const siblingCount = fitted?.siblings ?? (isNarrow ? (compact ? 0 : 1) : compact ? 2 : 3);
     const items = paginationRange(currentPage, totalPages, { boundaryCount, siblingCount });
-    const cellMinWidth = pageCellMinWidth(digits, isNarrow);
     // Everything a numbered cell is, apart from which page it is. The sentinel
     // below wears it too, so the box it reports is the box a cell would have.
     const cellClassName = cn(
@@ -292,7 +310,9 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
                     aria-disabled={disabled || undefined}
                     onClick={(event) => (disabled ? event.preventDefault() : go(event, page))}
                     className={cn(
-                        'w-auto min-w-9 px-2',
+                        // Colours only, as on the numbered cells: the fit reads
+                        // this width, and an animated one is a stale reading.
+                        'w-auto min-w-9 px-2 transition-colors',
                         isNarrow && 'h-7 min-w-7 px-1.5',
                         disabled && 'pointer-events-none opacity-40',
                     )}
@@ -304,142 +324,182 @@ const BookPagination: React.FC<PaginationProps> = ({ totalPages, currentPage, ba
     };
 
     return (
-        <Pagination ref={navRef}>
-            {/*
-             * When the window hides pages the row spans the whole column and
-             * the arrows sit on its ends, level with the edges of the cards
-             * above. The numbers stay together in the middle: justify-between
-             * centres them because both arrows are the same width. A desktop
-             * used to keep the row content-width even then, which put the
-             * arrows a couple of hundred pixels inside the cards with nothing
-             * but air on either side.
-             *
-             * A short catalogue is the other way round. Nothing is hidden, so
-             * there is nothing for the arrows to be at the far end of, and the
-             * row takes its content width and centres — the nav around it is
-             * already justify-center.
-             */}
-            <PaginationContent
-                className={cn(elides && 'w-full justify-between', isNarrow && 'gap-0.5')}
-            >
-                {step(currentPage - 1, t('previousPage'), <span aria-hidden="true">‹</span>)}
-
-                <PaginationItem
-                    ref={groupRef}
-                    className={cn('relative flex items-center gap-1', isNarrow && 'gap-0.5')}
+        <>
+            <Pagination ref={navRef}>
+                {/*
+                 * When the window hides pages the row spans the whole column and
+                 * the arrows sit on its ends, level with the edges of the cards
+                 * above. The numbers stay together in the middle: justify-between
+                 * centres them because both arrows are the same width. A desktop
+                 * used to keep the row content-width even then, which put the
+                 * arrows a couple of hundred pixels inside the cards with nothing
+                 * but air on either side.
+                 *
+                 * A short catalogue is the other way round. Nothing is hidden, so
+                 * there is nothing for the arrows to be at the far end of, and the
+                 * row takes its content width and centres — the nav around it is
+                 * already justify-center.
+                 */}
+                <PaginationContent
+                    className={cn(elides && 'w-full justify-between', isNarrow && 'gap-0.5')}
                 >
-                    {/*
-                     * The measuring rig: one box per digit, each holding as
-                     * many copies of that digit as the last page has, plus one
-                     * ellipsis. It is what the pager measures itself against,
-                     * and nothing in it depends on which pages are on screen —
-                     * that independence is what makes the fitted answer a fixed
-                     * point rather than one half of a feedback loop.
-                     *
-                     * These are also the only boxes in the row free to get
-                     * *smaller*: every numbered cell is held at the fitted
-                     * width, so when the type shrinks nothing else moves and an
-                     * observer would never wake. Measured in Chrome, the grid
-                     * stayed at 71px cells for 13px digits that draw 54.
-                     *
-                     * Out of flow, out of the accessibility tree and with no
-                     * href, so nothing reads them and nothing can tab to them.
-                     */}
-                    <span
-                        ref={rigRef}
-                        aria-hidden="true"
-                        className="pointer-events-none absolute top-0 left-0 -z-10 flex opacity-0"
+                    {step(currentPage - 1, t('previousPage'), <span aria-hidden="true">‹</span>)}
+
+                    <PaginationItem
+                        ref={groupRef}
+                        className={cn('relative flex items-center gap-1', isNarrow && 'gap-0.5')}
                     >
-                        {DIGITS.map((digit) => (
+                        {/*
+                         * The measuring rig: one box per digit, each holding as
+                         * many copies of that digit as the last page has, plus one
+                         * ellipsis. It is what the pager measures itself against,
+                         * and nothing in it depends on which pages are on screen —
+                         * that independence is what makes the fitted answer a fixed
+                         * point rather than one half of a feedback loop.
+                         *
+                         * These are also the only boxes in the row free to get
+                         * *smaller*: every numbered cell is held at its fitted
+                         * width, so when the type shrinks nothing else moves and an
+                         * observer would never wake. Measured in Chrome, the grid
+                         * stayed at 71px cells for 13px digits that draw 54.
+                         *
+                         * Out of flow, out of the accessibility tree and with no
+                         * href, so nothing reads them and nothing can tab to them.
+                         */}
+                        <span
+                            ref={rigRef}
+                            aria-hidden="true"
+                            className="pointer-events-none absolute top-0 left-0 -z-10 flex opacity-0"
+                        >
+                            {DIGITS.map((digit) => (
+                                <PaginationLink
+                                    key={digit}
+                                    tabIndex={-1}
+                                    data-slot="pagination-probe"
+                                    size={null}
+                                    className={cellClassName}
+                                >
+                                    {digit.repeat(digits)}
+                                </PaginationLink>
+                            ))}
                             <PaginationLink
-                                key={digit}
                                 tabIndex={-1}
-                                data-slot="pagination-probe"
+                                data-slot="pagination-pad-probe"
                                 size={null}
                                 className={cellClassName}
-                            >
-                                {digit.repeat(digits)}
-                            </PaginationLink>
-                        ))}
-                        <PaginationEllipsis
-                            data-slot="pagination-ellipsis-probe"
-                            className={cn(isNarrow && 'h-7 w-5')}
-                        />
-                    </span>
-                    {items.map((item, index) =>
-                        item === 'ellipsis' ? (
+                            />
                             <PaginationEllipsis
-                                key={`gap-${index}`}
-                                // Nobody taps an ellipsis — it is an
-                                // aria-hidden span holding a 16px glyph. At a
-                                // button's 28px it costs a phone the very page
-                                // neighbours it stands for, so on a phone it
-                                // keeps the height and gives up the width.
+                                data-slot="pagination-ellipsis-probe"
                                 className={cn(isNarrow && 'h-7 w-5')}
                             />
-                        ) : (
-                            <PaginationLink
-                                key={item}
-                                href={href(item)}
-                                isActive={item === currentPage}
-                                aria-label={t('goToPage', { page: item })}
-                                onClick={(event) => go(event, item)}
-                                // size="icon" carries size-10/sm:size-8, which
-                                // beats w-auto in the stylesheet and froze every
-                                // cell at 36px — five digits overflowed the
-                                // button and the active tile. Null skips it; the
-                                // shared min-width below keeps the grid.
-                                size={null}
-                                // An inline declaration outranks the utility
-                                // class below by cascade priority, not by
-                                // being the larger number — so the measured
-                                // width replaces the fallback tier rather than
-                                // competing with it.
-                                style={fitted ? { minWidth: `${fitted.cell}px` } : undefined}
-                                className={cn(
-                                    // tabular-nums is asked for, and it is
-                                    // not always given: measured in Chrome on
-                                    // the stand, the computed value is
-                                    // tabular-nums and the rendered digits are
-                                    // still proportional — five copies of `1`
-                                    // draw 50.61px where five of any other
-                                    // digit draw 53.49. So the request is kept
-                                    // for the platforms that honour it, and
-                                    // nothing above it is allowed to assume
-                                    // that they do.
-                                    cellClassName,
-                                    // Only until there is a measurement: the
-                                    // tier is a floor, and leaving it on would
-                                    // keep a cell from ever being narrower
-                                    // than the tier it was handed.
-                                    !fitted && cellMinWidth,
-                                    // The active page uses shadcn's outline variant,
-                                    // which carries a dark:bg-input/10 of its own.
-                                    // tailwind-merge treats a variant class and a
-                                    // plain one as different properties, so the
-                                    // dark half has to be named explicitly or it
-                                    // survives and wins.
-                                    item === currentPage && [
-                                        // The shared border above is
-                                        // transparent; the active tile spends
-                                        // it on its own colour rather than
-                                        // changing the size of its box.
-                                        'border-primary',
-                                        'bg-primary text-primary-foreground dark:bg-primary',
-                                        'hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary',
-                                    ],
-                                )}
-                            >
-                                {item}
-                            </PaginationLink>
-                        ),
-                    )}
-                </PaginationItem>
+                        </span>
+                        {items.map((item, index) =>
+                            item === 'ellipsis' ? (
+                                <button
+                                    key={`gap-${index}`}
+                                    type="button"
+                                    disabled={pending}
+                                    onClick={() => setJumping(true)}
+                                    aria-label={t('pager.jumpTitle')}
+                                    className={cn(
+                                        'rounded-md outline-none hover:bg-accent',
+                                        'focus-visible:ring-[3px] focus-visible:ring-focus',
+                                    )}
+                                >
+                                    {/* It keeps the box the rig measures, so taking
+                                    the fit's word for what it costs stays true.
+                                    At a button's 28px it would cost a narrow
+                                    row the very page neighbours it stands for,
+                                    so there it keeps the height and gives up
+                                    the width. */}
+                                    <PaginationEllipsis className={cn(isNarrow && 'h-7 w-5')} />
+                                </button>
+                            ) : (
+                                <PaginationLink
+                                    key={item}
+                                    href={href(item)}
+                                    isActive={item === currentPage}
+                                    aria-label={t('goToPage', { page: item })}
+                                    onClick={(event) => go(event, item)}
+                                    // size="icon" carries size-10/sm:size-8, which
+                                    // beats w-auto in the stylesheet and froze every
+                                    // cell at 36px — five digits overflowed the
+                                    // button and the active tile. Null skips it; the
+                                    // min-width below keeps numbers of one length even.
+                                    size={null}
+                                    // An inline declaration outranks the utility
+                                    // class below by cascade priority, not by
+                                    // being the larger number — so the measured
+                                    // width replaces the fallback tier rather than
+                                    // competing with it.
+                                    style={
+                                        fitted
+                                            ? { minWidth: `${cellWidth(item, fitted.cells)}px` }
+                                            : undefined
+                                    }
+                                    className={cn(
+                                        // tabular-nums is asked for, and it is
+                                        // not always given: measured in Chrome on
+                                        // the stand, the computed value is
+                                        // tabular-nums and the rendered digits are
+                                        // still proportional — five copies of `1`
+                                        // draw 50.61px where five of any other
+                                        // digit draw 53.49. So the request is kept
+                                        // for the platforms that honour it, and
+                                        // nothing above it is allowed to assume
+                                        // that they do.
+                                        cellClassName,
+                                        // Only until there is a measurement: the
+                                        // tier is a floor, and leaving it on would
+                                        // keep a cell from ever being narrower
+                                        // than the tier it was handed.
+                                        !fitted && pageCellMinWidth(String(item).length, isNarrow),
+                                        // The active page uses shadcn's outline variant,
+                                        // which carries a dark:bg-input/10 of its own.
+                                        // tailwind-merge treats a variant class and a
+                                        // plain one as different properties, so the
+                                        // dark half has to be named explicitly or it
+                                        // survives and wins.
+                                        item === currentPage && [
+                                            // The shared border above is
+                                            // transparent; the active tile spends
+                                            // it on its own colour rather than
+                                            // changing the size of its box.
+                                            'border-primary',
+                                            'bg-primary text-primary-foreground dark:bg-primary',
+                                            'hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary',
+                                        ],
+                                    )}
+                                >
+                                    {item}
+                                </PaginationLink>
+                            ),
+                        )}
+                    </PaginationItem>
 
-                {step(currentPage + 1, t('nextPage'), <span aria-hidden="true">›</span>)}
-            </PaginationContent>
-        </Pagination>
+                    {step(currentPage + 1, t('nextPage'), <span aria-hidden="true">›</span>)}
+                </PaginationContent>
+            </Pagination>
+            <JumpSheet
+                open={jumping}
+                onOpenChange={setJumping}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onJump={(page) => navigate(href(page))}
+            />
+        </>
     );
+};
+
+/**
+ * BookPagination pages through a list route: numbers where there is room for
+ * them, and on a phone the one row of PhonePager. The switch is the phone's own
+ * 600px and not the 779px the numbers narrow at, so it falls with the rest of a
+ * phone's layout, and none of the measuring above runs on a phone at all.
+ */
+const BookPagination: React.FC<PaginationProps> = (props) => {
+    const isPhone = useMediaQuery(PHONE_QUERY);
+    return isPhone ? <PhonePager {...props} /> : <NumberedPager {...props} />;
 };
 
 export default BookPagination;

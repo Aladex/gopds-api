@@ -5,7 +5,7 @@ import BooksList from '@/features/catalogue/BooksList';
 import TitleSetter from '@/app/TitleSetter';
 import SearchPage from '@/app/routes/SearchPage';
 import OpdsInfo from '@/features/opds/OpdsInfo';
-import LayoutWithSearchBar from '@/app/LayoutWithSearchBar';
+import ListLayout from '@/app/ListLayout';
 import CollectionsList from '@/features/collections/CollectionsList';
 import CollectionView from '@/features/collections/CollectionView';
 
@@ -15,7 +15,7 @@ const privateRoutes = (
             path="/"
             element={
                 <PrivateRoute>
-                    <LayoutWithSearchBar />
+                    <ListLayout />
                 </PrivateRoute>
             }
         >

@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/shared/ui/alert';
 import { thumbURL } from '@/shared/lib/coverUrl';
 import { cn } from '@/shared/lib/utils';
 import { CONTENT_COLUMN, listColumn } from '@/shared/layout/breakpoints';
+import { scrollToLoadedList, usePageTurn } from '@/shared/layout/landOnList';
 import BookPagination from '@/features/catalogue/BookPagination';
 import { CollectionCoverBook, listPublicCollections, PublicCollectionRow } from '@/api/collections';
 
@@ -120,6 +121,7 @@ const CollectionsList: React.FC = () => {
     const [total, setTotal] = useState(0);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [loaded, setLoaded] = useState(false);
+    const turned = usePageTurn();
 
     useEffect(() => {
         let cancelled = false;
@@ -129,7 +131,7 @@ const CollectionsList: React.FC = () => {
                     setRows(data.rows);
                     setTotal(data.total);
                     setLoaded(true);
-                    if (typeof window !== 'undefined') window.scrollTo(0, 0);
+                    if (typeof window !== 'undefined') scrollToLoadedList(turned);
                 }
             })
             .catch((err) => {
@@ -141,7 +143,7 @@ const CollectionsList: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [page]);
+    }, [page, turned]);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -160,11 +162,14 @@ const CollectionsList: React.FC = () => {
     }
 
     return (
-        <div className="min-h-[calc(100vh-160px)] p-4">
+        <div className="min-[601px]:min-h-[calc(100vh-160px)] p-4">
             {/* One column element: the tiles and the pager share it, because the
                 pager fills its parent and fits its window to what that measures. */}
             <div
-                className={cn(CONTENT_COLUMN, 'flex min-h-[calc(100vh-200px)] flex-col')}
+                className={cn(
+                    CONTENT_COLUMN,
+                    'flex min-[601px]:min-h-[calc(100vh-200px)] flex-col',
+                )}
                 {...listColumn}
             >
                 <h1 className="mb-2 text-2xl font-medium">
