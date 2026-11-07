@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import AutocompleteSearch from '@/features/catalogue/AutocompleteSearch';
@@ -389,5 +389,269 @@ describe('AutocompleteSearch', () => {
             />,
         );
         expect(screen.getByRole('combobox')).toHaveValue('');
+    });
+});
+
+describe('AutocompleteSearch as one field for books and authors', () => {
+    const MIXED = [
+        { value: 'Кинг Конг', type: 'book' as const, id: 1, books_count: 3 },
+        { value: 'Кинг', type: 'book' as const, id: 2, books_count: 1 },
+        { value: 'Стивен Кинг', type: 'author' as const, id: 'a', books_count: 778 },
+    ];
+
+    const type = async (props = {}, text = 'кинг') => {
+        const view = setup({ searchType: 'all', ...props });
+        await userEvent.type(view.input, text);
+        return view;
+    };
+    const rows = () => screen.findAllByRole('option');
+
+    beforeEach(() => {
+        getSuggestions.mockResolvedValue(MIXED);
+    });
+
+    it('asks for both lanes', async () => {
+        await type();
+
+        await waitFor(() =>
+            expect(getSuggestions).toHaveBeenCalledWith(
+                'кинг',
+                'all',
+                undefined,
+                'ru',
+                expect.anything(),
+            ),
+        );
+    });
+
+    it('puts the lanes in the mixed order', async () => {
+        await type();
+
+        const first = (await rows())[0];
+        expect(first).toHaveTextContent('Стивен Кинг');
+    });
+
+    it('keeps the server’s order for one lane', async () => {
+        await type({ searchType: 'title' });
+
+        expect((await rows())[0]).toHaveTextContent('Кинг Конг');
+    });
+
+    it('names the kind of every row, and what is behind it', async () => {
+        await type();
+        await rows();
+
+        expect(screen.getByText('author')).toBeInTheDocument();
+        expect(screen.getByText('bookCount')).toBeInTheDocument();
+        expect(screen.getAllByText('book')).toHaveLength(2);
+        expect(screen.getAllByText('editionCount')).toHaveLength(1);
+    });
+
+    it('fills nothing until the reader moves', async () => {
+        const { input } = await type();
+        const options = await rows();
+
+        expect(input).not.toHaveAttribute('aria-activedescendant');
+        for (const option of options) {
+            expect(option).toHaveAttribute('aria-selected', 'false');
+        }
+    });
+
+    it('keeps the fill and the announced row the same one', async () => {
+        const { input } = await type();
+        const options = await rows();
+
+        await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+
+        expect(options[1]).toHaveAttribute('aria-selected', 'true');
+        expect(input).toHaveAttribute('aria-activedescendant', options[1].id);
+    });
+
+    it('walks back off the list, not round it', async () => {
+        const { input } = await type();
+        await rows();
+
+        await userEvent.keyboard('{ArrowDown}{ArrowUp}');
+
+        expect(input).not.toHaveAttribute('aria-activedescendant');
+
+        await userEvent.keyboard('{ArrowUp}');
+        expect(input).not.toHaveAttribute('aria-activedescendant');
+    });
+
+    it('stops at the last row', async () => {
+        const { input } = await type();
+        const options = await rows();
+
+        await userEvent.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}');
+
+        expect(input).toHaveAttribute('aria-activedescendant', options.at(-1)?.id);
+    });
+
+    it('lets go of a filled row on Escape before it lets go of the list', async () => {
+        const { input } = await type();
+        await rows();
+
+        await userEvent.keyboard('{ArrowDown}{Escape}');
+        expect(input).not.toHaveAttribute('aria-activedescendant');
+        expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+        await userEvent.keyboard('{Escape}');
+        expect(screen.queryByRole('listbox')).toBeNull();
+    });
+
+    it('fills a row under a real mouse', async () => {
+        const { input } = await type();
+        const options = await rows();
+
+        fireEvent.pointerMove(options[2], { pointerType: 'mouse' });
+
+        expect(input).toHaveAttribute('aria-activedescendant', options[2].id);
+
+        fireEvent.pointerLeave(screen.getByRole('listbox'), { pointerType: 'mouse' });
+        expect(input).not.toHaveAttribute('aria-activedescendant');
+    });
+
+    it('never leaves a fill behind a finger', async () => {
+        const { input } = await type();
+        const options = await rows();
+
+        fireEvent.pointerMove(options[2], { pointerType: 'touch' });
+
+        expect(input).not.toHaveAttribute('aria-activedescendant');
+    });
+
+    it('takes a filled row on Enter and submits the words without one', async () => {
+        const onSuggestionSelected = vi.fn();
+        const { onEnterPressed } = await type({ onSuggestionSelected });
+        await rows();
+
+        await userEvent.keyboard('{Enter}');
+        expect(onEnterPressed).toHaveBeenCalledTimes(1);
+        expect(onSuggestionSelected).not.toHaveBeenCalled();
+    });
+
+    describe('with a run row', () => {
+        it('offers the search itself, saying where it goes', async () => {
+            await type({ runTag: 'в книгах' });
+            await rows();
+
+            expect(screen.getByRole('button', { name: /search\.run/ })).toHaveTextContent(
+                'в книгах',
+            );
+        });
+
+        it('is the same submit as Enter', async () => {
+            const { onEnterPressed } = await type({ runTag: 'в книгах' });
+
+            await userEvent.click(await screen.findByRole('button', { name: /search\.run/ }));
+
+            expect(onEnterPressed).toHaveBeenCalledTimes(1);
+        });
+
+        it('stands outside the rows the arrows walk', async () => {
+            const { input } = await type({ runTag: 'в книгах' });
+            const options = await rows();
+
+            expect(options.map((option) => option.textContent)).not.toContain('search.run');
+            await userEvent.keyboard('{ArrowDown}');
+
+            expect(input).toHaveAttribute('aria-activedescendant', options[0].id);
+        });
+
+        it('shows from the first letter, ahead of any suggestion', async () => {
+            await type({ runTag: 'в книгах' }, 'к');
+
+            expect(screen.getByRole('button', { name: /search\.run/ })).toBeInTheDocument();
+            expect(screen.queryByText('typeToSearch')).toBeNull();
+            expect(getSuggestions).not.toHaveBeenCalled();
+        });
+
+        it('still reports a failure with a retry', async () => {
+            getSuggestions.mockRejectedValue(new Error('down'));
+            await type({ runTag: 'в книгах' });
+
+            expect(await screen.findByText('searchSuggestionsError')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'retry' })).toBeInTheDocument();
+        });
+
+        it('stays shut over a seeded page, as the list does', () => {
+            setup({ searchType: 'all', runTag: 'в книгах', value: 'кинг' });
+
+            expect(screen.queryByRole('button', { name: /search\.run/ })).toBeNull();
+        });
+    });
+
+    describe('in an empty field', () => {
+        const shelf = { label: 'Избранное', onPick: vi.fn() };
+
+        beforeEach(() => shelf.onPick.mockClear());
+
+        it('shows nothing until it has focus', () => {
+            setup({ searchType: 'all', hint: 'Подсказка', shelf });
+
+            expect(screen.queryByText('Подсказка')).toBeNull();
+        });
+
+        it('offers the shelf and says how to search', async () => {
+            const { input } = setup({ searchType: 'all', hint: 'Подсказка', shelf });
+
+            await userEvent.click(input);
+
+            expect(screen.getByRole('option', { name: 'Избранное' })).toBeInTheDocument();
+            expect(screen.getByText('Подсказка')).toBeInTheDocument();
+        });
+
+        it('lets the arrows reach the shelf and Enter take it', async () => {
+            const { input, onEnterPressed } = setup({ searchType: 'all', shelf });
+
+            await userEvent.click(input);
+            await userEvent.keyboard('{ArrowDown}');
+            expect(input).toHaveAttribute(
+                'aria-activedescendant',
+                screen.getByRole('option', { name: 'Избранное' }).id,
+            );
+
+            await userEvent.keyboard('{Enter}');
+
+            expect(shelf.onPick).toHaveBeenCalledTimes(1);
+            expect(onEnterPressed).not.toHaveBeenCalled();
+        });
+
+        it('goes by the tap too', async () => {
+            const { input } = setup({ searchType: 'all', shelf });
+
+            await userEvent.click(input);
+            await userEvent.click(screen.getByRole('option', { name: 'Избранное' }));
+
+            expect(shelf.onPick).toHaveBeenCalledTimes(1);
+        });
+
+        it('offers no search of nothing', async () => {
+            const { input } = setup({ searchType: 'all', runTag: 'в книгах', shelf });
+
+            await userEvent.click(input);
+
+            expect(screen.queryByRole('button', { name: /search\.run/ })).toBeNull();
+        });
+
+        it('takes the row under the arrows once there are words, not the shelf', async () => {
+            const onSuggestionSelected = vi.fn();
+            await type({ shelf, onSuggestionSelected });
+            await rows();
+
+            await userEvent.keyboard('{ArrowDown}{Enter}');
+
+            expect(onSuggestionSelected).toHaveBeenCalledTimes(1);
+            expect(shelf.onPick).not.toHaveBeenCalled();
+        });
+
+        it('gives way to suggestions once there are words', async () => {
+            await type({ hint: 'Подсказка', shelf });
+            await rows();
+
+            expect(screen.queryByRole('option', { name: 'Избранное' })).toBeNull();
+            expect(screen.queryByText('Подсказка')).toBeNull();
+        });
     });
 });
