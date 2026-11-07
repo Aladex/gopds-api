@@ -40,16 +40,17 @@ const AppSkeleton: React.FC = () => (
             <div className="hidden flex-1 min-[601px]:block" />
         </div>
 
-        {/* The section row. */}
-        <div className="flex h-10 items-center gap-6 border-b border-border bg-card px-4 min-[601px]:h-11">
+        {/* The section row, its bottom border outside the row's own height. */}
+        <div className="flex h-[41px] items-center gap-6 border-b border-border bg-card px-4 min-[601px]:h-[45px]">
             <div className={`h-4 w-14 ${bodyBlock}`} />
             <div className={`h-4 w-20 ${bodyBlock}`} />
             <div className={`h-4 w-20 ${bodyBlock}`} />
         </div>
 
         {/* The catalogue is the first screen after loading, so it is what the
-            placeholder draws — the same card frame SkeletonCard uses. */}
-        <div className="flex flex-col px-4 pt-2 pb-4">
+            placeholder draws — the same card frame SkeletonCard uses. The top is
+            the room ListLine takes: 8px on a phone, 40px from 601 up. */}
+        <div data-testid="skeleton-list" className="flex flex-col px-4 pt-2 pb-4 min-[601px]:pt-10">
             {Array.from({ length: CARD_COUNT }).map((_, index) => (
                 <div key={index} className="mx-auto w-full max-w-[1200px] py-1.5">
                     <div className="rounded border border-border bg-card p-4">
