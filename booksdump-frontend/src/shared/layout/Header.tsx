@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, HeartHandshake, LogOut, User } from 'lucide-react';
@@ -16,16 +16,11 @@ import BookLanguage from '@/shared/layout/BookLanguage';
 import { CONTENT_COLUMN, HEADER_WIDE_QUERY, PHONE_QUERY } from '@/shared/layout/breakpoints';
 import { useBarLabel } from '@/shared/layout/useBarLabel';
 import { useChromeScroll } from '@/shared/layout/useChromeScroll';
-/*
- * Loaded on demand. The dialog pulls in a QR code generator worth about twenty
- * kilobytes, and most readers never open it — there is no reason for everyone
- * to download it on first paint.
- */
-const DonateModal = React.lazy(() => import('@/shared/layout/DonateModal'));
 import ThemeToggle from '@/shared/layout/ThemeToggle';
 
 type HeaderProps = {
     onOpenProfile?: () => void;
+    onOpenDonate?: () => void;
     /** Nothing to offer means no pill at all. */
     donateMethods: systemApi.DonateMethod[];
 };
@@ -49,13 +44,12 @@ const iconClass =
  * It is `display: contents` on a phone so that the band can stick to the page and
  * not to the header, whose box it would otherwise leave with.
  */
-const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenProfile, onOpenDonate, donateMethods }) => {
     const { logout, user } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const { t } = useTranslation();
     const { restoreWords } = useCatalogueSearchContext();
-    const [isDonateModalOpen, setIsDonateModalOpen] = useState(false);
     const [taking, setTaking] = useState(false);
 
     const isPhone = useMediaQuery(PHONE_QUERY);
@@ -104,8 +98,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
         restoreWords();
     };
 
-    const openDonate = () => setIsDonateModalOpen(true);
-
     /*
       Filled rather than lettered, and a pill rather than a bar. The shape says
       what it is before the colour does: it opens a dialog rather than going
@@ -120,7 +112,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
         donateMethods.length === 0 ? null : (
             <button
                 type="button"
-                onClick={openDonate}
+                onClick={onOpenDonate}
                 className={cn(
                     'group flex h-10 flex-none items-center px-1 outline-none',
                     inBand && 'max-[359px]:px-0.5',
@@ -155,12 +147,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
         >
             <User className="size-5" />
         </button>
-    );
-
-    const donateModal = isDonateModalOpen && (
-        <Suspense fallback={null}>
-            <DonateModal open methods={donateMethods} onClose={() => setIsDonateModalOpen(false)} />
-        </Suspense>
     );
 
     if (isPhone) {
@@ -251,7 +237,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
                     />
                     {showing && profile}
                 </div>
-                {donateModal}
             </header>
         );
     }
@@ -260,7 +245,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
         donateMethods.length === 0 ? null : (
             <button
                 type="button"
-                onClick={openDonate}
+                onClick={onOpenDonate}
                 className={cn(
                     pillClass,
                     'flex h-9 flex-none items-center gap-1.5 px-3 text-sm hover:bg-green-300',
@@ -313,7 +298,6 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
                     </Button>
                 </div>
             </div>
-            {donateModal}
         </header>
     );
 };

@@ -2,9 +2,6 @@ import { http } from '@/api/http';
 
 /** Application-level endpoints that belong to no particular resource. */
 
-/** getStatus returns the running application version. */
-export const getStatus = () => http.get<{ result: string }>('/status');
-
 /**
  * How the service asks to be supported. The list comes from the operator's
  * configuration, so an installation that has not set any offers none — the

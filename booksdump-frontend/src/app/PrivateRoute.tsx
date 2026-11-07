@@ -1,11 +1,10 @@
 // src/components/PrivateRoute.tsx
-import React, { memo, useEffect, useState } from 'react';
+import React, { Suspense, memo, useEffect, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router';
 
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/shared/layout/Header';
 import Footer from '@/shared/layout/Footer';
-import PhoneFoot from '@/shared/layout/PhoneFoot';
 import SectionRow from '@/shared/layout/SectionRow';
 import ProfileDrawer from '@/features/profile/ProfileDrawer';
 import ProfileDialog from '@/features/profile/ProfileDialog';
@@ -17,6 +16,13 @@ import { useDonateMethods } from '@/shared/hooks/useDonateMethods';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { PHONE_QUERY } from '@/shared/layout/breakpoints';
 
+/**
+ * Loaded on demand. The dialog pulls in a QR code generator worth about twenty
+ * kilobytes, and most readers never open it — there is no reason for everyone
+ * to download it on first paint.
+ */
+const DonateModal = React.lazy(() => import('@/shared/layout/DonateModal'));
+
 const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boolean }> = memo(
     ({ children, requireSuperuser = false }) => {
         const { isAuthenticated, user, isLoaded, isLoading } = useAuth();
@@ -24,6 +30,8 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
         const donateMethods = useDonateMethods(isAuthenticated);
         const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
         const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
+        // The header's pill and the footer's sentence open the same dialog.
+        const [isDonateOpen, setIsDonateOpen] = useState(false);
         // Where the profile should open, when a page asked for a particular
         // part of it rather than the profile as such.
         const [profileSection, setProfileSection] = useState<ProfileSection | undefined>();
@@ -86,13 +94,26 @@ const PrivateRoute: React.FC<{ children: React.ReactNode; requireSuperuser?: boo
                     <Header
                         onOpenProfile={() => handleOpenProfile()}
                         donateMethods={donateMethods}
+                        onOpenDonate={() => setIsDonateOpen(true)}
                     />
                     <main className="flex w-full flex-col overflow-x-hidden">
                         <SectionRow />
                         <div className="flex-1">{children}</div>
-                        {isMobile ? <PhoneFoot hasDonate={donateMethods.length > 0} /> : <Footer />}
+                        <Footer
+                            hasDonate={donateMethods.length > 0}
+                            onOpenDonate={() => setIsDonateOpen(true)}
+                        />
                     </main>
                 </CatalogueSearchProvider>
+                {isDonateOpen && (
+                    <Suspense fallback={null}>
+                        <DonateModal
+                            open
+                            methods={donateMethods}
+                            onClose={() => setIsDonateOpen(false)}
+                        />
+                    </Suspense>
+                )}
                 <ProfileDrawer
                     open={isProfileDrawerOpen}
                     section={profileSection}

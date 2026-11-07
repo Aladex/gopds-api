@@ -59,7 +59,6 @@ vi.mock('@/shared/layout/useBarLabel', () => ({
     },
 }));
 vi.mock('@/shared/layout/ThemeToggle', () => ({ default: () => <button>theme</button> }));
-vi.mock('@/shared/layout/DonateModal', () => ({ default: () => <div>donate-modal</div> }));
 
 const media = { phone: true, wide: false };
 const matches = (query: string) =>
@@ -83,12 +82,13 @@ const Go: React.FC = () => {
 const renderHeader = (path = '/books/page/1', donateMethods = METHODS) =>
     render(
         <MemoryRouter initialEntries={[path]}>
-            <Header donateMethods={donateMethods} onOpenProfile={profile} />
+            <Header donateMethods={donateMethods} onOpenProfile={profile} onOpenDonate={donate} />
             <Go />
         </MemoryRouter>,
     );
 
 const profile = vi.fn();
+const donate = vi.fn();
 const band = () => screen.getByTestId('search-band');
 const pill = () => screen.queryAllByRole('button', { name: /donate|Донат/ });
 const before = (a: Element, b: Element) =>
@@ -162,12 +162,12 @@ describe('Header on a phone', () => {
         expect(profile).toHaveBeenCalledTimes(1);
     });
 
-    it('opens the donate dialog from the pill', async () => {
+    it('asks for the donate dialog from the pill', async () => {
         renderHeader();
 
         await userEvent.click(pill()[0]);
 
-        expect(await screen.findByText('donate-modal')).toBeInTheDocument();
+        expect(donate).toHaveBeenCalledTimes(1);
     });
 
     it('has no pill with nothing to offer', () => {

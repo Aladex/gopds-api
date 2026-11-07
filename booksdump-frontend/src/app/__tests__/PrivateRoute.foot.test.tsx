@@ -2,14 +2,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
+import i18n from '@/app/i18n';
 import PrivateRoute from '@/app/PrivateRoute';
 import * as systemApi from '@/api/system';
 
-// The page ends in its own block on a phone and in the build line on a desktop,
-// and both have to learn about donations from the one request.
+// One foot at every width, and one donate modal for the pill and the sentence.
 
 vi.mock('@/context/AuthContext', () => ({
     useAuth: () => ({
@@ -21,21 +22,36 @@ vi.mock('@/context/AuthContext', () => ({
 }));
 vi.mock('@/api/system', () => ({ getDonateMethods: vi.fn() }));
 vi.mock('@/shared/layout/Header', () => ({
-    default: ({ donateMethods }: { donateMethods: unknown[] }) => (
-        <div data-testid="header">{donateMethods.length}</div>
+    default: ({
+        donateMethods,
+        onOpenDonate,
+    }: {
+        donateMethods: unknown[];
+        onOpenDonate: () => void;
+    }) => (
+        <div data-testid="header">
+            {donateMethods.length}
+            <button onClick={onOpenDonate}>pill</button>
+        </div>
     ),
 }));
-vi.mock('@/shared/layout/Footer', () => ({ default: () => <div>footer</div> }));
-vi.mock('@/shared/layout/PhoneFoot', () => ({
-    default: ({ hasDonate }: { hasDonate: boolean }) => <div>foot:{String(hasDonate)}</div>,
+vi.mock('@/shared/layout/DonateModal', () => ({
+    default: ({ methods, onClose }: { methods: unknown[]; onClose: () => void }) => (
+        <button onClick={onClose}>donate-modal:{methods.length}</button>
+    ),
 }));
 vi.mock('@/shared/layout/SectionRow', () => ({ default: () => <nav>sections</nav> }));
 vi.mock('@/features/catalogue/LanguagePrompt', () => ({ default: () => null }));
 vi.mock('@/features/catalogue/CatalogueSearchContext', () => ({
     CatalogueSearchProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
-vi.mock('@/features/profile/ProfileDrawer', () => ({ default: () => null }));
-vi.mock('@/features/profile/ProfileDialog', () => ({ default: () => null }));
+type Shell = { open: boolean; section?: string };
+vi.mock('@/features/profile/ProfileDrawer', () => ({
+    default: ({ open, section }: Shell) => (open ? <div>drawer:{section}</div> : null),
+}));
+vi.mock('@/features/profile/ProfileDialog', () => ({
+    default: ({ open, section }: Shell) => (open ? <div>dialog:{section}</div> : null),
+}));
 
 const phone = { current: true };
 vi.mock('@/shared/hooks/useMediaQuery', () => ({
@@ -56,32 +72,29 @@ const renderRoute = () =>
     );
 
 describe('PrivateRoute', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
         phone.current = true;
+        await act(() => i18n.changeLanguage('ru'));
         getDonateMethods.mockResolvedValue([method]);
     });
 
-    it('ends a phone’s page in the foot, not the build line', async () => {
+    it.each([
+        ['a phone', true],
+        ['a desktop', false],
+    ])('ends the page in the one foot on %s', async (_, isPhone) => {
+        phone.current = isPhone;
         renderRoute();
 
-        await screen.findByText('foot:true');
-        expect(screen.queryByText('footer')).toBeNull();
-    });
-
-    it('keeps the build line on a desktop', async () => {
-        phone.current = false;
-        renderRoute();
-
-        await waitFor(() => expect(screen.getByTestId('header')).toHaveTextContent('1'));
-        expect(screen.getByText('footer')).toBeInTheDocument();
-        expect(screen.queryByText(/^foot:/)).toBeNull();
+        expect(await screen.findByText(/Библиотека бесплатна/)).toBeInTheDocument();
+        expect(screen.getAllByRole('contentinfo')).toHaveLength(1);
+        expect(screen.getByRole('main')).toContainElement(screen.getByRole('contentinfo'));
     });
 
     it('asks for the donate methods once for the header and the foot', async () => {
         renderRoute();
 
-        await screen.findByText('foot:true');
+        await screen.findByText(/Библиотека бесплатна/);
         expect(screen.getByTestId('header')).toHaveTextContent('1');
         expect(getDonateMethods).toHaveBeenCalledTimes(1);
     });
@@ -91,7 +104,36 @@ describe('PrivateRoute', () => {
         renderRoute();
 
         await waitFor(() => expect(getDonateMethods).toHaveBeenCalled());
-        expect(screen.getByText('foot:false')).toBeInTheDocument();
+        expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+        expect(screen.queryByText(/Библиотека бесплатна/)).toBeNull();
+    });
+
+    it.each([
+        ['the pill', 'pill'],
+        ['the sentence', 'донаты'],
+    ])('opens the one donate modal from %s, with the methods, and closes it', async (_, name) => {
+        renderRoute();
+        await screen.findByRole('button', { name: 'донаты' });
+        expect(screen.queryByRole('button', { name: /^donate-modal/ })).toBeNull();
+
+        await userEvent.click(screen.getByRole('button', { name }));
+        await userEvent.click(await screen.findByRole('button', { name: 'donate-modal:1' }));
+
+        expect(screen.queryByRole('button', { name: /^donate-modal/ })).toBeNull();
+    });
+
+    it.each([
+        ['the sheet on a phone', true, 'Kindle', 'drawer:kindle'],
+        ['the sheet on a phone', true, 'Читалки (OPDS)', 'drawer:opds'],
+        ['the dialog on a desktop', false, 'Telegram-бот', 'dialog:telegram'],
+        ['the dialog on a desktop', false, 'Читалки (OPDS)', 'dialog:opds'],
+    ])('opens %s from the foot', async (_, isPhone, name, shown) => {
+        phone.current = isPhone;
+        renderRoute();
+
+        await userEvent.click(screen.getByRole('button', { name }));
+
+        expect(screen.getByText(shown)).toBeInTheDocument();
     });
 
     it('holds the sections on every private page, in the page', () => {

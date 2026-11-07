@@ -19,9 +19,11 @@ const sources = (dir: string): string[] =>
         return /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry) ? [path] : [];
     });
 
-/** Every key written out as `t('key')` with no default text to fall back on. */
+/** Every key written as `t('key')` with no default text to fall back on, or given to Trans. */
 const askedFor = sources(root).flatMap((path) =>
-    [...readFileSync(path, 'utf8').matchAll(/\bt\(\s*'([^']+)'\s*[,)]/g)].map((m) => m[1]),
+    [
+        ...readFileSync(path, 'utf8').matchAll(/(?:\bt\(\s*'|\bi18nKey=")([^'"]+)(?:'\s*[,)]|")/g),
+    ].map((m) => m[1]),
 );
 
 // In the source and in no locale since before this test existed.
@@ -34,6 +36,7 @@ describe('the keys the source asks for', () => {
     it('finds the keys it is reading for', () => {
         expect(askedFor.length).toBeGreaterThan(500);
         expect(askedFor).toContain('typeToSearch');
+        expect(askedFor).toContain('kindle.step1');
     });
 
     it.each([
@@ -45,5 +48,12 @@ describe('the keys the source asks for', () => {
         );
 
         expect(missing).toEqual([]);
+    });
+
+    it.each([
+        ['ru', ru],
+        ['en', en],
+    ])('leave no theme behind in the foot in %s', (_, locale) => {
+        expect(Object.keys(locale).filter((key) => key.startsWith('foot.theme'))).toEqual([]);
     });
 });
