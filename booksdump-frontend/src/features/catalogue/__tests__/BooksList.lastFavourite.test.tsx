@@ -1,7 +1,7 @@
 import React, { useSyncExternalStore } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { Link, MemoryRouter, Route, Routes } from 'react-router';
 
 import BooksList from '@/features/catalogue/BooksList';
 import { FavProvider } from '@/context/FavContext';
@@ -93,6 +93,22 @@ const renderFavourites = () =>
         </MemoryRouter>,
     );
 
+/** One list element across both routes, as the application's own routes are. */
+const renderBothLists = () =>
+    render(
+        <MemoryRouter initialEntries={['/books/favorite/1']}>
+            <FavProvider>
+                <Link to="/books/page/1">to-catalogue</Link>
+                <Link to="/books/favorite/1">to-favourites</Link>
+                <Link to="/books/favorite/2">to-next-page</Link>
+                <Routes>
+                    <Route path="/books/favorite/:page" element={<BooksList />} />
+                    <Route path="/books/page/:page" element={<BooksList />} />
+                </Routes>
+            </FavProvider>
+        </MemoryRouter>,
+    );
+
 const renderCatalogue = () =>
     render(
         <MemoryRouter initialEntries={['/books/page/1']}>
@@ -130,6 +146,20 @@ describe('Removing a favourite on the favourites list', () => {
         expect(listBooks).toHaveBeenCalledTimes(1);
     });
 
+    it('goes by the list on screen at the click, after a turn of the pages too', async () => {
+        listBooks.mockResolvedValue({ books: [book(1, 'Последняя')], length: 2 });
+        getCurrentUser.mockResolvedValue({ ...account.get(), have_favs: false } as never);
+        renderBothLists();
+        await screen.findByText('Последняя');
+        await userEvent.click(screen.getByRole('link', { name: 'to-next-page' }));
+        await waitFor(() => expect(listBooks).toHaveBeenCalledTimes(2));
+        await screen.findByText('Последняя');
+
+        await removeFirst();
+
+        expect(await screen.findByText('empty.favouritesTitle')).toBeInTheDocument();
+    });
+
     it('keeps the list as it is while any remain', async () => {
         listBooks.mockResolvedValue({
             books: [book(1, 'Первая'), book(2, 'Вторая')],
@@ -158,6 +188,66 @@ describe('Removing a favourite on the favourites list', () => {
 
         await waitFor(() => expect(account.get().have_favs).toBe(false));
         expect(screen.getByText('В каталоге')).toBeInTheDocument();
+    });
+
+    describe('when the reader has left before the answer comes', () => {
+        const held = () => {
+            let finish: (value: never) => void = () => {};
+            toggleFavourite.mockReturnValue(
+                new Promise((resolve) => {
+                    finish = resolve as (value: never) => void;
+                }),
+            );
+            return (value: unknown) => finish(value as never);
+        };
+
+        beforeEach(() => {
+            getCurrentUser.mockResolvedValue({ ...account.get(), have_favs: false } as never);
+            listBooks.mockImplementation(async ({ fav }) =>
+                fav
+                    ? { books: [book(1, 'Последняя')], length: 1 }
+                    : { books: [book(2, 'Из каталога')], length: 1 },
+            );
+        });
+
+        it('leaves the list they went to alone', async () => {
+            const finish = held();
+            renderBothLists();
+            await screen.findByText('Последняя');
+
+            await removeFirst();
+            await userEvent.click(screen.getByRole('link', { name: 'to-catalogue' }));
+            await screen.findByText('Из каталога');
+
+            await act(async () => finish({ have_favs: false }));
+
+            await waitFor(() => expect(account.get().have_favs).toBe(false));
+            expect(screen.getByText('Из каталога')).toBeInTheDocument();
+            expect(screen.queryByText('noBooksFound')).toBeNull();
+        });
+
+        it('leaves the catalogue alone on the way back to favourites too', async () => {
+            // A list of its own again, loaded after the removal: the account now
+            // says none are left, and that list answers for itself.
+            const finish = held();
+            renderBothLists();
+            await screen.findByText('Последняя');
+
+            await removeFirst();
+            await userEvent.click(screen.getByRole('link', { name: 'to-catalogue' }));
+            await screen.findByText('Из каталога');
+            await userEvent.click(screen.getByRole('link', { name: 'to-favourites' }));
+            await screen.findByText('Последняя');
+            const requests = listBooks.mock.calls.length;
+
+            await act(async () => finish({ have_favs: false }));
+            await waitFor(() => expect(account.get().have_favs).toBe(false));
+
+            // Another visit to the route is another list, so nothing is emptied by
+            // an answer from before it; no request is added either.
+            expect(listBooks).toHaveBeenCalledTimes(requests);
+            expect(screen.getByText('Последняя')).toBeInTheDocument();
+        });
     });
 
     it('does not empty the list when the request fails', async () => {
