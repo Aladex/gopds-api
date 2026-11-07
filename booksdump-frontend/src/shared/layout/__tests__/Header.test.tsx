@@ -313,6 +313,69 @@ describe('Header takeover', () => {
     });
 });
 
+describe('Header takeover across the phone boundary', () => {
+    const tree = () => (
+        <MemoryRouter>
+            <Header donateMethods={METHODS} />
+        </MemoryRouter>
+    );
+
+    const openOnPhone = async () => {
+        const view = render(tree());
+        await userEvent.click(screen.getByRole('button', { name: 'focus-field' }));
+        expect(document.body.style.overflow).toBe('hidden');
+        return view;
+    };
+
+    it('gives the page back when the width leaves the phone', async () => {
+        // Rotating a phone with search open lands on a header with no arrow to
+        // close it, so the lock has to go with the layout.
+        const { rerender } = await openOnPhone();
+
+        media.phone = false;
+        rerender(tree());
+
+        expect(document.body.style.overflow).toBe('');
+        expect(screen.getByTestId('field')).toHaveAttribute('data-taking', 'false');
+    });
+
+    it('does not come back open when the width returns to the phone', async () => {
+        const { rerender } = await openOnPhone();
+
+        media.phone = false;
+        rerender(tree());
+        media.phone = true;
+        rerender(tree());
+
+        expect(screen.getByTestId('field')).toHaveAttribute('data-taking', 'false');
+        expect(band()).not.toHaveClass('fixed');
+        expect(document.body.style.overflow).toBe('');
+    });
+
+    it('keeps the words typed across the crossing', async () => {
+        // A rotation is not a change of mind, and the box still holds the draft.
+        const { rerender } = await openOnPhone();
+
+        media.phone = false;
+        rerender(tree());
+
+        expect(search.restoreWords).not.toHaveBeenCalled();
+    });
+
+    it('can be opened again afterwards', async () => {
+        const { rerender } = await openOnPhone();
+        media.phone = false;
+        rerender(tree());
+        media.phone = true;
+        rerender(tree());
+
+        await userEvent.click(screen.getByRole('button', { name: 'focus-field' }));
+
+        expect(band()).toHaveClass('fixed');
+        expect(document.body.style.overflow).toBe('hidden');
+    });
+});
+
 describe('Header from 601 up', () => {
     beforeEach(() => {
         media.phone = false;

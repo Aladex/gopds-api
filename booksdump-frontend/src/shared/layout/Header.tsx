@@ -75,6 +75,12 @@ const Header: React.FC<HeaderProps> = ({ onOpenProfile, donateMethods }) => {
         setTaking(false);
     }
 
+    // A rotation past the phone's width takes the band and its arrow away, so it
+    // has to take the takeover and its lock with it.
+    if (taking && !isPhone) {
+        setTaking(false);
+    }
+
     // The page stays where it was under the panel, and does not scroll with it.
     useEffect(() => {
         if (!taking) {
