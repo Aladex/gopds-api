@@ -88,7 +88,36 @@ func TestAuthorDisplayModelLoopRunsUnderTheRunner(t *testing.T) {
 func TestAuthorDisplayModelConfigDefaults(t *testing.T) {
 	c := AuthorDisplayModelConfig{}.withDefaults()
 	assert.Equal(t, AuthorDisplayModelConfig{Batch: 1000, Every: 24 * time.Hour, Poll: 2 * time.Second, SummaryBatch: 40,
-		SummaryTimeout: 5 * time.Second}, c)
+		SummaryTimeout: 5 * time.Second, VariantBatch: 40, VariantTimeout: 5 * time.Second}, c)
+}
+
+// With the read model settled, the loop builds the book cards a batch a pass,
+// beside the summary, without counting it as work: the first walk is the
+// backfill, and it ends with the event that says how many books it rebuilt.
+func TestAuthorDisplayModelLoopBuildsTheCardsWhenIdle(t *testing.T) {
+	s := localWorkerDB(t)
+	f := &workerFixture{t: t, db: s}
+	hook := logrustest.NewLocal(logging.GetLogger())
+	t.Cleanup(hook.Reset)
+	f.persistBook(author(tolstoy(t)))
+	f.persistBook(author(tolstoy(t)))
+	f.exec(`UPDATE opds_catalog_book SET approved = true`)
+	ctx := context.Background()
+	loop := NewAuthorDisplayModelLoop(s, AuthorDisplayModelConfig{Batch: 10, SummaryBatch: 1, VariantBatch: 1,
+		Every: 24 * time.Hour, Poll: time.Hour})
+
+	for i := 0; i < 30 && len(eventsNamed(hook, AuthorMetadataEventVariantWalkFinished)) == 0; i++ {
+		_, err := loop.RunOnce(ctx)
+		require.NoError(t, err)
+	}
+
+	require.Len(t, eventsNamed(hook, AuthorMetadataEventVariantWalkFinished), 1, "the first walk did not finish")
+	assert.Equal(t, 2, f.count(`SELECT count(*) FROM book_variant_member`), "every listed book has a card row")
+	assert.Zero(t, f.count(`SELECT count(*) FROM book_variant_dirty`))
+	assert.Equal(t, 1, f.count(`SELECT count(*) FROM book_variant_walk WHERE finished_at IS NOT NULL`))
+	ready, err := database.BookVariantsReady(ctx, s)
+	require.NoError(t, err)
+	assert.True(t, ready)
 }
 
 // A book the model refuses is skipped and logged once, by its ID and nothing

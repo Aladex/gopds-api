@@ -243,6 +243,10 @@ func deleteBooksWithLayer(tx pg.DBI, ids []int64) (int, error) {
 		// whose books have tags.
 		"DELETE FROM opds_catalog_bgenre WHERE book_id = ANY (?)",
 	}
+	// Their cards are due: the drain finds the books gone and takes them out.
+	if err := MarkBookVariantsDirty(context.Background(), tx, ids...); err != nil {
+		return 0, fmt.Errorf("marking the books' cards: %w", err)
+	}
 	for _, query := range deleteRelated {
 		if _, err := tx.Exec(query, books); err != nil {
 			return 0, fmt.Errorf("deleting related rows: %w", err)

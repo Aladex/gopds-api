@@ -670,6 +670,11 @@ func updateBookAuthorsFromUpdateRequest(tx *pg.Tx, bookID int64, authors []model
 }
 
 func updateBookSeriesFromUpdateRequest(tx *pg.Tx, bookID int64, series []models.Series) error {
+	// A series number splits cards: the book's card is due whatever the
+	// rest of the edit was.
+	if err := MarkBookVariantsDirty(context.Background(), tx, bookID); err != nil {
+		return err
+	}
 	_, err := tx.Model(&models.OrderToSeries{}).
 		Where("book_id = ?", bookID).
 		Delete()

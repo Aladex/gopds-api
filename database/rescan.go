@@ -195,6 +195,16 @@ func ApplySelectiveRescanChanges(bookID int64, selectedFields *models.RescanAppr
 		skippedFields = append(skippedFields, "tags")
 	}
 
+	// The title, the language, the series, the cover, the annotation and the
+	// document date all decide the book's card; the authors' change reaches it
+	// through the author display mark too, and a second mark costs nothing.
+	if len(updatedFields) > 0 {
+		if err = MarkBookVariantsDirty(context.Background(), tx, bookID); err != nil {
+			logging.Error(err)
+			return nil, nil, err
+		}
+	}
+
 	// Delete pending rescan
 	_, err = tx.Model(&models.BookRescanPending{}).
 		Where("book_id = ?", bookID).

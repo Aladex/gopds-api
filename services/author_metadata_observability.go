@@ -89,6 +89,10 @@ const (
 	AuthorMetadataEventSummaryWalkFinished AuthorMetadataEventName = "author_metadata.summary_walk_finished"
 	// An entity the summary refused was passed: its ID and the SQLSTATE.
 	AuthorMetadataEventSummaryEntitySkipped AuthorMetadataEventName = "author_metadata.summary_entity_skipped"
+	// The book variants walk ended: how many books it rebuilt.
+	AuthorMetadataEventVariantWalkFinished AuthorMetadataEventName = "author_metadata.variant_walk_finished"
+	// A book the variants read model refused was passed: its ID and the SQLSTATE.
+	AuthorMetadataEventVariantBookSkipped AuthorMetadataEventName = "author_metadata.variant_book_skipped"
 	// An eval freeze left an item out (its reason is the status); an eval
 	// run ended because a stage cannot be done with its settings.
 	AuthorMetadataEventLLMEvalItemSkipped AuthorMetadataEventName = "author_metadata.llm_eval_item_skipped"
@@ -206,7 +210,8 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventWorkersShutdownTimeout, AuthorMetadataEventRunsAPINotWired,
 		AuthorMetadataEventAggregatesRefreshFailed, AuthorMetadataEventDisplayWalkFinished,
 		AuthorMetadataEventDisplayBookSkipped, AuthorMetadataEventSummaryWalkFinished,
-		AuthorMetadataEventSummaryEntitySkipped,
+		AuthorMetadataEventSummaryEntitySkipped, AuthorMetadataEventVariantWalkFinished,
+		AuthorMetadataEventVariantBookSkipped,
 		AuthorMetadataEventLLMEvalItemSkipped, AuthorMetadataEventLLMEvalRunFailed, AuthorMetadataEventLLMAdminNotWired,
 		AuthorMetadataEventLLMRunClosed, AuthorMetadataEventLLMItemPanic,
 		AuthorMetadataEventLLMParticipantsResumed, AuthorMetadataEventLLMResolveStarted,

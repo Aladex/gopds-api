@@ -13,13 +13,17 @@ import (
 // books one transaction takes, how long after a finished walk the next one
 // starts, and how long the worker rests when there is nothing to do.
 // SummaryBatch is how many entities of the author summary it takes in each
-// rest, and SummaryTimeout bounds each statement of one entity.
+// rest, and SummaryTimeout bounds each statement of one entity. VariantBatch
+// and VariantTimeout are the same for the book variants read model, one book
+// at a time.
 type AuthorDisplayModelConfig struct {
 	Batch          int
 	Every          time.Duration
 	Poll           time.Duration
 	SummaryBatch   int
 	SummaryTimeout time.Duration
+	VariantBatch   int
+	VariantTimeout time.Duration
 }
 
 // Defaults: a batch rebuilds in tens of milliseconds, a walk over the
@@ -35,6 +39,10 @@ const (
 	// than hold a batch; the entity is reported and passed, and the next walk
 	// comes back to it.
 	defaultAuthorSummaryTimeout = 5 * time.Second
+	// The book variants read model goes at the summary's pace: a batch a
+	// poll, a book (its partition) a transaction.
+	defaultBookVariantBatch   = 40
+	defaultBookVariantTimeout = 5 * time.Second
 )
 
 func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
@@ -53,6 +61,12 @@ func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
 	if c.SummaryTimeout <= 0 {
 		c.SummaryTimeout = defaultAuthorSummaryTimeout
 	}
+	if c.VariantBatch <= 0 {
+		c.VariantBatch = defaultBookVariantBatch
+	}
+	if c.VariantTimeout <= 0 {
+		c.VariantTimeout = defaultBookVariantTimeout
+	}
 	return c
 }
 
@@ -61,9 +75,9 @@ func (c AuthorDisplayModelConfig) withDefaults() AuthorDisplayModelConfig {
 // transaction, and between drains advances the daily walk that rebuilds
 // every book — the first walk is the backfill, later ones count what a write
 // path without a mark left behind. With nothing of that left it advances the
-// author summary by one batch and rests: the summary follows the read model,
-// is never ahead of it, and yields to it. The batch does not count as work,
-// which is what paces it to one a poll.
+// author summary by one batch, then the book variants read model by one, and
+// rests: both follow the read model, are never ahead of it, and yield to it.
+// Their batches do not count as work, which is what paces them to one a poll.
 type AuthorDisplayModelLoop struct {
 	db  *pg.DB
 	cfg AuthorDisplayModelConfig
@@ -116,7 +130,46 @@ func (l *AuthorDisplayModelLoop) RunOnce(ctx context.Context) (bool, error) {
 	if drained.Marks > 0 || step.Ran {
 		return true, nil
 	}
-	return false, l.advanceSummary(ctx)
+	summaryErr := l.advanceSummary(ctx)
+	// The variants do not wait on the summary: a summary that fails keeps
+	// failing, and the cards would never be built behind it.
+	variantErr := l.advanceVariants(ctx)
+	if summaryErr != nil {
+		return false, summaryErr
+	}
+	return false, variantErr
+}
+
+// advanceVariants does one batch of the book variants read model, a book to a
+// transaction: its marks or, with none, the next step of its walk. What
+// committed before an error is reported all the same.
+func (l *AuthorDisplayModelLoop) advanceVariants(ctx context.Context) error {
+	drained, err := database.DrainBookVariantMarks(ctx, l.db, l.cfg.VariantBatch, l.cfg.VariantTimeout)
+	skipped := drained.Skipped
+	if err == nil && drained.Books == 0 {
+		var walked database.BookVariantWalkResult
+		walked, err = database.BookVariantWalkStep(ctx, l.db, l.cfg.VariantBatch, l.cfg.Every, l.cfg.VariantTimeout)
+		skipped = append(skipped, walked.Skipped...)
+		if walked.Finished {
+			LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+				Name: AuthorMetadataEventVariantWalkFinished, Stage: AuthorMetadataStageDisplayModel,
+				Count: int(walked.Read),
+			})
+		}
+	}
+	logSkippedBookVariants(skipped)
+	return err
+}
+
+// logSkippedBookVariants records each book the variants read model refused,
+// by its ID and the SQLSTATE.
+func logSkippedBookVariants(skipped []database.BookVariantSkip) {
+	for _, skip := range skipped {
+		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{
+			Name: AuthorMetadataEventVariantBookSkipped, Stage: AuthorMetadataStageDisplayModel,
+			BookID: skip.BookID, SQLState: skip.SQLState,
+		})
+	}
 }
 
 // advanceSummary does one batch of the author summary, an entity to a

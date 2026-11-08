@@ -585,6 +585,9 @@ func DrainAuthorDisplayMarks(ctx context.Context, tx pg.DBI, limit int) (AuthorD
 	if err := markAuthorSummariesOfBooks(ctx, tx, books); err != nil {
 		return AuthorDisplayDrain{}, err
 	}
+	if err := markBookVariantsOfBooks(ctx, tx, books); err != nil {
+		return AuthorDisplayDrain{}, err
+	}
 	return AuthorDisplayDrain{Marks: len(marked), Books: len(books), Differed: differed, Skipped: skipped}, nil
 }
 

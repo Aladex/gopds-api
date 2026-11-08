@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gopds-api/database"
 	"gopds-api/internal/archivestore"
 	"gopds-api/internal/safeio"
 	"gopds-api/logging"
@@ -435,8 +436,17 @@ func GetDuplicateGroups(_ context.Context, db *pg.DB) ([]DuplicateGroup, error) 
 	return groups, nil
 }
 
+// markHiddenDuplicate marks the card of a book just hidden: a hidden file
+// leaves its card. The daily walk is the net if the mark is lost, so a failure
+// is logged, not fatal.
+func markHiddenDuplicate(ctx context.Context, db *pg.DB, bookID int64) {
+	if err := database.MarkBookVariantsDirty(ctx, db, bookID); err != nil {
+		logging.Warnf("Failed to mark the card of hidden book ID %d: %v", bookID, err)
+	}
+}
+
 // HideDuplicates hides duplicate books based on the "Newest ID" rule
-func HideDuplicates(_ context.Context, db *pg.DB) (*HideResult, error) {
+func HideDuplicates(ctx context.Context, db *pg.DB) (*HideResult, error) {
 	logging.Info("Starting to hide duplicates")
 
 	// Get all duplicate groups
@@ -493,6 +503,7 @@ func HideDuplicates(_ context.Context, db *pg.DB) (*HideResult, error) {
 				logging.Errorf("Failed to hide book ID %d: %v", books[i].ID, err)
 				continue
 			}
+			markHiddenDuplicate(ctx, db, books[i].ID)
 			hiddenCount++
 		}
 	}
