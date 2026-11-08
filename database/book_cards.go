@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"gopds-api/internal/bookvariants"
@@ -55,22 +56,49 @@ SELECT pick[3] AS shown_id, g::text AS group_key, pick[1] AS shown_rank, count(*
 FROM cards ORDER BY gpos LIMIT ? OFFSET ?`
 
 // cardsPopularSQL pages the cards of the books readers starred: the card
-// starred by the most distinct readers over all of its files first, then the
-// card with the newest file.
+// starred by the most distinct readers over all of its visible files first,
+// then the card with the newest visible file. Over all of them, not only the
+// files in scope, so the order agrees with the card's favorite count.
 const cardsPopularSQL = `
 WITH scoped AS (?),
 members AS (
     SELECT s.id, s.pos, coalesce(m.group_key, md5('book:' || s.id)::uuid) AS g, coalesce(m.variant_rank, 1) AS r
     FROM scoped AS s LEFT JOIN book_variant_member AS m ON m.book_id = s.id),
 cards AS (
-    SELECT g, min(ARRAY[r::bigint, pos::bigint, id::bigint]) AS pick, max(id) AS newest
+    SELECT g, min(ARRAY[r::bigint, pos::bigint, id::bigint]) AS pick
     FROM members GROUP BY g),
+files AS (
+    SELECT c.g, m.book_id FROM cards AS c JOIN book_variant_member AS m ON m.group_key = c.g
+    UNION
+    SELECT c.g, c.pick[3] FROM cards AS c),
 popular AS (
-    SELECT mm.g, count(DISTINCT fb.user_id) AS readers
-    FROM members AS mm JOIN favorite_books AS fb ON fb.book_id = mm.id GROUP BY mm.g)
+    SELECT f.g, count(DISTINCT fb.user_id) AS readers, max(f.book_id) AS newest
+    FROM files AS f
+    JOIN opds_catalog_book AS b ON b.id = f.book_id AND b.approved AND NOT b.duplicate_hidden
+    LEFT JOIN favorite_books AS fb ON fb.book_id = f.book_id
+    GROUP BY f.g)
 SELECT c.pick[3] AS shown_id, c.g::text AS group_key, c.pick[1] AS shown_rank, count(*) OVER () AS total
 FROM cards AS c JOIN popular AS p ON p.g = c.g
-ORDER BY p.readers DESC, c.newest DESC LIMIT ? OFFSET ?`
+ORDER BY p.readers DESC, p.newest DESC LIMIT ? OFFSET ?`
+
+// cardsReplacementSQL finds, for cards whose shown file left the visible set
+// after the page was selected, the next eligible file in scope: the
+// best-ranked file of the card in scope, other than the ones gone. The scope
+// is read again here, so it holds what is visible now; the read of the books
+// that follows checks it once more.
+const cardsReplacementSQL = `
+WITH scoped AS (?)
+SELECT DISTINCT ON (g) s.id AS shown_id, g::text AS group_key, r AS shown_rank
+FROM scoped AS s
+LEFT JOIN book_variant_member AS m ON m.book_id = s.id
+CROSS JOIN LATERAL (SELECT coalesce(m.group_key, md5('book:' || s.id)::uuid) AS g,
+    coalesce(m.variant_rank, 1) AS r) AS k
+WHERE g = ANY (?::uuid[]) AND s.id <> ALL (?::bigint[])
+ORDER BY g, r, s.pos, s.id`
+
+// afterCardsSelected, when set (tests only), runs between selecting a page's
+// files and reading them, where a concurrent hide can land.
+var afterCardsSelected func()
 
 type cardRow struct {
 	ShownID   int64  `pg:"shown_id"`
@@ -150,7 +178,10 @@ func GetBookCards(ctx context.Context, userID int64, filters models.BookFilters)
 		total, countErr := countCards(ctx, scoped, filters.Offset)
 		return []models.Book{}, []CardEntry{}, total, countErr
 	}
-	books, entries, err := cardEntries(ctx, rows, savedScope(filters), userID)
+	if afterCardsSelected != nil {
+		afterCardsSelected()
+	}
+	books, entries, err := cardEntries(ctx, rows, scoped, savedScope(filters), userID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -182,31 +213,33 @@ func cardsScope(ctx context.Context, filters models.BookFilters, userID int64) (
 }
 
 // cardEntries loads the page's shown books and what each card holds over
-// its visible files. saved says the list shows saved files, so a card shown
-// on a file other than its best visible one says why.
-func cardEntries(ctx context.Context, rows []cardRow, saved bool, userID int64) ([]models.Book, []CardEntry, error) {
+// its visible files. A shown file that left the visible set after the page
+// was selected gives way to its card's next eligible file in scope, or the
+// card leaves the page. saved says the list shows saved files, so a card
+// shown on a file other than its best visible one says why.
+func cardEntries(
+	ctx context.Context, rows []cardRow, scoped *orm.Query, saved bool, userID int64,
+) ([]models.Book, []CardEntry, error) {
+	books, rows, err := visibleCards(ctx, rows, scoped, userID)
+	if err != nil || len(rows) == 0 {
+		return []models.Book{}, []CardEntry{}, err
+	}
 	keys := make([]string, len(rows))
 	ids := make([]int64, len(rows))
-	at := make(map[int64]*cardRow, len(rows))
 	for i := range rows {
 		keys[i], ids[i] = rows[i].GroupKey, rows[i].ShownID
-		at[rows[i].ShownID] = &rows[i]
 	}
 	var held []cardFilesRow
-	if _, err := db.QueryContext(ctx, &held, cardFilesSQL, pg.Array(keys), pg.Array(ids), userID); err != nil {
+	if _, err = db.QueryContext(ctx, &held, cardFilesSQL, pg.Array(keys), pg.Array(ids), userID); err != nil {
 		return nil, nil, err
 	}
 	byKey := make(map[string]*cardFilesRow, len(held))
 	for i := range held {
 		byKey[held[i].GroupKey] = &held[i]
 	}
-	books, err := hydrateBooks(ctx, ids, userID)
-	if err != nil {
-		return nil, nil, err
-	}
 	entries := make([]CardEntry, len(books))
 	for i := range books {
-		row := at[books[i].ID]
+		row := &rows[i]
 		entries[i] = CardEntry{BookID: books[i].ID}
 		if card := byKey[row.GroupKey]; card != nil {
 			entries[i].Fav, entries[i].FavoriteCount = card.Fav, card.Readers
@@ -215,6 +248,86 @@ func cardEntries(ctx context.Context, rows []cardRow, saved bool, userID int64) 
 		books[i].Fav, books[i].FavoriteCount = entries[i].Fav, entries[i].FavoriteCount
 	}
 	return books, entries, nil
+}
+
+// visibleCards reads the page's shown books, visible ones only, and returns
+// them with their rows, index-aligned and in page order. A card whose shown
+// file is gone is shown on its next eligible file in scope, read once more;
+// a card with none left is dropped.
+func visibleCards(
+	ctx context.Context, rows []cardRow, scoped *orm.Query, userID int64,
+) ([]models.Book, []cardRow, error) {
+	ids := make([]int64, len(rows))
+	for i := range rows {
+		ids[i] = rows[i].ShownID
+	}
+	books, err := hydrateBooks(ctx, ids, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	found := make(map[int64]*models.Book, len(books))
+	for i := range books {
+		found[books[i].ID] = &books[i]
+	}
+	replaced, err := nextCardFiles(ctx, rows, found, scoped, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	outBooks := make([]models.Book, 0, len(rows))
+	outRows := make([]cardRow, 0, len(rows))
+	for i := range rows {
+		row := rows[i]
+		if found[row.ShownID] == nil {
+			next := replaced[row.GroupKey]
+			if next == nil || found[next.ShownID] == nil {
+				continue
+			}
+			row.ShownID, row.ShownRank = next.ShownID, next.ShownRank
+		}
+		outBooks = append(outBooks, *found[row.ShownID])
+		outRows = append(outRows, row)
+	}
+	return outBooks, outRows, nil
+}
+
+// nextCardFiles finds the next eligible file in scope of every card whose
+// shown file is not among found, reads the visible ones into found, and
+// returns them by card key.
+func nextCardFiles(
+	ctx context.Context, rows []cardRow, found map[int64]*models.Book, scoped *orm.Query, userID int64,
+) (map[string]*cardRow, error) {
+	var goneKeys []string
+	var goneIDs []int64
+	for i := range rows {
+		if found[rows[i].ShownID] == nil {
+			goneKeys, goneIDs = append(goneKeys, rows[i].GroupKey), append(goneIDs, rows[i].ShownID)
+		}
+	}
+	replaced := map[string]*cardRow{}
+	if len(goneKeys) == 0 {
+		return replaced, nil
+	}
+	var next []cardRow
+	if _, err := db.QueryContext(ctx, &next, cardsReplacementSQL, scoped, pg.Array(goneKeys),
+		pg.Array(goneIDs)); err != nil {
+		return nil, err
+	}
+	nextIDs := make([]int64, len(next))
+	for i := range next {
+		nextIDs[i] = next[i].ShownID
+		replaced[next[i].GroupKey] = &next[i]
+	}
+	if len(nextIDs) == 0 {
+		return replaced, nil
+	}
+	more, err := hydrateBooks(ctx, nextIDs, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range more {
+		found[more[i].ID] = &more[i]
+	}
+	return replaced, nil
 }
 
 // variantsInfo is what a card says of its files, nil for a single file.
@@ -243,8 +356,9 @@ func countCards(ctx context.Context, scoped *orm.Query, offset int) (int, error)
 }
 
 // hydrateBooks loads the books of a page the way the list shows them, in the
-// order of ids, with the caller's stars and the series numbers. A book that
-// is gone by now is left out.
+// order of ids, with the caller's stars and the series numbers. It reads only
+// what readers see: a book that is gone, hidden or unapproved by now is left
+// out, whatever the queries before it selected.
 func hydrateBooks(ctx context.Context, ids []int64, userID int64) ([]models.Book, error) {
 	var books []models.Book
 	if err := db.ModelContext(ctx, &books).
@@ -254,6 +368,7 @@ func hydrateBooks(ctx context.Context, ids []int64, userID int64) ([]models.Book
 		Relation("Genres").
 		ColumnExpr("book.*").
 		Where("book.id IN (?)", pg.In(ids)).
+		Where("book.approved AND NOT book.duplicate_hidden").
 		Select(); err != nil {
 		return nil, err
 	}
@@ -291,8 +406,8 @@ type bookVariantRow struct {
 
 // BookVariantsOf returns the visible files of the book's card by rank, and
 // each file's place in it, index-aligned; the first is the default. A book
-// readers cannot see is pg.ErrNoRows; a visible book with no row yet is a
-// card of one.
+// readers cannot see, at the start or by the time its files are read, is
+// pg.ErrNoRows; a visible book with no row yet is a card of one.
 func BookVariantsOf(ctx context.Context, bookID, userID int64) ([]models.Book, []models.BookVariant, error) {
 	var key string
 	if _, err := db.QueryOneContext(ctx, pg.Scan(&key), `
@@ -320,13 +435,21 @@ func BookVariantsOf(ctx context.Context, bookID, userID int64) ([]models.Book, [
 			DocVersion: version}}
 		groupKey = bookvariants.SoloKey(bookID)
 	}
+	if afterCardsSelected != nil {
+		afterCardsSelected()
+	}
 	ids := make([]int64, len(rows))
 	for i := range rows {
 		ids[i] = rows[i].BookID
 	}
+	// Only what is still visible: a file hidden since the rows were read
+	// drops out, and the asked-for book gone means the book is not there.
 	books, err := hydrateBooks(ctx, ids, userID)
 	if err != nil {
 		return nil, nil, err
+	}
+	if !slices.ContainsFunc(books, func(b models.Book) bool { return b.ID == bookID }) {
+		return nil, nil, pg.ErrNoRows
 	}
 	at := make(map[int64]*bookVariantRow, len(rows))
 	for i := range rows {

@@ -388,3 +388,120 @@ func TestBookCardsJunctionScopes(t *testing.T) {
 		})
 	}
 }
+
+// onceBetweenSelectAndRead runs fn once, between a list's (or the variants')
+// selection of files and its read of them, where a concurrent hide lands.
+func (f *cardsFixture) onceBetweenSelectAndRead(fn func()) {
+	f.t.Helper()
+	afterCardsSelected = func() {
+		afterCardsSelected = nil
+		fn()
+	}
+	f.t.Cleanup(func() { afterCardsSelected = nil })
+}
+
+func (f *cardsFixture) hideNow(column string, book int64) {
+	f.t.Helper()
+	value := "true"
+	if column == "approved" {
+		value = "false"
+	}
+	_, err := f.scratch.Exec(`UPDATE opds_catalog_book SET `+column+` = `+value+` WHERE id = ?`, book)
+	require.NoError(f.t, err)
+}
+
+// A file hidden after the page picked it is never read back: the card opens
+// on its next eligible file in scope, or leaves the page when none is left.
+func TestBookCardsHiddenBetweenSelectionAndRead(t *testing.T) {
+	for _, column := range []string{"duplicate_hidden", "approved"} {
+		t.Run(column, func(t *testing.T) {
+			f := cardsDB(t)
+			entity := f.entity("Лем")
+			files := f.group3(entity, "Солярис")
+			lone := f.variantBook("Эдем", []string{entity}, addedAgo(9))
+			f.rebuild(lone)
+			f.commit()
+			filters := models.BookFilters{AuthorEntity: uuidOf(t, entity)}
+
+			f.onceBetweenSelectAndRead(func() { f.hideNow(column, files[0]) })
+			books, entries, total := f.cards(0, filters)
+			assert.Equal(t, 2, total)
+			// The single book is the newest; the card opens on its next file.
+			assert.Equal(t, []int64{lone, files[1]}, cardIDs(books))
+			require.NotNil(t, entries[1].Variants)
+			assert.Equal(t, 2, entries[1].Variants.Count)
+			for i := range books {
+				assert.NotEqual(t, files[0], books[i].ID)
+			}
+
+			// Every file of the card gone between the two: the card leaves the
+			// page, the rest of it stays.
+			f.onceBetweenSelectAndRead(func() {
+				f.hideNow(column, files[1])
+				f.hideNow(column, files[2])
+			})
+			books, _, _ = f.cards(0, filters)
+			assert.Equal(t, []int64{lone}, cardIDs(books))
+		})
+	}
+}
+
+// The variants of a book read only files still visible when they are read:
+// another file gone drops out, the asked-for book gone is no book.
+func TestBookVariantsOfHiddenBetweenReadAndHydrate(t *testing.T) {
+	f := cardsDB(t)
+	entity := f.entity("Ефремов")
+	files := f.group3(entity, "Лезвие бритвы")
+	f.commit()
+
+	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", files[0]) })
+	books, variants, err := BookVariantsOf(context.Background(), files[1], 0)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{files[1], files[2]}, cardIDs(books))
+	assert.True(t, variants[0].Default, "the best file left is the default")
+	assert.Equal(t, files[1], variants[0].BookID)
+
+	f.onceBetweenSelectAndRead(func() { f.hideNow("approved", files[2]) })
+	_, _, err = BookVariantsOf(context.Background(), files[2], 0)
+	assert.ErrorIs(t, err, pg.ErrNoRows, "the asked-for book went away")
+
+	// A book with no row yet is read the same way.
+	lone := f.variantBook("Час быка", []string{entity})
+	f.commit()
+	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", lone) })
+	_, _, err = BookVariantsOf(context.Background(), lone, 0)
+	assert.ErrorIs(t, err, pg.ErrNoRows)
+}
+
+// Popular orders a card by the readers of all its visible files, in scope or
+// not, as its favorite count says: A1 in the genre with A2 outside it, B1 in
+// the genre alone.
+func TestBookCardsPopularCountsEveryVisibleFile(t *testing.T) {
+	f := cardsDB(t)
+	entity := f.entity("Хайнлайн")
+	files := f.group3(entity, "Луна жёстко стелет")
+	b1 := f.variantBook("Двойная звезда", []string{entity})
+	f.rebuild(b1)
+	genre := f.returningID(`INSERT INTO opds_catalog_genre (genre, title) VALUES ('sf', 'Фантастика') RETURNING id`)
+	a1, a2 := files[0], files[1]
+	f.exec(`INSERT INTO opds_catalog_bgenre (book_id, genre_id) VALUES (?, ?), (?, ?)`, a1, genre, b1, genre)
+	u1, u2, u3 := f.user(), f.user(), f.user()
+	f.star(u1, a1)
+	f.star(u2, a2)
+	f.star(u3, a2)
+	f.star(u1, b1)
+	f.star(u2, b1)
+	f.commit()
+
+	books, entries, total := f.cards(0, models.BookFilters{UsersFavorites: true, Genre: int(genre)})
+	assert.Equal(t, 2, total)
+	assert.Equal(t, []int64{a1, b1}, cardIDs(books), "three readers of the card outrank two")
+	assert.Equal(t, 3, entries[0].FavoriteCount)
+	assert.Equal(t, 2, entries[1].FavoriteCount)
+
+	// A hidden file's readers do not count.
+	f.exec(`UPDATE opds_catalog_book SET duplicate_hidden = true WHERE id = ?`, a2)
+	f.commit()
+	books, _, _ = f.cards(0, models.BookFilters{UsersFavorites: true, Genre: int(genre)})
+	assert.Equal(t, []int64{b1, a1}, cardIDs(books))
+}
