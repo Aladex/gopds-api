@@ -1,4 +1,4 @@
-import { getAuthor, listBooks } from '@/api/books';
+import { getAuthor, getBookVariants, listBooks, toggleFavourite } from '@/api/books';
 
 // listBooks is the boundary every catalogue screen reads through, so the
 // wire's one dishonesty is absorbed here: a nil Go slice marshals to JSON
@@ -60,5 +60,36 @@ describe('getAuthor', () => {
         await getAuthor(id);
 
         expect(sentBody()).toEqual({ author_id: id });
+    });
+});
+
+describe('a card of variants', () => {
+    const sentBody = () => JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body));
+
+    it('unstars every file of the card with whole_group', async () => {
+        fetchSpy.mockResolvedValue(jsonResponse({ have_favs: false }));
+
+        await toggleFavourite(5, false, true);
+
+        expect(sentBody()).toEqual({ book_id: 5, fav: false, whole_group: true });
+    });
+
+    it('sends a single star as it always did', async () => {
+        fetchSpy.mockResolvedValue(jsonResponse({ have_favs: true }));
+
+        await toggleFavourite(5, true);
+
+        expect(sentBody()).toEqual({ book_id: 5, fav: true });
+    });
+
+    it('reads the variants of a book by its id', async () => {
+        fetchSpy.mockResolvedValue(
+            jsonResponse({ key: 'k', kind: 'variants', count: 2, default_id: 7, variants: [] }),
+        );
+
+        const answer = await getBookVariants(7);
+
+        expect(String(fetchSpy.mock.calls[0][0])).toMatch(/\/books\/variants\/7$/);
+        expect(answer.default_id).toBe(7);
     });
 });

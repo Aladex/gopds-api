@@ -321,7 +321,8 @@ describe('the star on the cover', () => {
         );
 
         await userEvent.click(star);
-        expect(onToggleFavourite).toHaveBeenCalledWith(book);
+        // The card names the file it shows too: a single book shows itself.
+        expect(onToggleFavourite).toHaveBeenCalledWith(book, book.id);
     });
 
     it('is not in the action area', () => {

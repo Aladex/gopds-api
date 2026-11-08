@@ -53,7 +53,11 @@ export type BookActionsProps = Pick<
     | 'telegramConnected'
     | 'isSendingToTelegram'
     | 'onSendToTelegram'
-> & { className?: string };
+> & {
+    className?: string;
+    /** Opens the rail of a wide card: the variant selector of a card with variants. */
+    selector?: React.ReactNode;
+};
 
 /** The four ways to take the book away, in the order both sizes list them. */
 const FORMATS = [
@@ -82,6 +86,7 @@ const BookActions: React.FC<BookActionsProps> = ({
     isSendingToTelegram = false,
     onSendToTelegram,
     className,
+    selector,
 }) => {
     const { t } = useTranslation();
     const [sheet, setSheet] = React.useState<Sheet>(null);
@@ -138,6 +143,7 @@ const BookActions: React.FC<BookActionsProps> = ({
                     className,
                 )}
             >
+                {selector}
                 <Button
                     onClick={() => onPreview(book)}
                     className="h-[38px] w-full font-semibold shadow-xs"

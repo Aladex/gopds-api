@@ -42,12 +42,20 @@ export function useFavouriteToggle(
     }, [key]);
 
     return useCallback(
-        async (book: Book) => {
+        async (book: Book, shownID?: number) => {
             const list = shownList.current;
+            // A card of variants flips as one, by its key. Starring saves the
+            // file the card shows; unstarring takes every file of the card off.
+            const card = book.variants?.key ?? book.id;
+            const target = shownID ?? book.id;
             try {
-                dispatch({ type: 'TOGGLE_FAV', payload: book.id });
+                dispatch({ type: 'TOGGLE_FAV', payload: card });
 
-                await booksApi.toggleFavourite(book.id, !book.fav);
+                if (book.variants && book.fav) {
+                    await booksApi.toggleFavourite(target, false, true);
+                } else {
+                    await booksApi.toggleFavourite(target, !book.fav);
+                }
 
                 const currentUser = await authApi.getCurrentUser();
                 updateUser(currentUser);
@@ -60,7 +68,7 @@ export function useFavouriteToggle(
                 notify(!book.fav ? t('bookFavAddedSuccessfully') : t('bookFavRemovedSuccessfully'));
             } catch (error) {
                 console.error('Error favoriting book', error);
-                dispatch({ type: 'TOGGLE_FAV', payload: book.id });
+                dispatch({ type: 'TOGGLE_FAV', payload: card });
                 notify(!book.fav ? t('errorAddingFavorite') : t('errorRemovingFavorite'));
             }
         },

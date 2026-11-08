@@ -17,6 +17,8 @@ import { thumbURL } from '@/shared/lib/coverUrl';
 import { cn } from '@/shared/lib/utils';
 import { formatCalendarDay } from '@/shared/lib/formatDate';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
+import VariantSelector from '@/features/catalogue/variants/VariantSelector';
+import { useCardVariant } from '@/features/catalogue/variants/useCardVariant';
 
 import { useAuthor } from '@/context/AuthorContext';
 import { useSearchBar } from '@/context/SearchBarContext';
@@ -73,7 +75,11 @@ export interface BookCardProps {
     onPreview: (book: Book) => void;
     onEpubRequest: (bookID: number) => void;
     onMobiRequest: (bookID: number) => void;
-    onToggleFavourite: (book: Book) => void;
+    /**
+     * Stars or unstars the card. The card's book is the one listed; shownID is
+     * the file the card shows, which a star saves.
+     */
+    onToggleFavourite: (book: Book, shownID?: number) => void;
     onToggleApproved: (book: Book) => void;
     onRescan: (bookID: number) => void;
     onEdit: (book: Book) => void;
@@ -132,10 +138,7 @@ const elementHeight = (element: HTMLElement) => element.offsetHeight;
  * 28px disc to a finger's 40px. One name in both states, as a toggle's name
  * should be: the pressed state says which, and the hint what a press does.
  */
-const FavouriteStar: React.FC<{ book: Book; onToggle: (book: Book) => void }> = ({
-    book,
-    onToggle,
-}) => {
+const FavouriteStar: React.FC<{ book: Book; onToggle: () => void }> = ({ book, onToggle }) => {
     const { t } = useTranslation();
     return (
         <TooltipProvider>
@@ -146,7 +149,7 @@ const FavouriteStar: React.FC<{ book: Book; onToggle: (book: Book) => void }> = 
                         size="icon-xs"
                         aria-pressed={book.fav}
                         aria-label={t('bookFav')}
-                        onClick={() => onToggle(book)}
+                        onClick={onToggle}
                         className={cn(
                             'absolute top-1 right-1 size-7 rounded-full text-white card:size-[30px]',
                             "before:absolute before:-inset-1.5 before:content-['']",
@@ -357,6 +360,28 @@ const BookCard: React.FC<BookCardProps> = ({
     const { setAuthorName } = useAuthor();
     const [open, setOpen] = React.useState(false);
 
+    /*
+     * The file the card shows. A card with variants can be switched to any of
+     * its files: everything that belongs to the file — the cover, the dates,
+     * the series, the colophon, the genres, the annotation, the actions and the
+     * administrator's menu — comes from it. The title, the authors and the star
+     * belong to the card and stay with the book the list sent.
+     */
+    const variant = useCardVariant(book);
+    const shown = variant.shown;
+    const selector = (layout: 'rail' | 'chip') =>
+        book.variants ? (
+            <VariantSelector
+                book={book}
+                shown={shown}
+                rows={variant.rows}
+                loading={variant.loading}
+                onOpen={variant.open}
+                onSelect={variant.select}
+                layout={layout}
+            />
+        ) : null;
+
     /** Names the block the control opens, for anything reading the page aloud. */
     const detailsID = `book-${book.id}-details`;
 
@@ -365,21 +390,21 @@ const BookCard: React.FC<BookCardProps> = ({
 
     // A code the interface cannot name is not shown at all: "zxx" tells a
     // reader less than the empty space where it would have gone.
-    const bookLanguage = getLanguageDisplaySafe(book.lang);
+    const bookLanguage = getLanguageDisplaySafe(shown.lang);
     const authors = authorLine(book);
-    const published = formatCalendarDay(book.docdate);
-    const genres = book.genres ?? [];
+    const published = formatCalendarDay(shown.docdate);
+    const genres = shown.genres ?? [];
 
     // Publisher, ISBNs and translators as the source file states them, and
     // only when it does. Plain text, not links: nothing in the catalogue is
     // filtered by them. The API names at most two translators and flags the
     // rest, which the line reads as «и др.».
-    const translators = book.translators ?? [];
+    const translators = shown.translators ?? [];
     const colophon = [
-        book.publisher,
-        book.isbn && book.isbn.length > 0 ? `${t('bookIsbn')} ${book.isbn.join(', ')}` : null,
+        shown.publisher,
+        shown.isbn && shown.isbn.length > 0 ? `${t('bookIsbn')} ${shown.isbn.join(', ')}` : null,
         translators.length > 0
-            ? `${t('bookTranslatorLabel')}: ${translators.join(', ')}${book.translators_more ? ` ${t('bookTranslatorsMore')}` : ''}`
+            ? `${t('bookTranslatorLabel')}: ${translators.join(', ')}${shown.translators_more ? ` ${t('bookTranslatorsMore')}` : ''}`
             : null,
     ]
         .filter(Boolean)
@@ -387,7 +412,7 @@ const BookCard: React.FC<BookCardProps> = ({
 
     // «Подробнее» is offered from what the shut card hides, so the block is
     // there whenever there is anything to hide something in.
-    const hasDetails = genres.length > 0 || colophon !== '' || Boolean(book.annotation);
+    const hasDetails = genres.length > 0 || colophon !== '' || Boolean(shown.annotation);
 
     /*
      * How far the rail hangs into the details region: the rail's height less
@@ -405,7 +430,7 @@ const BookCard: React.FC<BookCardProps> = ({
     // rail that is no longer beside the text.
     const railClearance = isWide ? Math.max(0, railHeight - titleHeight - CARD_ROW_GAP) : 0;
 
-    const cover = thumbURL(book);
+    const cover = thumbURL(shown);
 
     return (
         <article
@@ -427,18 +452,21 @@ const BookCard: React.FC<BookCardProps> = ({
                     <BookCover
                         src={cover}
                         alt={book.title}
-                        hasPicture={book.cover}
+                        hasPicture={shown.cover}
                         title={book.title}
                         author={authors[0]?.name}
                         className="h-[116px] w-20 flex-none rounded shadow-[0_2px_5px_rgba(0,0,0,0.12)] card:h-[156px] card:w-[108px]"
                     >
-                        <FavouriteStar book={book} onToggle={onToggleFavourite} />
+                        <FavouriteStar
+                            book={book}
+                            onToggle={() => onToggleFavourite(book, shown.id)}
+                        />
                     </BookCover>
                     {/* Only when the list is mixed: it answers "can I read this
                         one?", which nothing else on the card does. */}
                     {showLanguage && bookLanguage && (
                         <span className="rounded-sm bg-secondary px-1.5 text-[11px] leading-[18px] font-semibold text-muted-foreground uppercase">
-                            <span aria-hidden="true">{book.lang}</span>
+                            <span aria-hidden="true">{shown.lang}</span>
                             <span className="sr-only">{bookLanguage}</span>
                         </span>
                     )}
@@ -463,7 +491,7 @@ const BookCard: React.FC<BookCardProps> = ({
                         {isSuperuser && (
                             <div className="-my-2 -mr-2 flex-none">
                                 <BookAdminMenu
-                                    book={book}
+                                    book={shown}
                                     onRescan={onRescan}
                                     onEdit={onEdit}
                                     onToggleApproved={onToggleApproved}
@@ -484,10 +512,10 @@ const BookCard: React.FC<BookCardProps> = ({
                         }}
                     />
 
-                    {book.series && book.series.length > 0 && (
+                    {shown.series && shown.series.length > 0 && (
                         <div className={BOOK_META_LINE_CLASS}>
                             {t('bookSeriesLabel')}:{' '}
-                            {book.series.map((series, index) => (
+                            {shown.series.map((series, index) => (
                                 <React.Fragment key={series.id ?? series.ser}>
                                     {index > 0 && ', '}
                                     <Link
@@ -504,13 +532,15 @@ const BookCard: React.FC<BookCardProps> = ({
 
                     <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12.5px] leading-snug text-muted-foreground">
                         <span>
-                            {t('bookAdded')} {formatDate(book.registerdate)}
+                            {t('bookAdded')} {formatDate(shown.registerdate)}
                         </span>
                         {published && (
                             <span>
                                 {t('bookPublished')} {published}
                             </span>
                         )}
+                        {/* A phone's variant control ends the dates line. */}
+                        {!isWide && selector('chip')}
                     </div>
                 </div>
 
@@ -538,7 +568,7 @@ const BookCard: React.FC<BookCardProps> = ({
                     >
                         {(clamped) => (
                             <CardDetails
-                                book={book}
+                                book={shown}
                                 genres={genres}
                                 colophon={colophon}
                                 isWide={isWide}
@@ -579,8 +609,9 @@ const BookCard: React.FC<BookCardProps> = ({
                     }
                 >
                     <BookActions
-                        book={book}
+                        book={shown}
                         isWide={isWide}
+                        selector={isWide ? selector('rail') : undefined}
                         isBookConverting={isBookConverting}
                         onDownload={onDownload}
                         onPreview={onPreview}

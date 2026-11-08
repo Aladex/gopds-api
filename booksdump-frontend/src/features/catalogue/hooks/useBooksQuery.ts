@@ -38,7 +38,8 @@ export type BooksListAction =
     | { type: 'SET_MENU_LOADING'; payload: boolean }
     | { type: 'SET_SELECTED_BOOK'; payload: number | null }
     | { type: 'UPDATE_BOOK'; payload: Book }
-    | { type: 'TOGGLE_FAV'; payload: number };
+    /** Flips the star of a card: a book's id, or the key of a card of variants. */
+    | { type: 'TOGGLE_FAV'; payload: number | string };
 
 const initialState: BooksListState = {
     books: [],
@@ -78,7 +79,7 @@ export function booksListReducer(state: BooksListState, action: BooksListAction)
             return {
                 ...state,
                 books: state.books.map((b) =>
-                    b.id === action.payload ? { ...b, fav: !b.fav } : b,
+                    (b.variants?.key ?? b.id) === action.payload ? { ...b, fav: !b.fav } : b,
                 ),
             };
         default:
@@ -140,6 +141,19 @@ export function useBooksQuery() {
         const bookId = searchParams.get('book_id');
         if (bookId) {
             params.book_id = bookId;
+        }
+
+        // One card per book on the scoped lists; the feed, a search and a
+        // pinned book stay one row per file.
+        const scoped =
+            params.author !== undefined ||
+            params.series !== undefined ||
+            params.genre !== undefined ||
+            params.curated_collection !== undefined ||
+            params.fav === true ||
+            params.users_favorites === true;
+        if (scoped && !params.title && !params.book_id) {
+            params.cards = true;
         }
 
         return params;

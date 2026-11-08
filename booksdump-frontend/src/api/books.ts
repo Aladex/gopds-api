@@ -106,6 +106,45 @@ export interface Book {
      * `authors`.
      */
     authors_display?: AuthorDisplay[];
+    /**
+     * Set on a grouped list (cards) for a card of more than one visible file:
+     * the card's key, how many variants or revisions it holds, and why the
+     * list shows it on this file rather than on its default. Absent on a
+     * single book and on every per-file list.
+     */
+    variants?: BookVariantsInfo;
+}
+
+/** What a listed card says of its files. */
+export interface BookVariantsInfo {
+    key: string;
+    /** Documents for a card of variants, files for a card of revisions. */
+    count: number;
+    kind: 'variants' | 'revisions';
+    reason?: 'saved' | 'new_revision' | 'new_variant';
+}
+
+/** One visible file of a card, as the variants of a book list it. */
+export interface BookVariantRow extends Book {
+    /** The FB2 document the file is a revision of, or "book:<id>". */
+    lineage: string;
+    /** The newest revision of its document in the card. */
+    latest: boolean;
+    rank: number;
+    /** The title's stripped trailing tags, joined with ", ". */
+    tag: string;
+    doc_version: string;
+    /** The file the card opens on when nothing else is asked. */
+    default: boolean;
+}
+
+/** A card with every visible file of it, by rank. */
+export interface BookVariants {
+    key: string;
+    kind: string;
+    count: number;
+    default_id: number;
+    variants: BookVariantRow[];
 }
 
 /** One name of a book's author line. */
@@ -161,6 +200,8 @@ export interface BooksQuery {
     include_hidden?: boolean;
     /** Pins the result to one exact book — the pick an autocomplete offered. */
     book_id?: number | string;
+    /** Asks a scoped list for one entry per card instead of one per file. */
+    cards?: boolean;
 }
 
 export interface Language {
@@ -212,9 +253,19 @@ export const getAuthor = (id: number | string) =>
 
 export const listLanguages = () => http.get<{ langs: Language[] }>('/books/langs');
 
-/** toggleFavourite adds or removes a book from the caller's favourites. */
-export const toggleFavourite = (bookID: number, fav: boolean) =>
-    http.post<{ have_favs: boolean }>('/books/fav', { book_id: bookID, fav });
+/**
+ * toggleFavourite adds or removes a book from the caller's favourites. With
+ * wholeGroup, removing takes every file of the book's card off them.
+ */
+export const toggleFavourite = (bookID: number, fav: boolean, wholeGroup?: boolean) =>
+    http.post<{ have_favs: boolean }>(
+        '/books/fav',
+        wholeGroup ? { book_id: bookID, fav, whole_group: true } : { book_id: bookID, fav },
+    );
+
+/** getBookVariants reads every visible file of the book's card, by rank. */
+export const getBookVariants = (bookID: number) =>
+    http.get<BookVariants>(`/books/variants/${bookID}`);
 
 export const getThemePreference = () => http.get<{ theme?: ThemeMode }>('/books/theme');
 
