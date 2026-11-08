@@ -208,13 +208,66 @@ describe('the control', () => {
         expect(selector).toHaveTextContent('revisionLatestOf(count=22)');
     });
 
-    it('phone shows the chip at the end of the dates line', () => {
-        renderCard({ isWide: false, book: { ...base, variants: variantsInfo({ count: 6 }) } });
+    it('phone gives the chip a full row under the header, above the genres', () => {
+        renderCard({
+            isWide: false,
+            book: {
+                ...base,
+                genres: [{ id: 1, genre: 'sf' }],
+                variants: variantsInfo({ count: 6 }),
+            },
+        });
 
         const chip = screen.getByTestId('variant-chip');
-        expect(datesLine().lastElementChild).toBe(chip);
         expect(chip).toHaveTextContent('variantCount(count=6)');
         expect(screen.queryByTestId('variant-selector')).toBeNull();
+        // Not in the dates line any more: a row of the card's own.
+        expect(datesLine()).not.toContainElement(chip);
+        const header = card().querySelector('[data-measure="core-title"]') as HTMLElement;
+        const details = card().querySelector('[data-clip="details"]') as HTMLElement;
+        expect(header).not.toContainElement(chip);
+        const row = chip.closest('[data-testid="variant-row"]') as HTMLElement;
+        expect(row).not.toBeNull();
+        expect(row.parentElement).toBe(header.parentElement);
+        // After the header in the card's order, before the genres and the rest.
+        expect(header.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(
+            row.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        expect(row.className).toMatch(/\bcol-span-2\b/);
+        // Its own grid row: the details move down a row instead of sharing it.
+        expect(row.className).toMatch(/\brow-start-2\b/);
+        expect(details.className).toMatch(/\brow-start-3\b/);
+        // The whole width, a finger's height.
+        expect(chip.className).toMatch(/\bw-full\b/);
+        expect(chip.className).toMatch(/\bmin-h-10\b/);
+    });
+
+    it('phone chip never cuts its label: it wraps', async () => {
+        renderCard({ isWide: false });
+        const sheet = await openSelector(false);
+        await userEvent.click(await optionFor(sheet, /П\. Номер20/));
+        const chip = screen.getByTestId('variant-chip');
+        await waitFor(() => expect(chip).toHaveTextContent('variantOf(n=2,count=3)'));
+
+        // Neither the chip nor anything in it truncates.
+        for (const el of [chip, ...chip.querySelectorAll<HTMLElement>('*')]) {
+            const classes = String(el.getAttribute('class') ?? '').split(/\s+/);
+            expect(classes).not.toContain('truncate');
+            expect(classes).not.toContain('whitespace-nowrap');
+        }
+        const label = screen.getByTestId('variant-chip-label');
+        expect(label).toHaveTextContent(
+            'variantOf(n=2,count=3) · variantTranslator(names=П. Номер20)',
+        );
+        expect(label.className).toMatch(/\bmin-w-0\b/);
+        expect(label.className).toMatch(/\bflex-1\b/);
+    });
+
+    it('the wide card keeps its rail selector and no phone row', () => {
+        renderCard();
+        expect(screen.getByTestId('variant-selector')).toBeInTheDocument();
+        expect(card().querySelector('[data-testid="variant-row"]')).toBeNull();
     });
 
     it('opens one fetch, however often it is opened', async () => {
@@ -527,9 +580,9 @@ describe('the feed mark', () => {
 
             const mark = screen.getByTestId('variant-mark');
             expect(mark).toHaveTextContent(text);
-            // In the dates line, before the chip.
+            // In the dates line; the chip has a row of its own.
             expect(datesLine()).toContainElement(mark);
-            expect(mark.nextElementSibling).toBe(screen.getByTestId('variant-chip'));
+            expect(datesLine()).not.toContainElement(screen.getByTestId('variant-chip'));
             await waitFor(() => expect(getBookVariants).toHaveBeenCalledWith(30));
             expect(card()).toHaveTextContent('Новый файл');
             expect(card()).not.toHaveTextContent('Аннотация файла 20');

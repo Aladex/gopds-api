@@ -296,21 +296,29 @@ const VariantSelector: React.FC<VariantSelectorProps> = ({
             : `${t(revisions ? 'revisionOf' : 'variantOf', { n: position, count: info.count })} · ${shownPrimary}`;
         return (
             <>
+                {/*
+                  A row of the card's own, the card's whole width: the label
+                  names the shown file and is never cut — a long one wraps to
+                  a second line, the chevron staying right and centred.
+                */}
                 <button
                     type="button"
                     data-testid="variant-chip"
                     aria-haspopup="dialog"
                     onClick={() => openChange(true)}
                     className={cn(
-                        'relative inline-flex h-6 max-w-full min-w-0 items-center gap-1 rounded-md border border-border bg-card pr-1.5 pl-[7px] text-[12.5px] font-semibold text-primary dark:border-input',
-                        // A finger's 40px around a 24px chip, as the star's hit area does.
-                        "before:absolute before:-inset-x-1 before:-inset-y-2 before:content-['']",
+                        'flex min-h-10 w-full items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-left text-[13px] leading-snug font-semibold text-primary dark:border-input',
                         'outline-none focus-visible:ring-[3px] focus-visible:ring-focus',
                     )}
                 >
-                    <Layers aria-hidden="true" className="size-[13px] flex-none" />
-                    <span className="truncate">{chipText}</span>
-                    <ChevronDown aria-hidden="true" className="size-3.5 flex-none" />
+                    <Layers aria-hidden="true" className="size-[15px] flex-none" />
+                    <span
+                        data-testid="variant-chip-label"
+                        className="min-w-0 flex-1 [overflow-wrap:anywhere]"
+                    >
+                        {chipText}
+                    </span>
+                    <ChevronDown aria-hidden="true" className="size-4 flex-none self-center" />
                 </button>
                 <ListSheet
                     open={open}

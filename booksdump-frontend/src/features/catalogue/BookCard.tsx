@@ -384,6 +384,8 @@ const BookCard: React.FC<BookCardProps> = ({
             />
         ) : null;
 
+    const phoneSelector = isWide ? null : selector('chip');
+
     // A new file of an old book lifts its card to the top of the feed, opened
     // on that file; the card says so while that file is the one shown.
     const reason = book.variants?.reason;
@@ -559,10 +561,19 @@ const BookCard: React.FC<BookCardProps> = ({
                                 {t(feedMark)}
                             </span>
                         )}
-                        {/* A phone's variant control ends the dates line. */}
-                        {!isWide && selector('chip')}
                     </div>
                 </div>
+
+                {/*
+                  A phone's variant control is a row of its own, under the
+                  cover and the title, above the genres: in the dates column
+                  it had a third of the card and cut the file's name.
+                */}
+                {phoneSelector && (
+                    <div data-testid="variant-row" className="col-span-2 row-start-2">
+                        {phoneSelector}
+                    </div>
+                )}
 
                 {/*
                   Everything «Подробнее» opens, in one animated region: the
@@ -584,7 +595,10 @@ const BookCard: React.FC<BookCardProps> = ({
                         measuredPeek
                         id={detailsID}
                         data-clip="details"
-                        className="col-span-2 row-start-2 flex min-w-0 flex-col gap-2 card:col-start-2 card:block"
+                        className={cn(
+                            'col-span-2 flex min-w-0 flex-col gap-2 card:col-start-2 card:block',
+                            phoneSelector ? 'row-start-3' : 'row-start-2',
+                        )}
                     >
                         {(clamped) => (
                             <CardDetails
