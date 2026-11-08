@@ -250,16 +250,25 @@ func cardEntries(
 	return books, entries, nil
 }
 
+// maxReplacementRounds bounds how often a card's shown file is replaced
+// within one request: every round needs another file of the card to vanish
+// between two reads, so a few rounds cover any real interleaving, and the
+// bound keeps a request from chasing a card that keeps disappearing.
+const maxReplacementRounds = 8
+
 // visibleCards reads the page's shown books, visible ones only, and returns
 // them with their rows, index-aligned and in page order. A card whose shown
-// file is gone is shown on its next eligible file in scope, read once more;
-// a card with none left is dropped.
+// file is gone is shown on its next eligible file in scope, and that one is
+// read in turn; this repeats, every gone file excluded, until each card has a
+// visible file or its scope has none left (or the rounds run out). A card
+// with no file left is dropped.
 func visibleCards(
 	ctx context.Context, rows []cardRow, scoped *orm.Query, userID int64,
 ) ([]models.Book, []cardRow, error) {
-	ids := make([]int64, len(rows))
-	for i := range rows {
-		ids[i] = rows[i].ShownID
+	current := slices.Clone(rows)
+	ids := make([]int64, len(current))
+	for i := range current {
+		ids[i] = current[i].ShownID
 	}
 	books, err := hydrateBooks(ctx, ids, userID)
 	if err != nil {
@@ -269,49 +278,79 @@ func visibleCards(
 	for i := range books {
 		found[books[i].ID] = &books[i]
 	}
-	replaced, err := nextCardFiles(ctx, rows, found, scoped, userID)
-	if err != nil {
-		return nil, nil, err
-	}
-	outBooks := make([]models.Book, 0, len(rows))
-	outRows := make([]cardRow, 0, len(rows))
-	for i := range rows {
-		row := rows[i]
-		if found[row.ShownID] == nil {
-			next := replaced[row.GroupKey]
-			if next == nil || found[next.ShownID] == nil {
-				continue
-			}
-			row.ShownID, row.ShownRank = next.ShownID, next.ShownRank
+	var gone []int64
+	exhausted := map[string]bool{}
+	for round := 0; round < maxReplacementRounds; round++ {
+		more, err := replaceGoneFiles(ctx, current, found, &gone, exhausted, scoped, userID)
+		if err != nil {
+			return nil, nil, err
 		}
-		outBooks = append(outBooks, *found[row.ShownID])
-		outRows = append(outRows, row)
+		if !more {
+			break
+		}
+	}
+	outBooks := make([]models.Book, 0, len(current))
+	outRows := make([]cardRow, 0, len(current))
+	for i := range current {
+		if book := found[current[i].ShownID]; book != nil {
+			outBooks = append(outBooks, *book)
+			outRows = append(outRows, current[i])
+		}
 	}
 	return outBooks, outRows, nil
 }
 
-// nextCardFiles finds the next eligible file in scope of every card whose
-// shown file is not among found, reads the visible ones into found, and
-// returns them by card key.
-func nextCardFiles(
-	ctx context.Context, rows []cardRow, found map[int64]*models.Book, scoped *orm.Query, userID int64,
-) (map[string]*cardRow, error) {
-	var goneKeys []string
-	var goneIDs []int64
-	for i := range rows {
-		if found[rows[i].ShownID] == nil {
-			goneKeys, goneIDs = append(goneKeys, rows[i].GroupKey), append(goneIDs, rows[i].ShownID)
+// replaceGoneFiles runs one round of replacement: every card whose shown file
+// is not found, and whose scope is not known to be exhausted, gets its next
+// eligible file, excluding every file seen gone so far (gone grows). It says
+// whether there was anything to replace.
+func replaceGoneFiles(
+	ctx context.Context, current []cardRow, found map[int64]*models.Book, gone *[]int64,
+	exhausted map[string]bool, scoped *orm.Query, userID int64,
+) (bool, error) {
+	var keys []string
+	for i := range current {
+		if found[current[i].ShownID] == nil && !exhausted[current[i].GroupKey] {
+			keys = append(keys, current[i].GroupKey)
+			*gone = append(*gone, current[i].ShownID)
 		}
 	}
-	replaced := map[string]*cardRow{}
-	if len(goneKeys) == 0 {
-		return replaced, nil
+	if len(keys) == 0 {
+		return false, nil
 	}
+	replaced, err := nextCardFiles(ctx, keys, *gone, found, scoped, userID)
+	if err != nil {
+		return false, err
+	}
+	for i := range current {
+		if found[current[i].ShownID] != nil || exhausted[current[i].GroupKey] {
+			continue
+		}
+		next := replaced[current[i].GroupKey]
+		if next == nil {
+			exhausted[current[i].GroupKey] = true
+			continue
+		}
+		current[i].ShownID, current[i].ShownRank = next.ShownID, next.ShownRank
+	}
+	return true, nil
+}
+
+// afterCardsReplaced, when set (tests only), runs between finding the next
+// files of cards and reading them, where another concurrent hide can land.
+var afterCardsReplaced func()
+
+// nextCardFiles finds the next eligible file in scope of each of the cards
+// named by keys, other than the gone files, reads the visible ones into
+// found, and returns the files found by card key.
+func nextCardFiles(
+	ctx context.Context, keys []string, gone []int64, found map[int64]*models.Book, scoped *orm.Query, userID int64,
+) (map[string]*cardRow, error) {
 	var next []cardRow
-	if _, err := db.QueryContext(ctx, &next, cardsReplacementSQL, scoped, pg.Array(goneKeys),
-		pg.Array(goneIDs)); err != nil {
+	if _, err := db.QueryContext(ctx, &next, cardsReplacementSQL, scoped, pg.Array(keys), pg.Array(gone)); err != nil {
 		return nil, err
 	}
+	replaced := make(map[string]*cardRow, len(next))
 	nextIDs := make([]int64, len(next))
 	for i := range next {
 		nextIDs[i] = next[i].ShownID
@@ -319,6 +358,9 @@ func nextCardFiles(
 	}
 	if len(nextIDs) == 0 {
 		return replaced, nil
+	}
+	if afterCardsReplaced != nil {
+		afterCardsReplaced()
 	}
 	more, err := hydrateBooks(ctx, nextIDs, userID)
 	if err != nil {

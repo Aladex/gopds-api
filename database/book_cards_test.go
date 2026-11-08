@@ -505,3 +505,46 @@ func TestBookCardsPopularCountsEveryVisibleFile(t *testing.T) {
 	books, _, _ = f.cards(0, models.BookFilters{UsersFavorites: true, Genre: int(genre)})
 	assert.Equal(t, []int64{b1, a1}, cardIDs(books))
 }
+
+// The file that replaces a gone one can go too before it is read: the card
+// keeps looking, and opens on the file still visible.
+func TestBookCardsReplacementHiddenToo(t *testing.T) {
+	f := cardsDB(t)
+	entity := f.entity("Брэдбери")
+	files := f.group3(entity, "451 градус по Фаренгейту")
+	f.commit()
+
+	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", files[0]) })
+	afterCardsReplaced = func() {
+		afterCardsReplaced = nil
+		f.hideNow("approved", files[1])
+	}
+	t.Cleanup(func() { afterCardsReplaced = nil })
+
+	books, entries, total := f.cards(0, models.BookFilters{AuthorEntity: uuidOf(t, entity)})
+	assert.Equal(t, 1, total)
+	assert.Equal(t, []int64{files[2]}, cardIDs(books), "the card opens on the one file left")
+	assert.Nil(t, entries[0].Variants, "one visible file is a single book")
+	assert.Nil(t, afterCardsReplaced, "the replacement was read after the second hide")
+}
+
+// A file seen gone stays out for the rest of the request, even if it comes
+// back between two reads: the card settles on a file that was never gone.
+func TestBookCardsGoneFilesStayOut(t *testing.T) {
+	f := cardsDB(t)
+	entity := f.entity("Азимов")
+	files := f.group3(entity, "Конец Вечности")
+	f.commit()
+
+	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", files[0]) })
+	afterCardsReplaced = func() {
+		afterCardsReplaced = nil
+		f.hideNow("approved", files[1])
+		_, err := f.scratch.Exec(`UPDATE opds_catalog_book SET duplicate_hidden = false WHERE id = ?`, files[0])
+		require.NoError(t, err)
+	}
+	t.Cleanup(func() { afterCardsReplaced = nil })
+
+	books, _, _ := f.cards(0, models.BookFilters{AuthorEntity: uuidOf(t, entity)})
+	assert.Equal(t, []int64{files[2]}, cardIDs(books))
+}
