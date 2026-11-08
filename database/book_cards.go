@@ -106,9 +106,11 @@ type cardRow struct {
 	ShownRank int    `pg:"shown_rank"`
 	Total     int    `pg:"total"`
 	// Mark and Newest are the feed's: the card's mark and its newest file,
-	// which the mark is about.
+	// which the mark is about. Fresh marks a book the read model had no row
+	// for when the page was selected, listed as a card of its own.
 	Mark   string `pg:"mark"`
 	Newest int64  `pg:"newest"`
+	Fresh  bool   `pg:"fresh"`
 }
 
 // nextFiles finds the next eligible file of each card named by keys, other
@@ -312,8 +314,12 @@ func visibleCards(
 	}
 	outBooks := make([]models.Book, 0, len(current))
 	outRows := make([]cardRow, 0, len(current))
+	listed := make(map[int64]bool, len(current))
 	for i := range current {
-		if book := found[current[i].ShownID]; book != nil {
+		// One file, one entry: a later card that still ended on a file the
+		// page lists already (two moves racing the request) leaves the page.
+		if book := found[current[i].ShownID]; book != nil && !listed[book.ID] {
+			listed[book.ID] = true
 			outBooks = append(outBooks, *book)
 			outRows = append(outRows, current[i])
 		}
@@ -339,7 +345,15 @@ func replaceGoneFiles(
 	if len(keys) == 0 {
 		return false, nil
 	}
-	replaced, err := nextCardFiles(ctx, keys, *gone, found, next, userID)
+	// Never a file the page already shows on another card: a file that moved
+	// between cards mid-request would otherwise be listed twice.
+	exclude := slices.Clone(*gone)
+	for i := range current {
+		if found[current[i].ShownID] != nil {
+			exclude = append(exclude, current[i].ShownID)
+		}
+	}
+	replaced, err := nextCardFiles(ctx, keys, exclude, found, next, userID)
 	if err != nil {
 		return false, err
 	}

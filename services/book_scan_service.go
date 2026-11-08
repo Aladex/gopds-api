@@ -483,6 +483,11 @@ func (s *BookScanService) processBook(zipFile *zip.File, archiveName string) (bo
 	if err != nil {
 		return 0, "", fmt.Errorf("failed to insert book: %w", err)
 	}
+	// Its card, with the book: until the variants read model has a row for
+	// it, the feed finds a new book only through this mark.
+	if err = database.MarkBookVariantsDirty(context.Background(), tx, book.ID); err != nil {
+		return 0, "", fmt.Errorf("failed to mark the book's card: %w", err)
+	}
 
 	// 6. Process cover if present
 	if len(parsedBook.Cover) > 0 {

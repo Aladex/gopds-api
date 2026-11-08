@@ -24,19 +24,14 @@ func isFeed(f models.BookFilters) bool {
 		f.CuratedCollection == 0 && !f.Fav && !f.UsersFavorites && f.Sort == "" && f.Title == ""
 }
 
-// feedFreshSQL is the visible books the read model has no row for yet that
-// the feed lists as cards of their own, by id. Fresh uploads are newer than
-// every row's book (the first parameter, read beforehand, so the planner sees
-// a constant and takes a short index range); a book whose row went (hidden,
-// then shown again) is marked dirty. Looking only there keeps the feed off a
-// scan of the catalog. A book a walk refused is not found here until the next
-// walk takes it.
+// feedFreshSQL is the visible books the read model has no row for yet, which
+// the feed lists as cards of their own, by id. Every path that makes a book
+// visible marks its card in the same transaction (the scan's insert,
+// UpdateBook's approve and un-hide; a rebuild marks the books it moves), and
+// the drain removes a mark only with the row it writes, so the queue holds
+// every such book: no scan of the catalog, no guess from the highest id. A
+// book a walk refused is not found here until the next walk takes it.
 const feedFreshSQL = `
-SELECT b.id
-FROM opds_catalog_book AS b
-WHERE b.id > ?::bigint AND b.approved AND NOT b.duplicate_hidden AND (?::text = '' OR b.lang = ?::text)
-    AND NOT EXISTS (SELECT 1 FROM book_variant_member AS m WHERE m.book_id = b.id)
-UNION
 SELECT b.id
 FROM book_variant_dirty AS d
 JOIN opds_catalog_book AS b ON b.id = d.book_id
@@ -48,7 +43,7 @@ WHERE b.approved AND NOT b.duplicate_hidden AND (?::text = '' OR b.lang = ?::tex
 // their indexes. A card without a mark leaves shown_id 0: its best visible
 // file is found by the replacement chain, as for a file gone.
 const feedPageSQL = `
-SELECT group_key, newest, mark, CASE WHEN mark <> '' OR fresh THEN newest ELSE 0 END AS shown_id
+SELECT group_key, newest, mark, fresh, CASE WHEN mark <> '' OR fresh THEN newest ELSE 0 END AS shown_id
 FROM (
     (SELECT g.group_key::text AS group_key, g.newest_book_id AS newest, g.mark, false AS fresh
      FROM book_variant_group AS g
@@ -68,6 +63,73 @@ LIMIT ? OFFSET ?`
 const feedCountSQL = `
 SELECT (SELECT count(*) FROM book_variant_group AS g WHERE (?::text = '' OR g.lang = ?::text))
     + (SELECT count(*) FROM (` + feedFreshSQL + `) AS f)`
+
+// freshMembershipSQL reads the cards the page's fresh books joined after the
+// page was selected: a rebuild that committed in between.
+const freshMembershipSQL = `
+SELECT m.book_id AS shown_id, m.group_key::text AS group_key, g.newest_book_id AS newest, g.mark
+FROM book_variant_member AS m
+JOIN book_variant_group AS g ON g.group_key = m.group_key
+WHERE m.book_id = ANY (?::bigint[])`
+
+// foldFreshIntoCards keeps one identity per file on the page when a fresh
+// book's rebuild committed after the page was selected. A fresh book now in
+// a card that is also on the page gives way to that card, which takes the
+// earlier of the two places; a fresh book now in a card not on the page
+// becomes that card, in its place. Either way the card is read as it is now:
+// its newest file and mark, the shown file following from them.
+func foldFreshIntoCards(ctx context.Context, rows []cardRow) ([]cardRow, error) {
+	var fresh []int64
+	for i := range rows {
+		if rows[i].Fresh {
+			fresh = append(fresh, rows[i].ShownID)
+		}
+	}
+	if len(fresh) == 0 {
+		return rows, nil
+	}
+	var joined []cardRow
+	if _, err := db.QueryContext(ctx, &joined, freshMembershipSQL, pg.Array(fresh)); err != nil {
+		return nil, err
+	}
+	if len(joined) == 0 {
+		return rows, nil
+	}
+	cardOf := make(map[int64]*cardRow, len(joined))
+	for i := range joined {
+		cardOf[joined[i].ShownID] = &joined[i]
+	}
+	now := func(card *cardRow) cardRow {
+		row := cardRow{GroupKey: card.GroupKey, Newest: card.Newest, Mark: card.Mark}
+		if row.Mark != "" {
+			row.ShownID = row.Newest
+		}
+		return row
+	}
+	out := make([]cardRow, 0, len(rows))
+	placed := map[string]int{}
+	for i := range rows {
+		row := rows[i]
+		var card *cardRow
+		if row.Fresh {
+			card = cardOf[row.ShownID]
+		}
+		if card != nil {
+			row = now(card)
+		}
+		if _, ok := placed[row.GroupKey]; ok {
+			// The card is on the page already, at an earlier place, and keeps
+			// it. A fresh book is newer than any card selected below it, so
+			// the earlier place is the fresh book's, already read as it is
+			// now; a card above a fresh book is newer still, and its newest
+			// file and mark are not the fresh book's.
+			continue
+		}
+		placed[row.GroupKey] = len(out)
+		out = append(out, row)
+	}
+	return out, nil
+}
 
 // nextInFeed is nextFiles for the feed: the card's best-ranked visible file.
 func nextInFeed(ctx context.Context, keys []string, gone []int64) ([]cardRow, error) {
@@ -91,12 +153,7 @@ func getFeedCards(ctx context.Context, userID int64, filters models.BookFilters)
 		lang = ""
 	}
 	end := filters.Limit + filters.Offset
-	var newest int64
-	if _, err := db.QueryOneContext(ctx, pg.Scan(&newest),
-		`SELECT coalesce(max(book_id), 0) FROM book_variant_member`); err != nil {
-		return nil, nil, 0, err
-	}
-	fresh := []any{newest, lang, lang, lang, lang}
+	fresh := []any{lang, lang}
 	var rows []cardRow
 	if _, err := db.QueryContext(ctx, &rows, feedPageSQL,
 		append(append([]any{lang, lang, end}, fresh...), end, filters.Limit, filters.Offset)...); err != nil {
@@ -112,6 +169,10 @@ func getFeedCards(ctx context.Context, userID int64, filters models.BookFilters)
 	}
 	if afterCardsSelected != nil {
 		afterCardsSelected()
+	}
+	rows, err := foldFreshIntoCards(ctx, rows)
+	if err != nil {
+		return nil, nil, 0, err
 	}
 	books, entries, err := cardEntries(ctx, rows, nextInFeed, false, userID)
 	if err != nil {

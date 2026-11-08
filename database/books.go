@@ -626,6 +626,12 @@ func UpdateBook(updateReq models.BookUpdateRequest) (models.Book, error) {
 		if err != nil {
 			return bookToUpdate, err
 		}
+		// The card too, in this transaction: a book approved or shown again
+		// has no row in the variants read model until it is rebuilt, and the
+		// feed finds such a book only through this mark (feedFreshSQL).
+		if markErr := MarkBookVariantsDirty(context.Background(), tx, updateReq.ID); markErr != nil {
+			return bookToUpdate, markErr
+		}
 	}
 
 	if updateReq.Authors != nil {
