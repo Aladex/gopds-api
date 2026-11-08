@@ -105,3 +105,95 @@ func TestBookSourceDetailsOfNoBooksAsksNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+// persistCredits writes one current snapshot of the book carrying the given
+// credits, in the given (XML) order.
+func (f *authorSchemaFixture) persistCredits(book int64, credits ...ExtractionCredit) int64 {
+	f.t.Helper()
+	spec := &extractionSpec{book: book, credits: credits, outcome: models.BookMetadataSnapshotExtractedNoAuthor}
+	for i := range credits {
+		if credits[i].Role == models.ContributorRoleAuthor {
+			spec.outcome = models.BookMetadataSnapshotExtracted
+		}
+	}
+	result, err := PersistExtraction(f.tx, f.extraction(spec))
+	require.NoError(f.t, err)
+	return result.SnapshotID
+}
+
+func TestBookSourceDetailsTranslators(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	repo := NewPGBookSourceRepository(f.tx)
+	tr := models.ContributorRoleTranslator
+
+	// The credits are written straight in the order positions 2, 0, 1, so
+	// that the row order and the position order disagree: Вера (0) is
+	// first, Анна (1) second, Борис (2) third.
+	team := f.book()
+	snapshot := f.persistCredits(team, creditOf(t, models.ContributorRoleAuthor, "Аркадий", "Стругацкий"))
+	for _, c := range []struct {
+		position    int
+		first, last string
+	}{{2, "Борис", "Второй"}, {0, "Вера", "Третья"}, {1, "Анна", "Первая"}} {
+		f.exec(`INSERT INTO book_contributor_credit
+			(snapshot_id, role, position, source_first_name, source_last_name, source_display_name, source_fingerprint)
+			VALUES (?, 'translator', ?, ?, ?, ?, sha256(convert_to(?, 'UTF8')))`,
+			snapshot, c.position, c.first, c.last, c.first+" "+c.last, c.first+" "+c.last)
+	}
+
+	// Two names, one of them credited twice: no third name remains, so no
+	// «и др.».
+	pair := f.book()
+	f.persistCredits(pair,
+		creditOf(t, tr, "Нора", "Галь"),
+		creditOf(t, tr, "Нора", "Галь"),
+		creditOf(t, tr, "Рита", "Райт-Ковалёва"))
+
+	// Three credits, two of them the same name: the duplicate is not a third
+	// name either.
+	twiceThenOne := f.book()
+	f.persistCredits(twiceThenOne,
+		creditOf(t, tr, "Нора", "Галь"),
+		creditOf(t, tr, "Нора", "Галь"),
+		creditOf(t, tr, "Рита", "Райт-Ковалёва"),
+		creditOf(t, tr, "Рита", "Райт-Ковалёва"))
+
+	single := f.book()
+	f.persistCredits(single, creditOf(t, tr, "Корней", "Чуковский"))
+
+	got, err := repo.BookSourceDetails(context.Background(), []int64{team, pair, twiceThenOne, single})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"Вера Третья", "Анна Первая"}, got[team].Translators,
+		"the first two by position, never the author")
+	assert.True(t, got[team].TranslatorsMore, "a third name remains")
+	assert.Equal(t, []string{"Нора Галь", "Рита Райт-Ковалёва"}, got[pair].Translators)
+	assert.False(t, got[pair].TranslatorsMore, "a duplicate is not a third name")
+	assert.Equal(t, []string{"Нора Галь", "Рита Райт-Ковалёва"}, got[twiceThenOne].Translators)
+	assert.False(t, got[twiceThenOne].TranslatorsMore)
+	assert.Equal(t, []string{"Корней Чуковский"}, got[single].Translators)
+	assert.False(t, got[single].TranslatorsMore)
+}
+
+func TestBookSourceDetailsNoTranslator(t *testing.T) {
+	f := withAuthorSchemaTx(t)
+	repo := NewPGBookSourceRepository(f.tx)
+
+	// An author credit is not a translator one.
+	authored := f.book()
+	f.persistCredits(authored, creditOf(t, models.ContributorRoleAuthor, "Лев", "Толстой"))
+
+	// A translator of a superseded snapshot is not the current one's.
+	superseded := f.book()
+	f.persistCredits(superseded, creditOf(t, models.ContributorRoleTranslator, "Старый", "Переводчик"))
+	f.persistSourceDetails(&extractionSpec{book: superseded, md5: bookMD5(superseded + 1_000)},
+		ptr("Издательство"), []string{})
+
+	got, err := repo.BookSourceDetails(context.Background(), []int64{authored, superseded})
+	require.NoError(t, err)
+	require.Contains(t, got, authored)
+	require.Contains(t, got, superseded)
+	assert.Nil(t, got[authored].Translators, "nil, so the list response omits the field")
+	assert.False(t, got[authored].TranslatorsMore)
+	assert.Nil(t, got[superseded].Translators)
+}

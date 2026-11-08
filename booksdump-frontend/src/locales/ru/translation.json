@@ -19,6 +19,8 @@
   "bookPublished": "Опубликовано",
   "bookIsbn": "ISBN",
   "bookPublisherLabel": "Издательство",
+  "bookTranslatorLabel": "Перевод",
+  "bookTranslatorsMore": "и др.",
   "bookAdded": "Добавлено",
   "annotation": "Аннотация",
   "routeTitles.books": "Новые книги",

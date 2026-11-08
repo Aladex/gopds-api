@@ -20,6 +20,8 @@
   "bookPublished": "Published",
   "bookIsbn": "ISBN",
   "bookPublisherLabel": "Publisher",
+  "bookTranslatorLabel": "Translated by",
+  "bookTranslatorsMore": "et al.",
   "bookAdded": "Added",
   "annotation": "Annotation",
   "routeTitles.books": "New books",

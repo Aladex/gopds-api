@@ -24,9 +24,9 @@ import (
 // boundary.
 type SearchHandler struct {
 	Search services.PublicSearch
-	// Sources supplies the publisher and ISBN list the book card shows, read
-	// from each listed book's current metadata snapshot. Without it every
-	// book is listed with neither.
+	// Sources supplies the publisher, ISBN list and translators the book card
+	// shows, read from each listed book's current metadata snapshot. Without
+	// it every book is listed with none of them.
 	Sources BookSourceLookup
 	// AuthorLines supplies each listed book's author line. It is set only when
 	// the author line is switched on; without it no book carries one.
@@ -57,9 +57,9 @@ type BookSourceLookup interface {
 	BookSourceDetails(ctx context.Context, bookIDs []int64) (map[int64]models.BookSourceDetail, error)
 }
 
-// listedBooks pairs each book of a page with its publisher and ISBN list,
-// and with its author line when that is switched on, asking each lookup once
-// for the whole page. The result is never nil, so an empty page serializes as
+// listedBooks pairs each book of a page with its publisher, ISBN list and
+// translators, and with its author line when that is switched on, asking each
+// lookup once for the whole page. The result is never nil, so an empty page serializes as
 // [], and neither is any ISBN list.
 func (h *SearchHandler) listedBooks(ctx context.Context, books []models.Book) ([]ListedBook, error) {
 	var details map[int64]models.BookSourceDetail
@@ -88,7 +88,8 @@ func (h *SearchHandler) listedBooks(ctx context.Context, books []models.Book) ([
 		if isbn == nil {
 			isbn = []string{}
 		}
-		out[i] = ListedBook{Book: books[i], Publisher: detail.Publisher, ISBN: isbn}
+		out[i] = ListedBook{Book: books[i], Publisher: detail.Publisher, ISBN: isbn,
+			Translators: detail.Translators, TranslatorsMore: detail.TranslatorsMore}
 		if h.AuthorLines != nil {
 			if line := authorLineOf(&books[i], lines); len(line) > 0 {
 				out[i].AuthorsDisplay = &line

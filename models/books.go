@@ -168,10 +168,14 @@ type Book struct {
 }
 
 // BookSourceDetail is what the public book card shows from a book's current
-// metadata snapshot: its publisher, nil when there is none, and its ISBN list.
+// metadata snapshot: its publisher, nil when there is none, its ISBN list,
+// and its credited translators: at most two names in credit order, nil when
+// there is none, with TranslatorsMore set when further names remain.
 type BookSourceDetail struct {
-	Publisher *string
-	ISBN      []string
+	Publisher       *string
+	ISBN            []string
+	Translators     []string
+	TranslatorsMore bool
 }
 
 func (b *Book) DownloadName() string {

@@ -370,11 +370,17 @@ const BookCard: React.FC<BookCardProps> = ({
     const published = formatCalendarDay(book.docdate);
     const genres = book.genres ?? [];
 
-    // Publisher and ISBNs as the source file states them, and only when it
-    // does. Plain text, not links: nothing in the catalogue is filtered by them.
+    // Publisher, ISBNs and translators as the source file states them, and
+    // only when it does. Plain text, not links: nothing in the catalogue is
+    // filtered by them. The API names at most two translators and flags the
+    // rest, which the line reads as «и др.».
+    const translators = book.translators ?? [];
     const colophon = [
         book.publisher,
         book.isbn && book.isbn.length > 0 ? `${t('bookIsbn')} ${book.isbn.join(', ')}` : null,
+        translators.length > 0
+            ? `${t('bookTranslatorLabel')}: ${translators.join(', ')}${book.translators_more ? ` ${t('bookTranslatorsMore')}` : ''}`
+            : null,
     ]
         .filter(Boolean)
         .join(' · ');

@@ -97,7 +97,8 @@ func renderGolden(t *testing.T, golden string, v scanVars) string {
 // The three characterization books as the REST book list serializes them.
 // Nested empty lists are null today (series of a book without one, favorites,
 // covers); only the top-level books list and the ISBN list are guaranteed to
-// be [].
+// be []. A translator is named when the file credits one, and the field is
+// left out when it does not (the latin book).
 const (
 	restMultiAuthor = `{"id":{{index .Book "multi-author.fb2"}},"path":"characterization.zip","format":"fb2",` +
 		`"filename":"multi-author.fb2","registerdate":{{index .Register "multi-author.fb2"}},"docdate":"{{.Year}}",` +
@@ -108,14 +109,16 @@ const (
 		`"series":[{"id":{{index .Series "Эпопея"}},"ser_no":2,"ser":"Эпопея","lang_code":0}],` +
 		`"genres":[{"id":{{index .Genre "prose_classic"}},"genre":"prose_classic"},` +
 		`{"id":{{index .Genre "prose_history"}},"genre":"prose_history"}],` +
-		`"favorites":null,"covers":null,"favorite_count":0,"position":0,"publisher":null,"isbn":[]}`
+		`"favorites":null,"covers":null,"favorite_count":0,"position":0,"publisher":null,"isbn":[],` +
+		`"translators":["Пётр Переводчиков"]}`
 	restNoAuthor = `{"id":{{index .Book "no-author.fb2"}},"path":"characterization.zip","format":"fb2",` +
 		`"filename":"no-author.fb2","registerdate":{{index .Register "no-author.fb2"}},"docdate":"{{.Year}}",` +
 		`"lang":"ru","title":"Сборник без автора","cover":false,"annotation":"","fav":false,` +
 		`"approved":true,"md5":"{{index .MD5 "no-author.fb2"}}","duplicate_hidden":false,` +
 		`"authors":[{"id":{{index .Author "Автор неизвестен"}},"full_name":"Автор неизвестен"}],` +
 		`"series":null,"genres":[{"id":{{index .Genre "antology"}},"genre":"antology"}],` +
-		`"favorites":null,"covers":null,"favorite_count":0,"position":0,"publisher":null,"isbn":[]}`
+		`"favorites":null,"covers":null,"favorite_count":0,"position":0,"publisher":null,"isbn":[],` +
+		`"translators":["Мария Переводова"]}`
 	restLatin = `{"id":{{index .Book "latin-mismatch.fb2"}},"path":"characterization.zip","format":"fb2",` +
 		`"filename":"latin-mismatch.fb2","registerdate":{{index .Register "latin-mismatch.fb2"}},"docdate":"{{.Year}}",` +
 		`"lang":"en","title":"the GREAT book","cover":false,"annotation":"","fav":false,` +

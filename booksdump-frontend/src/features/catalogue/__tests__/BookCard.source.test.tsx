@@ -168,4 +168,66 @@ describe('the publisher and ISBN of a book', () => {
         expect(enTranslation).toMatchObject({ bookPublisherLabel: 'Publisher' });
         expect(ruTranslation).toMatchObject({ bookPublisherLabel: 'Издательство' });
     });
+
+    it('label the translator in both languages', () => {
+        expect(enTranslation).toMatchObject({
+            bookTranslatorLabel: 'Translated by',
+            bookTranslatorsMore: 'et al.',
+        });
+        expect(ruTranslation).toMatchObject({
+            bookTranslatorLabel: 'Перевод',
+            bookTranslatorsMore: 'и др.',
+        });
+    });
+});
+
+/*
+ * The translator closes the colophon: «Издательство: X · ISBN … · Перевод: A, B
+ * и др.», for every book that has one. The API sends at most two names and a
+ * flag when more remain.
+ */
+describe('the translator of a book', () => {
+    it('shows the translator in the colophon', () => {
+        renderCard({
+            publisher: 'Издательство «Мир»',
+            isbn: ['978-5-03-000000-1'],
+            translators: ['Нора Галь'],
+        });
+
+        expect(colophon()).toHaveTextContent(
+            /^bookPublisherLabel: Издательство «Мир» · bookIsbn 978-5-03-000000-1 · bookTranslatorLabel: Нора Галь$/,
+        );
+    });
+
+    it('shortens a team to two names and «и др.»', () => {
+        renderCard({
+            publisher: null,
+            isbn: [],
+            translators: ['Нора Галь', 'Рита Райт-Ковалёва'],
+            translators_more: true,
+        });
+
+        expect(colophon()).toHaveTextContent(
+            /^bookTranslatorLabel: Нора Галь, Рита Райт-Ковалёва bookTranslatorsMore$/,
+        );
+    });
+
+    it('gives a book with a translator and nothing else a colophon of its own', () => {
+        renderCard({ translators: ['Корней Чуковский'] });
+
+        expect(colophon()).toHaveTextContent(/^bookTranslatorLabel: Корней Чуковский$/);
+    });
+
+    it('says nothing of a translator the book does not have', () => {
+        renderCard({ publisher: 'Азбука', isbn: [], translators: [] });
+
+        expect(colophon()).toHaveTextContent(/^bookPublisherLabel: Азбука$/);
+        expect(colophon()?.textContent).not.toContain('bookTranslatorLabel');
+    });
+
+    it('never shows «и др.» without names', () => {
+        renderCard({ publisher: 'Азбука', isbn: [], translators: [], translators_more: true });
+
+        expect(colophon()?.textContent).not.toContain('bookTranslatorsMore');
+    });
 });

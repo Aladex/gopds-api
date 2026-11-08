@@ -95,6 +95,10 @@ export interface Book {
      */
     publisher?: string | null;
     isbn?: string[];
+    /** At most two credited translators; absent when the book has none. */
+    translators?: string[];
+    /** Set when the book credits more translators than `translators` names. */
+    translators_more?: boolean;
     /**
      * The book's author line, sent only while the server shows authors from
      * the author layer: the names in the file's order, each with the

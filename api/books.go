@@ -29,6 +29,11 @@ type ListedBook struct {
 	models.Book
 	Publisher *string  `json:"publisher"`
 	ISBN      []string `json:"isbn"`
+	// Translators names at most two of the book's credited translators, and
+	// TranslatorsMore says more remain; both are left out for a book without
+	// one.
+	Translators     []string `json:"translators,omitempty"`
+	TranslatorsMore bool     `json:"translators_more,omitempty"`
 	// AuthorsDisplay is the book's author line, present only while the
 	// author line is switched on. Under the legacy identity a line that names
 	// no one is left out and the card shows the catalog's authors; under the

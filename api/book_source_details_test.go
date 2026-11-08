@@ -62,8 +62,9 @@ func TestSearchHandler_Books_CarriesPublisherAndISBN(t *testing.T) {
 		Total: 3, Limit: 10,
 	}}
 	sources := &fakeSources{details: map[int64]models.BookSourceDetail{
-		10: {Publisher: &publisher, ISBN: []string{"978-5-03-000000-1", "978-5-03-000000-2"}},
-		30: {ISBN: []string{}},
+		10: {Publisher: &publisher, ISBN: []string{"978-5-03-000000-1", "978-5-03-000000-2"},
+			Translators: []string{"Нора Галь", "Рита Райт-Ковалёва"}, TranslatorsMore: true},
+		30: {ISBN: []string{}, Translators: []string{"Корней Чуковский"}},
 	}}
 	r := newSourcesTestRouter(search, sources)
 
@@ -79,6 +80,15 @@ func TestSearchHandler_Books_CarriesPublisherAndISBN(t *testing.T) {
 	assert.Equal(t, `[]`, string(books[1]["isbn"]))
 	assert.Equal(t, `null`, string(books[2]["publisher"]))
 	assert.Equal(t, `[]`, string(books[2]["isbn"]))
+
+	// The translators ride along: two names and the «и др.» flag, the flag
+	// only when set, and neither field on a book without a translator.
+	assert.JSONEq(t, `["Нора Галь","Рита Райт-Ковалёва"]`, string(books[0]["translators"]))
+	assert.JSONEq(t, `true`, string(books[0]["translators_more"]))
+	assert.NotContains(t, books[1], "translators")
+	assert.NotContains(t, books[1], "translators_more")
+	assert.JSONEq(t, `["Корней Чуковский"]`, string(books[2]["translators"]))
+	assert.NotContains(t, books[2], "translators_more")
 
 	// One lookup for the whole page, not one per book.
 	assert.Equal(t, [][]int64{{10, 20, 30}}, sources.calls)
