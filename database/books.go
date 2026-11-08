@@ -57,17 +57,17 @@ func GetBooks(userID int64, filters models.BookFilters) ([]models.Book, int, err
 		Relation("Genres").
 		ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count")
 
-	query, err = applyListFilters(query, filters, userID)
+	lists, err := readScopeLists(context.Background(), db, filters, userID)
+	if err != nil {
+		return nil, 0, err
+	}
+	query, err = applyListFilters(query, filters, lists)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	// Ordering follows the scope that was asked for.
-	order, err := listOrder(filters, userID)
-	if err != nil {
-		logging.Error(err)
-		return nil, 0, err
-	}
+	order := listOrder(filters, userID, lists)
 	query = order.apply(query).OrderExpr(order.orderBy, order.orderArgs...)
 
 	count, err := query.Limit(filters.Limit).Offset(filters.Offset).SelectAndCount()
@@ -119,7 +119,7 @@ const newestFirst = "book.id DESC"
 // or the sort asks otherwise.
 //
 //nolint:gocritic // reads one filter set; the list path passes it by value throughout
-func listOrder(filters models.BookFilters, userID int64) (listOrdering, error) {
+func listOrder(filters models.BookFilters, userID int64, lists scopeLists) listOrdering {
 	switch {
 	case filters.Fav:
 		// The newest star first.
@@ -128,29 +128,25 @@ func listOrder(filters models.BookFilters, userID int64) (listOrdering, error) {
 				 FROM (SELECT book_id, ROW_NUMBER() OVER (ORDER BY id DESC) as row_number
 				       FROM favorite_books
 				       WHERE user_id = ?) favs
-				 WHERE favs.book_id = book.id) ASC`, orderArgs: []any{userID}}, nil
+				 WHERE favs.book_id = book.id) ASC`, orderArgs: []any{userID}}
 	case filters.UsersFavorites:
 		// Books someone starred, the most starred first.
 		return listOrdering{
 			where:   "EXISTS (SELECT 1 FROM favorite_books fb WHERE fb.book_id = book.id)",
 			orderBy: "(SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) DESC, book.id DESC",
-		}, nil
+		}
 	case filters.Collection != 0:
 		return listOrdering{
 			joins: []listJoin{{join: "JOIN book_collection_books bcb ON bcb.book_id = book.id AND bcb.book_collection_id = ?",
 				args: []any{filters.Collection}}},
 			orderBy: "bcb.position ASC",
-		}, nil
+		}
 	case filters.CuratedCollection != 0:
 		// In the collection's order, read off the ordered list of its book
 		// ids (a join on the items conflicted with the relations once and
 		// returned nothing on prod). An empty collection matches nothing
 		// already (applyListFilters).
-		ids, err := collectionBookIDsOrdered(filters.CuratedCollection)
-		if err != nil {
-			return listOrdering{}, err
-		}
-		return listOrdering{orderBy: "array_position(?, book.id)", orderArgs: []any{pg.Array(ids)}}, nil
+		return listOrdering{orderBy: "array_position(?, book.id)", orderArgs: []any{pg.Array(lists.curated)}}
 	case filters.Sort == models.BookSortAuthor:
 		// By the first name of each book's author line in the read model, in
 		// the order of book_author_display_first_sort_idx, so the page is
@@ -162,17 +158,17 @@ func listOrder(filters models.BookFilters, userID int64) (listOrdering, error) {
 			joins: []listJoin{{join: "JOIN book_author_display AS first_author ON first_author.book_id = book.id " +
 				"AND first_author.position = 0"}},
 			orderBy: "first_author.sort_key ASC NULLS LAST, first_author.book_id DESC",
-		}, nil
+		}
 	case filters.Sort == models.BookSortTitle:
-		return listOrdering{orderBy: "lower(book.title) ASC, book.id ASC"}, nil
+		return listOrdering{orderBy: "lower(book.title) ASC, book.id ASC"}
 	case filters.Sort == models.BookSortSeries && filters.Series != 0:
 		return listOrdering{
 			joins: []listJoin{{join: "LEFT JOIN opds_catalog_bseries AS series_order ON series_order.book_id = book.id " +
 				"AND series_order.ser_id = ?", args: []any{filters.Series}}},
 			orderBy: "COALESCE(NULLIF(series_order.ser_no, 0), 2147483647) ASC, lower(book.title) ASC, book.id ASC",
-		}, nil
+		}
 	default:
-		return listOrdering{orderBy: newestFirst}, nil
+		return listOrdering{orderBy: newestFirst}
 	}
 }
 
@@ -186,8 +182,8 @@ func listOrder(filters models.BookFilters, userID int64) (listOrdering, error) {
 // tell from a quiet catalog.
 //
 //nolint:gocritic // reads one filter set; the list path passes it by value throughout
-func applyListFilters(query *orm.Query, filters models.BookFilters, userID int64) (*orm.Query, error) {
-	return applyScopeFilters(query, filters, userID, false)
+func applyListFilters(query *orm.Query, filters models.BookFilters, lists scopeLists) (*orm.Query, error) {
+	return applyScopeFilters(query, filters, false, lists)
 }
 
 // applyScopeFilters is applyListFilters with a choice of how an author,
@@ -197,22 +193,14 @@ func applyListFilters(query *orm.Query, filters models.BookFilters, userID int64
 // books planned as a literal list cost more than the list itself).
 //
 //nolint:gocritic // reads one filter set; the list path passes it by value throughout
-func applyScopeFilters(query *orm.Query, filters models.BookFilters, userID int64, inline bool) (*orm.Query, error) {
+func applyScopeFilters(
+	query *orm.Query, filters models.BookFilters, inline bool, lists scopeLists,
+) (*orm.Query, error) {
 	if filters.Fav {
-		var booksIds []int64
-		err := db.Model(&models.UserToBook{}).
-			Column("book_id").
-			Where("user_id = ?", userID).
-			Order("id ASC").
-			Select(&booksIds)
-		if err != nil {
-			return nil, fmt.Errorf("loading favorites for user %d: %w", userID, err)
-		}
-		if len(booksIds) > 0 {
-			query = query.WhereIn("book.id IN (?)", booksIds)
-		} else {
+		if len(lists.favorites) == 0 {
 			return query.Where("1 = 0"), nil
 		}
+		query = query.WhereIn("book.id IN (?)", lists.favorites)
 	}
 
 	query = applyVisibility(query, filters)
@@ -223,18 +211,49 @@ func applyScopeFilters(query *orm.Query, filters models.BookFilters, userID int6
 	}
 
 	if filters.CuratedCollection != 0 {
-		booksIds, err := collectionBookIDsOrdered(filters.CuratedCollection)
-		if err != nil {
-			return nil, fmt.Errorf("resolving curated collection %d: %w", filters.CuratedCollection, err)
-		}
-		if len(booksIds) == 0 {
+		if len(lists.curated) == 0 {
 			// Empty or non-public collection: no books should match.
 			return query.Where("FALSE"), nil
 		}
-		query = query.WhereIn("book.id IN (?)", booksIds)
+		query = query.WhereIn("book.id IN (?)", lists.curated)
 	}
 
 	return query, nil
+}
+
+// scopeLists are the id lists a scope is narrowed and ordered by that are
+// read on their own, before the list's query: the caller's favorites and a
+// curated collection's books in its order.
+type scopeLists struct {
+	favorites []int64
+	curated   []int64
+}
+
+// readScopeLists reads the id lists the filters' scope needs, on dbh. The
+// grouped list reads them before it takes its snapshot's connection, so a
+// request never holds one pooled connection while it waits for another.
+//
+//nolint:gocritic // reads one filter set; the list path passes it by value throughout
+func readScopeLists(ctx context.Context, dbh pg.DBI, filters models.BookFilters, userID int64) (scopeLists, error) {
+	var lists scopeLists
+	if filters.Fav {
+		err := dbh.ModelContext(ctx, &models.UserToBook{}).
+			Column("book_id").
+			Where("user_id = ?", userID).
+			Order("id ASC").
+			Select(&lists.favorites)
+		if err != nil {
+			return scopeLists{}, fmt.Errorf("loading favorites for user %d: %w", userID, err)
+		}
+	}
+	if filters.CuratedCollection != 0 {
+		ids, err := collectionBookIDsOrdered(ctx, dbh, filters.CuratedCollection)
+		if err != nil {
+			return scopeLists{}, fmt.Errorf("resolving curated collection %d: %w", filters.CuratedCollection, err)
+		}
+		lists.curated = ids
+	}
+	return lists, nil
 }
 
 // applyVisibility narrows the list to what the caller may see: their books
@@ -456,9 +475,9 @@ func GetBook(bookID int64) (models.Book, error) {
 // Uses a raw query because go-pg's ORM aliases the model table differently
 // from the bare table name and JOIN ... ON book_collection_items.* fails with
 // "invalid reference to FROM-clause entry".
-func collectionBookIDsOrdered(collectionID int64) ([]int64, error) {
+func collectionBookIDsOrdered(ctx context.Context, dbh pg.DBI, collectionID int64) ([]int64, error) {
 	var ids []int64
-	_, err := db.Query(&ids, `
+	_, err := dbh.QueryContext(ctx, &ids, `
 		SELECT i.book_id
 		FROM book_collection_items i
 		JOIN book_collections bc ON bc.id = i.collection_id

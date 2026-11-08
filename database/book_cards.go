@@ -180,17 +180,24 @@ func GetBookCards(ctx context.Context, userID int64, filters models.BookFilters)
 	if filters.Limit > 100 || filters.Limit == 0 {
 		filters.Limit = 100
 	}
+	// The scope's id lists are read first, on a connection of their own that
+	// is back in the pool before the snapshot takes one: nothing inside the
+	// snapshot reads off the package handle.
+	lists, err := readScopeLists(ctx, db, filters, userID)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	var books []models.Book
 	var entries []CardEntry
 	var total int
-	err := inSnapshot(ctx, func(conn pg.DBI) error {
-		var err error
+	err = inSnapshot(ctx, func(conn pg.DBI) error {
+		var readErr error
 		if isFeed(filters) {
-			books, entries, total, err = getFeedCards(ctx, conn, userID, filters)
+			books, entries, total, readErr = getFeedCards(ctx, conn, userID, filters)
 		} else {
-			books, entries, total, err = getScopedCards(ctx, conn, userID, filters)
+			books, entries, total, readErr = getScopedCards(ctx, conn, userID, filters, lists)
 		}
-		return err
+		return readErr
 	})
 	if err != nil {
 		return nil, nil, 0, err
@@ -216,8 +223,10 @@ func inSnapshot(ctx context.Context, fn func(conn pg.DBI) error) error {
 // getScopedCards is GetBookCards for a scoped list, in the caller's snapshot.
 //
 //nolint:gocritic // reads one filter set; the list path passes it by value throughout
-func getScopedCards(ctx context.Context, conn pg.DBI, userID int64, filters models.BookFilters) ([]models.Book, []CardEntry, int, error) {
-	scoped, err := cardsScope(ctx, filters, userID)
+func getScopedCards(
+	ctx context.Context, conn pg.DBI, userID int64, filters models.BookFilters, lists scopeLists,
+) ([]models.Book, []CardEntry, int, error) {
+	scoped, err := cardsScope(ctx, filters, userID, lists)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -246,14 +255,12 @@ func getScopedCards(ctx context.Context, conn pg.DBI, userID int64, filters mode
 }
 
 // cardsScope is the scope's visible books with their position in the list's
-// order, as the subquery the card queries read.
+// order, as the subquery the card queries read. It only builds the query:
+// the id lists it needs were read before the snapshot began.
 //
 //nolint:gocritic // reads one filter set; the list path passes it by value throughout
-func cardsScope(ctx context.Context, filters models.BookFilters, userID int64) (*orm.Query, error) {
-	order, err := listOrder(filters, userID)
-	if err != nil {
-		return nil, err
-	}
+func cardsScope(ctx context.Context, filters models.BookFilters, userID int64, lists scopeLists) (*orm.Query, error) {
+	order := listOrder(filters, userID, lists)
 	scoped := db.ModelContext(ctx, (*models.Book)(nil)).ColumnExpr("book.id")
 	if order.orderBy == newestFirst {
 		// The position is the order itself: no window over the scope, which
@@ -262,7 +269,7 @@ func cardsScope(ctx context.Context, filters models.BookFilters, userID int64) (
 	} else {
 		scoped = scoped.ColumnExpr("row_number() OVER (ORDER BY "+order.orderBy+") AS pos", order.orderArgs...)
 	}
-	scoped, err = applyScopeFilters(scoped, filters, userID, true)
+	scoped, err := applyScopeFilters(scoped, filters, true, lists)
 	if err != nil {
 		return nil, err
 	}
