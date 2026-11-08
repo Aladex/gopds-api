@@ -141,14 +141,17 @@ func (l *AuthorDisplayModelLoop) RunOnce(ctx context.Context) (bool, error) {
 }
 
 // advanceVariants does one batch of the book variants read model, a book to a
-// transaction: its marks or, with none, the next step of its walk. What
+// transaction: its marks or, with none, the next step of its walk. The batch
+// stops taking books after VariantTimeout of wall clock, or after a refused
+// book, so the author display work waits a few seconds at most. What
 // committed before an error is reported all the same.
 func (l *AuthorDisplayModelLoop) advanceVariants(ctx context.Context) error {
-	drained, err := database.DrainBookVariantMarks(ctx, l.db, l.cfg.VariantBatch, l.cfg.VariantTimeout)
+	deadline := time.Now().Add(l.cfg.VariantTimeout)
+	drained, err := database.DrainBookVariantMarks(ctx, l.db, l.cfg.VariantBatch, l.cfg.VariantTimeout, deadline)
 	skipped := drained.Skipped
 	if err == nil && drained.Books == 0 {
 		var walked database.BookVariantWalkResult
-		walked, err = database.BookVariantWalkStep(ctx, l.db, l.cfg.VariantBatch, l.cfg.Every, l.cfg.VariantTimeout)
+		walked, err = database.BookVariantWalkStep(ctx, l.db, l.cfg.VariantBatch, l.cfg.Every, l.cfg.VariantTimeout, deadline)
 		skipped = append(skipped, walked.Skipped...)
 		if walked.Finished {
 			LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{

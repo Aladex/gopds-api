@@ -148,7 +148,7 @@ func rebuildBookVariants(ctx context.Context, tx pg.DBI, bookID, walk int64) err
 	// The partitions first: they take the book's old row out of its card and
 	// the card's key with it when the book was its last file.
 	for _, p := range parts {
-		if err := rebuildVariantPartition(ctx, tx, p, bookID, walk); err != nil {
+		if err := rebuildVariantPartition(ctx, tx, p, bookID, walk, parts); err != nil {
 			return err
 		}
 	}
@@ -208,7 +208,14 @@ WHERE b.id = ANY (ARRAY(SELECT d.book_id FROM book_author_display AS d WHERE d.e
 // cards and writes what changed. A stored row the partition no longer holds is
 // deleted, and its book marked when it still exists, so its new card is built
 // by the next drain; self is the book the caller rebuilds itself, not marked.
-func rebuildVariantPartition(ctx context.Context, tx pg.DBI, p variantPartition, self, walk int64) error {
+//
+// A book the partition takes in may have been stored elsewhere: in another
+// partition's card, or in a card of its own. Its row is overwritten here, so
+// its old place is reconciled in the same transaction (see takeInVariantBooks);
+// rebuilding names the partitions the caller rebuilds in it anyway.
+func rebuildVariantPartition(
+	ctx context.Context, tx pg.DBI, p variantPartition, self, walk int64, rebuilding []variantPartition,
+) error {
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(?, hashtext(?))`,
 		variantPartitionLockClass, p.Entity+"\x1f"+p.Lang); err != nil {
 		return err
@@ -235,7 +242,73 @@ func rebuildVariantPartition(ctx context.Context, tx pg.DBI, p variantPartition,
 			return fmt.Errorf("marking the books partition %s/%s let go: %w", p.Entity, p.Lang, err)
 		}
 	}
-	return writeVariantGroups(ctx, tx, groups, &p, p.Lang, walk)
+	incoming, err := incomingVariantMembers(ctx, tx, p, groups)
+	if err != nil {
+		return err
+	}
+	if err := writeVariantGroups(ctx, tx, groups, &p, p.Lang, walk); err != nil {
+		return err
+	}
+	return takeInVariantBooks(ctx, tx, incoming, self, rebuilding)
+}
+
+// incomingVariantMembers are the stored rows of the partition's built books
+// that name another place: another partition, or a card of their own.
+func incomingVariantMembers(
+	ctx context.Context, tx pg.DBI, p variantPartition, groups []bookvariants.Group,
+) ([]storedVariantMember, error) {
+	var books []int64
+	for i := range groups {
+		for _, m := range groups[i].Members {
+			books = append(books, m.BookID)
+		}
+	}
+	if len(books) == 0 {
+		return nil, nil
+	}
+	var incoming []storedVariantMember
+	if _, err := tx.QueryContext(ctx, &incoming, `SELECT book_id, group_key::text, base_key, part_entity::text, part_lang
+		FROM book_variant_member
+		WHERE book_id = ANY (?::bigint[]) AND (part_entity, part_lang) IS DISTINCT FROM (?::uuid, ?::text)`,
+		pg.Array(books), p.Entity, p.Lang); err != nil {
+		return nil, fmt.Errorf("reading the old cards of partition %s/%s's books: %w", p.Entity, p.Lang, err)
+	}
+	return incoming, nil
+}
+
+// takeInVariantBooks reconciles the old cards of books a partition took in,
+// once their rows name the new one. An old card no row names any more is
+// deleted. An old card that keeps files is stale — its count, kind and ranks
+// still hold the book that left — so its remaining files are marked, and the
+// next drain rebuilds their partition; unless the caller rebuilds that
+// partition in this transaction anyway. Rebuilding the old partitions here
+// instead would chain: each can take in books of yet another.
+func takeInVariantBooks(
+	ctx context.Context, tx pg.DBI, incoming []storedVariantMember, self int64, rebuilding []variantPartition,
+) error {
+	if len(incoming) == 0 {
+		return nil
+	}
+	oldKeys := make([]string, 0, len(incoming))
+	var stale []string
+	for i := range incoming {
+		oldKeys = append(oldKeys, incoming[i].GroupKey)
+		if p, ok := incoming[i].partition(); ok && !slices.Contains(rebuilding, p) {
+			stale = append(stale, incoming[i].GroupKey)
+		}
+	}
+	if err := deleteVariantMembers(ctx, tx, nil, oldKeys); err != nil {
+		return err
+	}
+	if len(stale) == 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO book_variant_dirty (book_id)
+		SELECT m.book_id FROM book_variant_member AS m WHERE m.group_key = ANY (?::uuid[]) AND m.book_id <> ?
+		ON CONFLICT (book_id) DO NOTHING`, pg.Array(stale), self); err != nil {
+		return fmt.Errorf("marking the files of %d cards their books left: %w", len(stale), err)
+	}
+	return nil
 }
 
 // partitionGroups builds the cards of the books whose base belongs to the
@@ -442,11 +515,15 @@ func currentVariantWalk(ctx context.Context, tx pg.DBI) (int64, error) {
 // when the book was refused and passed. Marks another pod holds are skipped,
 // never waited for. A lost connection or a canceled context ends the batch;
 // what already committed is reported with the error.
+//
+// The batch also ends at deadline, once it took a book (the zero time is
+// none), and after a refused book, which may have spent the whole timeout:
+// the worker that calls it has the author display waiting behind it.
 func DrainBookVariantMarks(
-	ctx context.Context, db AuthorSummaryDB, limit int, timeout time.Duration,
+	ctx context.Context, db AuthorSummaryDB, limit int, timeout time.Duration, deadline time.Time,
 ) (BookVariantWork, error) {
 	var out BookVariantWork
-	for out.Books < limit {
+	for out.Books < limit && !variantBatchOver(out.Books, deadline) {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
@@ -481,8 +558,15 @@ func DrainBookVariantMarks(
 			return out, passErr
 		}
 		out.Skipped = append(out.Skipped, BookVariantSkip{BookID: id, SQLState: sqlState(err)})
+		return out, nil
 	}
 	return out, nil
+}
+
+// variantBatchOver says whether a batch that took books has reached its
+// deadline; the zero deadline is none.
+func variantBatchOver(books int, deadline time.Time) bool {
+	return books > 0 && !deadline.IsZero() && !time.Now().Before(deadline)
 }
 
 // passVariantMark takes the mark of a refused book, which the rollback put
@@ -569,12 +653,13 @@ func nextVariantBook(ctx context.Context, tx *pg.Tx, cursor, walk int64) (next i
 // the last one committed, and a refused book is passed once a walk. A walk
 // starts when none runs and none finished within every, which makes the first
 // one start by itself after the migration: that one is the backfill. It
-// finishes in the step that finds nothing past the cursor.
+// finishes in the step that finds nothing past the cursor. The batch ends at
+// deadline and after a refused book, as DrainBookVariantMarks does.
 func BookVariantWalkStep(
-	ctx context.Context, db AuthorSummaryDB, batch int, every, timeout time.Duration,
+	ctx context.Context, db AuthorSummaryDB, batch int, every, timeout time.Duration, deadline time.Time,
 ) (BookVariantWalkResult, error) {
 	var out BookVariantWalkResult
-	for out.Books < batch {
+	for out.Books < batch && !variantBatchOver(out.Books, deadline) {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
@@ -597,6 +682,7 @@ func BookVariantWalkStep(
 			return out, passErr
 		}
 		out.Skipped = append(out.Skipped, BookVariantSkip{BookID: *id, SQLState: sqlState(err)})
+		return out, nil
 	}
 	return out, nil
 }

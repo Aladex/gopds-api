@@ -248,6 +248,77 @@ func TestRebuildMarksABookAnotherRebuildMoved(t *testing.T) {
 	f.assertNoOrphans()
 }
 
+// drainVariants drains every variant mark.
+func (f *variantFixture) drainVariants() {
+	f.t.Helper()
+	for i := 0; i < 10 && len(f.marks()) > 0; i++ {
+		_, err := DrainBookVariantMarks(context.Background(), f.txs(), 100, summaryTimeout, time.Time{})
+		require.NoError(f.t, err)
+	}
+	require.Empty(f.t, f.marks(), "the marks did not drain")
+}
+
+// The destination of a move is rebuilt first (review 1-2, blocker 3): B goes
+// from Y's card, which it shares with C, to X's, and A's rebuild finds it
+// there before B's own mark is drained. Y's card must not keep B.
+func TestRebuildDestinationFirstFixesTheOldCard(t *testing.T) {
+	f := variantSchema(t)
+	x, y := f.entity("Джон Толкин"), f.entity("Клайв Льюис")
+	a := f.variantBook("Хоббит", []string{x}, withDoc("A", "1.0"))
+	b := f.variantBook("Хоббит", []string{y}, withDoc("B", "1.0"))
+	c := f.variantBook("Хоббит", []string{y}, withDoc("C", "1.0"))
+	// B is Y's default: it has a cover.
+	f.exec(`UPDATE opds_catalog_book SET cover = true WHERE id = ?`, b)
+	f.rebuild(a, b)
+	old := f.member(c).GroupKey
+	require.Equal(t, old, f.member(b).GroupKey)
+	require.Equal(t, 1, f.member(b).Rank)
+	require.Equal(t, 2, f.card(old).Files)
+
+	// An author rebuild moves B to X and marks it; A's rebuild runs first.
+	f.exec(`UPDATE book_author_display SET entity_ids = ?::uuid[] WHERE book_id = ?`, pg.Array([]string{x}), b)
+	require.NoError(t, MarkBookVariantsDirty(context.Background(), f.tx, b))
+	f.rebuild(a)
+	assert.Contains(t, f.marks(), c, "the card B left was not queued")
+	f.assertNoOrphans()
+
+	f.drainVariants()
+
+	card := f.card(old)
+	require.NotNil(t, card, "C's card is gone")
+	assert.Equal(t, 1, card.Files)
+	assert.Equal(t, "single", card.Kind)
+	assert.Equal(t, 1, card.Count)
+	assert.Equal(t, c, card.Newest)
+	assert.Equal(t, old, f.member(c).GroupKey)
+	assert.Equal(t, 1, f.member(c).Rank)
+	assert.Equal(t, f.member(a).GroupKey, f.member(b).GroupKey)
+	assert.Equal(t, 2, f.cardOf(a).Files)
+	f.assertNoOrphans()
+}
+
+// The same with B a card of its own before: its own card must not outlive it.
+func TestRebuildDestinationFirstTakesASoloBooksCard(t *testing.T) {
+	f := variantSchema(t)
+	x := f.entity("Джон Толкин")
+	a := f.variantBook("Хоббит", []string{x}, withDoc("A", "1.0"))
+	b := f.variantBook("Хоббит", nil, withDoc("B", "1.0"))
+	f.rebuild(a, b)
+	require.Equal(t, bookvariants.SoloKey(b).String(), f.member(b).GroupKey)
+
+	f.exec(`INSERT INTO book_author_display (book_id, position, display, sort_key, search_key, source, credit_id, entity_ids)
+		VALUES (?, 0, 'Автор', 'автор', 'автор', 'layer', ?, ?::uuid[])`, b, b, pg.Array([]string{x}))
+	require.NoError(t, MarkBookVariantsDirty(context.Background(), f.tx, b))
+	f.rebuild(a)
+
+	assert.Nil(t, f.card(bookvariants.SoloKey(b).String()), "B's own card outlived it")
+	f.assertNoOrphans()
+	f.drainVariants()
+	assert.Equal(t, f.member(a).GroupKey, f.member(b).GroupKey)
+	assert.Equal(t, 2, f.cardOf(a).Files)
+	f.assertNoOrphans()
+}
+
 func TestRebuildDropsHiddenAndDeleted(t *testing.T) {
 	f := variantSchema(t)
 	e := f.entity("Елена Белова")
@@ -341,7 +412,7 @@ func TestDrainRebuildsMarkedBooks(t *testing.T) {
 	b := f.variantBook("Хоббит", []string{e}, withDoc("B", "1.0"))
 	require.NoError(t, MarkBookVariantsDirty(context.Background(), f.tx, a, b, a))
 
-	done, err := DrainBookVariantMarks(context.Background(), f.txs(), 10, summaryTimeout)
+	done, err := DrainBookVariantMarks(context.Background(), f.txs(), 10, summaryTimeout, time.Time{})
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, done.Books)
@@ -363,16 +434,82 @@ func TestDrainPassesRefusedBook(t *testing.T) {
 	require.NoError(t, MarkBookVariantsDirty(context.Background(), f.tx, good))
 	f.exec(`UPDATE book_variant_dirty SET marked_at = marked_at - interval '1 minute' WHERE book_id = ?`, bad)
 
-	done, err := DrainBookVariantMarks(context.Background(), f.txs(), 10, summaryTimeout)
+	done, err := DrainBookVariantMarks(context.Background(), f.txs(), 10, summaryTimeout, time.Time{})
 	require.NoError(t, err)
 
-	assert.Equal(t, 2, done.Books)
+	// A refused book ends the batch: it may have spent the whole timeout.
+	assert.Equal(t, 1, done.Books)
 	require.Len(t, done.Skipped, 1)
 	assert.Equal(t, bad, done.Skipped[0].BookID)
 	assert.Equal(t, "23514", done.Skipped[0].SQLState)
-	assert.Empty(t, f.marks(), "the refused mark was not passed")
+	assert.Equal(t, []int64{good}, f.marks(), "the refused mark was not passed")
+	assert.Nil(t, f.member(bad))
+
+	done, err = DrainBookVariantMarks(context.Background(), f.txs(), 10, summaryTimeout, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, done.Books)
+	assert.Empty(t, f.marks())
+	assert.NotNil(t, f.member(good))
+}
+
+// The walk passes a refused book once and ends its batch there.
+func TestWalkPassesRefusedBook(t *testing.T) {
+	f := variantSchema(t)
+	bad := f.variantBook("Хоббит", []string{f.entity("Джон Толкин")})
+	good := f.variantBook("Сильмариллион", []string{f.entity("Кристофер Толкин")})
+	f.exec(`ALTER TABLE book_variant_member DROP CONSTRAINT book_variant_member_rank_check`)
+	f.exec(`ALTER TABLE book_variant_member ADD CONSTRAINT book_variant_member_rank_check
+		CHECK (variant_rank >= 1 AND book_id <> ?)`, bad)
+	f.walkFixtureOnly()
+
+	step, err := BookVariantWalkStep(context.Background(), f.txs(), 10, time.Hour, summaryTimeout, time.Time{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, step.Books)
+	require.Len(t, step.Skipped, 1)
+	assert.Equal(t, bad, step.Skipped[0].BookID)
+	assert.Nil(t, f.member(good), "the batch went on past a refused book")
+
+	total := f.walkToTheEnd()
+	assert.Equal(t, int64(2), total.Read)
+	assert.Equal(t, int64(1), total.Refused)
 	assert.Nil(t, f.member(bad))
 	assert.NotNil(t, f.member(good))
+}
+
+// A batch past its deadline takes no further book, so the author display work
+// behind it waits for one book at most (review 1-2, notes).
+func TestVariantBatchStopsAtItsDeadline(t *testing.T) {
+	f := variantSchema(t)
+	books := []int64{
+		f.variantBook("Хоббит", []string{f.entity("Джон Толкин")}),
+		f.variantBook("Нарния", []string{f.entity("Клайв Льюис")}),
+		f.variantBook("Дюна", []string{f.entity("Фрэнк Герберт")}),
+	}
+	require.NoError(t, MarkBookVariantsDirty(context.Background(), f.tx, books...))
+	passed := time.Now().Add(-time.Second)
+
+	drained, err := DrainBookVariantMarks(context.Background(), f.txs(), 10, summaryTimeout, passed)
+	require.NoError(t, err)
+	assert.Equal(t, 1, drained.Books, "the drain went on past its deadline")
+	assert.Len(t, f.marks(), 2)
+
+	f.exec(`TRUNCATE book_variant_member, book_variant_group, book_variant_dirty`)
+	f.walkFixtureOnly()
+	walked, err := BookVariantWalkStep(context.Background(), f.txs(), 10, time.Hour, summaryTimeout, passed)
+	require.NoError(t, err)
+	assert.Equal(t, 1, walked.Books, "the walk went on past its deadline")
+	assert.False(t, walked.Finished)
+
+	// With time left the batch takes all it is given.
+	drained, err = DrainBookVariantMarks(context.Background(), f.txs(), 10, summaryTimeout,
+		time.Now().Add(time.Minute))
+	require.NoError(t, err)
+	assert.Zero(t, drained.Books)
+	walked, err = BookVariantWalkStep(context.Background(), f.txs(), 10, time.Hour, summaryTimeout,
+		time.Now().Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, 2, walked.Books)
+	assert.True(t, walked.Finished)
 }
 
 // walkFixtureOnly starts a walk below the fixture's IDs, so it walks the
@@ -386,7 +523,7 @@ func (f *variantFixture) walkToTheEnd() BookVariantWalkResult {
 	f.t.Helper()
 	var total BookVariantWalkResult
 	for i := 0; i < 100; i++ {
-		step, err := BookVariantWalkStep(context.Background(), f.txs(), 2, time.Hour, summaryTimeout)
+		step, err := BookVariantWalkStep(context.Background(), f.txs(), 2, time.Hour, summaryTimeout, time.Time{})
 		require.NoError(f.t, err)
 		total.Books += step.Books
 		total.Skipped = append(total.Skipped, step.Skipped...)
