@@ -126,10 +126,11 @@ func GroupKey(base, split string) uuid.UUID {
 // every book is a card of its own.
 //
 // Two books numbered differently in one series are different volumes, so a
-// series in which the books carry two or more numbers splits the base: a book
-// numbered in it joins the card of its number (the lowest such series decides
-// for a book numbered in several), and a book numbered in none of them is a
-// card of its own rather than a guess at its volume.
+// series in which the books carry two or more numbers splits the base, and
+// every such series does: no card holds two numbers of one series. Books join
+// a card by what they agree on (see splitBooks); a book numbered in none of
+// those series, or one that fits two cards, is a card of its own rather than
+// a guess at its volume.
 func Build(base string, books []Input) []Group {
 	if base == "" {
 		out := make([]Group, len(books))
@@ -138,11 +139,11 @@ func Build(base string, books []Input) []Group {
 		}
 		return out
 	}
-	conflicts := seriesConflicts(books)
+	bookSplits := splitBooks(books, seriesConflicts(books))
 	splits := map[string][]Input{}
 	var order []string
 	for i := range books {
-		split := splitOf(&books[i], conflicts)
+		split := bookSplits[i]
 		if _, seen := splits[split]; !seen {
 			order = append(order, split)
 		}
@@ -181,16 +182,160 @@ func seriesConflicts(books []Input) []int64 {
 	return out
 }
 
-func splitOf(b *Input, conflicts []int64) string {
-	if len(conflicts) == 0 {
-		return ""
+// numbering is a book's numbers in the conflicting series, 0 where it has
+// none, in the order of the series.
+type numbering []int64
+
+// numberingOf is a book's numbering in the conflicting series.
+func numberingOf(b *Input, conflicts []int64) numbering {
+	n := make(numbering, len(conflicts))
+	for j, series := range conflicts {
+		n[j] = max(b.Series[series], 0)
 	}
-	for _, series := range conflicts {
-		if no := b.Series[series]; no > 0 {
-			return fmt.Sprintf("%d:%d", series, no)
+	return n
+}
+
+// key spells the numbers a book has: "7:1,9:2".
+func (n numbering) key(conflicts []int64) string {
+	var parts []string
+	for i, no := range n {
+		if no > 0 {
+			parts = append(parts, fmt.Sprintf("%d:%d", conflicts[i], no))
 		}
 	}
-	return fmt.Sprintf("own:%d", b.BookID)
+	return strings.Join(parts, ",")
+}
+
+// relation says whether two numberings disagree — two numbers of one series
+// — and whether they agree on any.
+func (n numbering) relation(o numbering) (agree, disagree bool) {
+	for i := range n {
+		switch {
+		case n[i] == 0 || o[i] == 0:
+		case n[i] == o[i]:
+			agree = true
+		default:
+			disagree = true
+		}
+	}
+	return agree, disagree
+}
+
+// splitBooks is the split each book of a base lands in, by the series in
+// which the books carry two or more numbers. The numberings the books have
+// are linked when they agree on a number and disagree on none.
+//   - A book with no number in those series is a card of its own.
+//   - A numbering linked with two numberings that disagree with each other
+//     fits both cards: a guess, so each of its books is a card of its own.
+//   - The rest are cards by linked groups, keyed by the numbers they hold
+//     together. A group that still holds a disagreement — a chain whose ends
+//     differ — is not one card: each numbering of it is a card.
+//
+// With one conflicting series this is the card of each number.
+func splitBooks(books []Input, conflicts []int64) []string {
+	out := make([]string, len(books))
+	if len(conflicts) == 0 {
+		return out
+	}
+	// The distinct numberings, in a fixed order.
+	byKey := map[string]numbering{}
+	for i := range books {
+		n := numberingOf(&books[i], conflicts)
+		byKey[n.key(conflicts)] = n
+	}
+	keys := make([]string, 0, len(byKey))
+	for k := range byKey {
+		if k != "" {
+			keys = append(keys, k)
+		}
+	}
+	slices.Sort(keys)
+	linked := linkNumberings(keys, byKey)
+	split := linkedSplits(conflicts, keys, byKey, linked, guesses(keys, byKey, linked))
+	for i := range books {
+		if s, ok := split[numberingOf(&books[i], conflicts).key(conflicts)]; ok {
+			out[i] = s
+		} else {
+			out[i] = fmt.Sprintf("own:%d", books[i].BookID)
+		}
+	}
+	return out
+}
+
+// linkNumberings links each numbering to the others it agrees with on a number
+// and disagrees with on none.
+func linkNumberings(keys []string, byKey map[string]numbering) [][]int {
+	linked := make([][]int, len(keys))
+	for i := range keys {
+		for j := range keys {
+			if agree, disagree := byKey[keys[i]].relation(byKey[keys[j]]); i != j && agree && !disagree {
+				linked[i] = append(linked[i], j)
+			}
+		}
+	}
+	return linked
+}
+
+// guesses are the numberings linked with two that disagree with each other.
+func guesses(keys []string, byKey map[string]numbering, linked [][]int) []bool {
+	guess := make([]bool, len(keys))
+	for i, links := range linked {
+		for _, a := range links {
+			for _, b := range links {
+				if _, disagree := byKey[keys[a]].relation(byKey[keys[b]]); disagree {
+					guess[i] = true
+				}
+			}
+		}
+	}
+	return guess
+}
+
+// linkedSplits keys each numbering that is not a guess by its linked group:
+// the numbers the group holds together, or the numbering's own numbers when
+// the group disagrees within. A guess has no split; its books are their own.
+func linkedSplits(
+	conflicts []int64, keys []string, byKey map[string]numbering, linked [][]int, guess []bool,
+) map[string]string {
+	split := map[string]string{}
+	seen := make([]bool, len(keys))
+	for start := range keys {
+		if seen[start] || guess[start] {
+			continue
+		}
+		// The group: numberings reached by links, guesses left out.
+		group := []int{start}
+		seen[start] = true
+		for k := 0; k < len(group); k++ {
+			for _, next := range linked[group[k]] {
+				if !seen[next] && !guess[next] {
+					seen[next] = true
+					group = append(group, next)
+				}
+			}
+		}
+		together := make(numbering, len(conflicts))
+		whole := true
+		for _, i := range group {
+			for j, no := range byKey[keys[i]] {
+				switch {
+				case no == 0:
+				case together[j] == 0:
+					together[j] = no
+				case together[j] != no:
+					whole = false
+				}
+			}
+		}
+		for _, i := range group {
+			if whole {
+				split[keys[i]] = together.key(conflicts)
+			} else {
+				split[keys[i]] = "exact:" + keys[i]
+			}
+		}
+	}
+	return split
 }
 
 // file is a book with what ranking reads of it.

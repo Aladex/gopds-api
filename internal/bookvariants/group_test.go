@@ -127,6 +127,104 @@ func TestBuildSeriesConflict(t *testing.T) {
 	}
 }
 
+// splitsOf is each card's sorted members by card key.
+func splitsOf(groups []Group) map[uuid.UUID][]int64 {
+	got := map[uuid.UUID][]int64{}
+	for i := range groups {
+		ids := memberIDs(&groups[i])
+		slices.Sort(ids)
+		got[groups[i].Key] = ids
+	}
+	return got
+}
+
+// assertNoSeriesConflictInACard fails when two files of one card carry two
+// numbers of one series.
+func assertNoSeriesConflictInACard(t *testing.T, books []Input, groups []Group) {
+	t.Helper()
+	byID := map[int64]*Input{}
+	for i := range books {
+		byID[books[i].BookID] = &books[i]
+	}
+	for i := range groups {
+		for _, a := range groups[i].Members {
+			for _, b := range groups[i].Members {
+				for series, no := range byID[a.BookID].Series {
+					if other := byID[b.BookID].Series[series]; no > 0 && other > 0 && other != no {
+						t.Errorf("books %d and %d share a card with numbers %d and %d of series %d",
+							a.BookID, b.BookID, no, other, series)
+					}
+				}
+			}
+		}
+	}
+}
+
+// Every shared series a book is numbered in decides, not the lowest only
+// (review 1-2, blocker 4): A and B are one volume of series 7 and two of
+// series 9.
+func TestBuildSeriesConflictInEverySeries(t *testing.T) {
+	now := time.Now()
+	books := []Input{
+		book(1, now, numbered(7, 1), numbered(9, 1)), // A
+		book(2, now, numbered(7, 1), numbered(9, 2)), // B
+		book(3, now, numbered(7, 2)),                 // C
+		// Numbered 1 in series 7 only: A's volume or B's, a guess, so alone.
+		book(4, now, numbered(7, 1)),
+		// Numbered 1 in series 9 only: A's volume and no one else's.
+		book(5, now, numbered(9, 1)),
+		// Numbered in no conflicting series: alone, as before.
+		book(6, now),
+	}
+	base := baseOf(t, books...)
+	groups := Build(base, books)
+	want := map[uuid.UUID][]int64{
+		GroupKey(base, "7:1,9:1"): {1, 5},
+		GroupKey(base, "7:1,9:2"): {2},
+		GroupKey(base, "7:2"):     {3},
+		GroupKey(base, "own:4"):   {4},
+		GroupKey(base, "own:6"):   {6},
+	}
+	got := splitsOf(groups)
+	if len(got) != len(want) {
+		t.Fatalf("Build gave %v, want %v", got, want)
+	}
+	for k, ids := range want {
+		if !slices.Equal(got[k], ids) {
+			t.Errorf("card %s = %v, want %v (all: %v)", k, got[k], ids, got)
+		}
+	}
+	assertNoSeriesConflictInACard(t, books, groups)
+}
+
+// A chain of books each agreeing with the next can join two that disagree:
+// P and R are two numbers of series 20 and meet only through Q and S. Such a
+// chain is not one card; each book stays with its exact numbers.
+func TestBuildSeriesConflictChain(t *testing.T) {
+	now := time.Now()
+	books := []Input{
+		book(1, now, numbered(7, 1), numbered(20, 1)),                  // P
+		book(2, now, numbered(7, 1), numbered(11, 1)),                  // Q
+		book(3, now, numbered(11, 1), numbered(13, 1)),                 // S
+		book(4, now, numbered(13, 1), numbered(20, 2)),                 // R
+		book(5, now, numbered(7, 2), numbered(11, 2), numbered(13, 2)), // makes 7, 11, 13 conflict
+		book(6, now, numbered(7, 1), numbered(20, 1)),                  // P's twin
+	}
+	groups := Build(baseOf(t, books...), books)
+	got := splitsOf(groups)
+	if len(got) != 5 {
+		t.Errorf("Build gave %v, want five cards, P with its twin", got)
+	}
+	found := false
+	for _, ids := range got {
+		found = found || slices.Equal(ids, []int64{1, 6})
+	}
+	if !found {
+		t.Errorf("P and its twin are apart: %v", got)
+	}
+	assertNoSeriesConflictInACard(t, books, groups)
+}
+
 func TestBuildSeriesNoConflict(t *testing.T) {
 	now := time.Now()
 	books := []Input{book(1, now, numbered(7, 3)), book(2, now), book(3, now, numbered(11, 0))}
@@ -337,5 +435,43 @@ func TestKeysAreStable(t *testing.T) {
 	}
 	if GroupKey("b", "") == GroupKey("b", "7:1") || GroupKey("b", "7:1") == GroupKey("b", "7:2") {
 		t.Error("splits share a key")
+	}
+}
+
+// cardsOf groups books by base key as a partition rebuild does and builds
+// every base: the cards the books make.
+func cardsOf(books []Input) []Group {
+	bases := map[string][]Input{}
+	var order []string
+	for i := range books {
+		base := BaseKey(&books[i])
+		if _, seen := bases[base]; !seen {
+			order = append(order, base)
+		}
+		bases[base] = append(bases[base], books[i])
+	}
+	var out []Group
+	for _, base := range order {
+		out = append(out, Build(base, bases[base])...)
+	}
+	return out
+}
+
+// Books 179345 and 179359 are the novel, 460623 the short story of one title
+// (review 1-2, blocker 2).
+func TestBuildKeepsAShortStoryOffTheNovel(t *testing.T) {
+	now := time.Now()
+	title := func(s string) func(*Input) { return func(in *Input) { in.Title, in.Lang = s, "en" } }
+	books := []Input{
+		book(179345, now, title("The Deep Range"), doc("A", "1.0")),
+		book(179359, now, title("The Deep Range"), doc("B", "1.0")),
+		book(460623, now, title("The Deep Range [short story]"), doc("C", "1.0")),
+	}
+	got := map[int64][]int64{}
+	for _, g := range cardsOf(books) {
+		got[g.Members[0].BookID] = memberIDs(&g)
+	}
+	if len(got) != 2 || len(got[460623]) != 1 {
+		t.Fatalf("cards = %v, want the two novels together and the story alone", got)
 	}
 }
