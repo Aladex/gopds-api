@@ -115,14 +115,14 @@ type cardRow struct {
 
 // nextFiles finds the next eligible file of each card named by keys, other
 // than the gone files: the list's own idea of where a card may go next.
-type nextFiles func(ctx context.Context, keys []string, gone []int64) ([]cardRow, error)
+type nextFiles func(ctx context.Context, conn pg.DBI, keys []string, gone []int64) ([]cardRow, error)
 
 // nextInScope is nextFiles for a scoped list: the card's best-ranked file in
 // the scope, read again.
 func nextInScope(scoped *orm.Query) nextFiles {
-	return func(ctx context.Context, keys []string, gone []int64) ([]cardRow, error) {
+	return func(ctx context.Context, conn pg.DBI, keys []string, gone []int64) ([]cardRow, error) {
 		var next []cardRow
-		_, err := db.QueryContext(ctx, &next, cardsReplacementSQL, scoped, pg.Array(keys), pg.Array(gone))
+		_, err := conn.QueryContext(ctx, &next, cardsReplacementSQL, scoped, pg.Array(keys), pg.Array(gone))
 		return next, err
 	}
 }
@@ -180,9 +180,43 @@ func GetBookCards(ctx context.Context, userID int64, filters models.BookFilters)
 	if filters.Limit > 100 || filters.Limit == 0 {
 		filters.Limit = 100
 	}
-	if isFeed(filters) {
-		return getFeedCards(ctx, userID, filters)
+	var books []models.Book
+	var entries []CardEntry
+	var total int
+	err := inSnapshot(ctx, func(conn pg.DBI) error {
+		var err error
+		if isFeed(filters) {
+			books, entries, total, err = getFeedCards(ctx, conn, userID, filters)
+		} else {
+			books, entries, total, err = getScopedCards(ctx, conn, userID, filters)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, nil, 0, err
 	}
+	return books, entries, total, nil
+}
+
+// inSnapshot runs one grouped read in a read-only REPEATABLE READ
+// transaction: every statement of it sees the catalog and the read model as
+// of its first statement. A rebuild, a scan or a moderation change that
+// commits while the request runs is invisible to it, so the page, the fold of
+// fresh books, the replacements, the books and the cards' counts all agree.
+// One connection per request, held for the request only.
+func inSnapshot(ctx context.Context, fn func(conn pg.DBI) error) error {
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if _, err := tx.ExecContext(ctx, `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
+}
+
+// getScopedCards is GetBookCards for a scoped list, in the caller's snapshot.
+//
+//nolint:gocritic // reads one filter set; the list path passes it by value throughout
+func getScopedCards(ctx context.Context, conn pg.DBI, userID int64, filters models.BookFilters) ([]models.Book, []CardEntry, int, error) {
 	scoped, err := cardsScope(ctx, filters, userID)
 	if err != nil {
 		return nil, nil, 0, err
@@ -192,19 +226,19 @@ func GetBookCards(ctx context.Context, userID int64, filters models.BookFilters)
 		pageSQL = cardsPopularSQL
 	}
 	var rows []cardRow
-	if _, err = db.QueryContext(ctx, &rows, pageSQL, scoped, filters.Limit, filters.Offset); err != nil {
+	if _, err = conn.QueryContext(ctx, &rows, pageSQL, scoped, filters.Limit, filters.Offset); err != nil {
 		return nil, nil, 0, err
 	}
 	if len(rows) == 0 {
 		// The total rides on the page's rows; past the last page it is read
 		// on its own, as a count of the scope's cards.
-		total, countErr := countCards(ctx, scoped, filters.Offset)
+		total, countErr := countCards(ctx, conn, scoped, filters.Offset)
 		return []models.Book{}, []CardEntry{}, total, countErr
 	}
 	if afterCardsSelected != nil {
 		afterCardsSelected()
 	}
-	books, entries, err := cardEntries(ctx, rows, nextInScope(scoped), savedScope(filters), userID)
+	books, entries, err := cardEntries(ctx, conn, rows, nextInScope(scoped), savedScope(filters), userID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -241,9 +275,9 @@ func cardsScope(ctx context.Context, filters models.BookFilters, userID int64) (
 // card leaves the page. saved says the list shows saved files, so a card
 // shown on a file other than its best visible one says why.
 func cardEntries(
-	ctx context.Context, rows []cardRow, next nextFiles, saved bool, userID int64,
+	ctx context.Context, conn pg.DBI, rows []cardRow, next nextFiles, saved bool, userID int64,
 ) ([]models.Book, []CardEntry, error) {
-	books, rows, err := visibleCards(ctx, rows, next, userID)
+	books, rows, err := visibleCards(ctx, conn, rows, next, userID)
 	if err != nil || len(rows) == 0 {
 		return []models.Book{}, []CardEntry{}, err
 	}
@@ -253,7 +287,7 @@ func cardEntries(
 		keys[i], ids[i] = rows[i].GroupKey, rows[i].ShownID
 	}
 	var held []cardFilesRow
-	if _, err = db.QueryContext(ctx, &held, cardFilesSQL, pg.Array(keys), pg.Array(ids), userID); err != nil {
+	if _, err = conn.QueryContext(ctx, &held, cardFilesSQL, pg.Array(keys), pg.Array(ids), userID); err != nil {
 		return nil, nil, err
 	}
 	byKey := make(map[string]*cardFilesRow, len(held))
@@ -286,14 +320,14 @@ const maxReplacementRounds = 8
 // visible file or its scope has none left (or the rounds run out). A card
 // with no file left is dropped.
 func visibleCards(
-	ctx context.Context, rows []cardRow, next nextFiles, userID int64,
+	ctx context.Context, conn pg.DBI, rows []cardRow, next nextFiles, userID int64,
 ) ([]models.Book, []cardRow, error) {
 	current := slices.Clone(rows)
 	ids := make([]int64, len(current))
 	for i := range current {
 		ids[i] = current[i].ShownID
 	}
-	books, err := hydrateBooks(ctx, ids, userID)
+	books, err := hydrateBooks(ctx, conn, ids, userID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -304,7 +338,7 @@ func visibleCards(
 	var gone []int64
 	exhausted := map[string]bool{}
 	for round := 0; round < maxReplacementRounds; round++ {
-		more, err := replaceGoneFiles(ctx, current, found, &gone, exhausted, next, userID)
+		more, err := replaceGoneFiles(ctx, conn, current, found, &gone, exhausted, next, userID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -332,7 +366,7 @@ func visibleCards(
 // eligible file, excluding every file seen gone so far (gone grows). It says
 // whether there was anything to replace.
 func replaceGoneFiles(
-	ctx context.Context, current []cardRow, found map[int64]*models.Book, gone *[]int64,
+	ctx context.Context, conn pg.DBI, current []cardRow, found map[int64]*models.Book, gone *[]int64,
 	exhausted map[string]bool, next nextFiles, userID int64,
 ) (bool, error) {
 	var keys []string
@@ -353,7 +387,7 @@ func replaceGoneFiles(
 			exclude = append(exclude, current[i].ShownID)
 		}
 	}
-	replaced, err := nextCardFiles(ctx, keys, exclude, found, next, userID)
+	replaced, err := nextCardFiles(ctx, conn, keys, exclude, found, next, userID)
 	if err != nil {
 		return false, err
 	}
@@ -379,9 +413,9 @@ var afterCardsReplaced func()
 // named by keys, other than the gone files, reads the visible ones into
 // found, and returns the files found by card key.
 func nextCardFiles(
-	ctx context.Context, keys []string, gone []int64, found map[int64]*models.Book, find nextFiles, userID int64,
+	ctx context.Context, conn pg.DBI, keys []string, gone []int64, found map[int64]*models.Book, find nextFiles, userID int64,
 ) (map[string]*cardRow, error) {
-	next, err := find(ctx, keys, gone)
+	next, err := find(ctx, conn, keys, gone)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +431,7 @@ func nextCardFiles(
 	if afterCardsReplaced != nil {
 		afterCardsReplaced()
 	}
-	more, err := hydrateBooks(ctx, nextIDs, userID)
+	more, err := hydrateBooks(ctx, conn, nextIDs, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -425,12 +459,12 @@ func variantsInfo(row *cardRow, card *cardFilesRow, saved bool) *models.BookVari
 }
 
 // countCards counts the cards of a scope, for a page past its end.
-func countCards(ctx context.Context, scoped *orm.Query, offset int) (int, error) {
+func countCards(ctx context.Context, conn pg.DBI, scoped *orm.Query, offset int) (int, error) {
 	if offset == 0 {
 		return 0, nil
 	}
 	var total int
-	_, err := db.QueryOneContext(ctx, pg.Scan(&total), `
+	_, err := conn.QueryOneContext(ctx, pg.Scan(&total), `
 		SELECT count(DISTINCT coalesce(m.group_key, md5('book:' || s.id)::uuid))
 		FROM (?) AS s LEFT JOIN book_variant_member AS m ON m.book_id = s.id`, scoped)
 	return total, err
@@ -440,9 +474,9 @@ func countCards(ctx context.Context, scoped *orm.Query, offset int) (int, error)
 // order of ids, with the caller's stars and the series numbers. It reads only
 // what readers see: a book that is gone, hidden or unapproved by now is left
 // out, whatever the queries before it selected.
-func hydrateBooks(ctx context.Context, ids []int64, userID int64) ([]models.Book, error) {
+func hydrateBooks(ctx context.Context, conn pg.DBI, ids []int64, userID int64) ([]models.Book, error) {
 	var books []models.Book
-	if err := db.ModelContext(ctx, &books).
+	if err := conn.ModelContext(ctx, &books).
 		Relation("Authors").
 		Relation("Users").
 		Relation("Series").
@@ -455,14 +489,14 @@ func hydrateBooks(ctx context.Context, ids []int64, userID int64) ([]models.Book
 	}
 	books = orderByIDs(ids, books)
 	var favs []int64
-	if _, err := db.QueryContext(ctx, &favs, `SELECT book_id FROM favorite_books WHERE user_id = ? AND book_id IN (?)`,
+	if _, err := conn.QueryContext(ctx, &favs, `SELECT book_id FROM favorite_books WHERE user_id = ? AND book_id IN (?)`,
 		userID, pg.In(ids)); err != nil {
 		return nil, err
 	}
 	for i := range books {
 		books[i].Fav = isFav(favs, books[i])
 	}
-	populateSeriesNumbers(books)
+	populateSeriesNumbersWithDB(conn, books)
 	return books, nil
 }
 
@@ -490,8 +524,23 @@ type bookVariantRow struct {
 // readers cannot see, at the start or by the time its files are read, is
 // pg.ErrNoRows; a visible book with no row yet is a card of one.
 func BookVariantsOf(ctx context.Context, bookID, userID int64) ([]models.Book, []models.BookVariant, error) {
+	var books []models.Book
+	var variants []models.BookVariant
+	err := inSnapshot(ctx, func(conn pg.DBI) error {
+		var err error
+		books, variants, err = bookVariantsOf(ctx, conn, bookID, userID)
+		return err
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return books, variants, nil
+}
+
+// bookVariantsOf is BookVariantsOf in the caller's snapshot.
+func bookVariantsOf(ctx context.Context, conn pg.DBI, bookID, userID int64) ([]models.Book, []models.BookVariant, error) {
 	var key string
-	if _, err := db.QueryOneContext(ctx, pg.Scan(&key), `
+	if _, err := conn.QueryOneContext(ctx, pg.Scan(&key), `
 		SELECT coalesce(m.group_key, md5('book:' || b.id)::uuid)::text
 		FROM opds_catalog_book AS b LEFT JOIN book_variant_member AS m ON m.book_id = b.id
 		WHERE b.id = ? AND b.approved AND NOT b.duplicate_hidden`, bookID); err != nil {
@@ -502,13 +551,13 @@ func BookVariantsOf(ctx context.Context, bookID, userID int64) ([]models.Book, [
 		return nil, nil, err
 	}
 	var rows []bookVariantRow
-	if _, err = db.QueryContext(ctx, &rows, bookVariantsSQL, key); err != nil {
+	if _, err = conn.QueryContext(ctx, &rows, bookVariantsSQL, key); err != nil {
 		return nil, nil, err
 	}
 	if len(rows) == 0 {
 		// No row yet: the book alone, as the lists show it.
 		var version string
-		if _, err = db.QueryContext(ctx, pg.Scan(&version), `SELECT coalesce(source_document_version, '')
+		if _, err = conn.QueryContext(ctx, pg.Scan(&version), `SELECT coalesce(source_document_version, '')
 			FROM book_metadata_snapshot WHERE book_id = ? AND is_current`, bookID); err != nil {
 			return nil, nil, err
 		}
@@ -525,7 +574,7 @@ func BookVariantsOf(ctx context.Context, bookID, userID int64) ([]models.Book, [
 	}
 	// Only what is still visible: a file hidden since the rows were read
 	// drops out, and the asked-for book gone means the book is not there.
-	books, err := hydrateBooks(ctx, ids, userID)
+	books, err := hydrateBooks(ctx, conn, ids, userID)
 	if err != nil {
 		return nil, nil, err
 	}

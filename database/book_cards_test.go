@@ -410,8 +410,9 @@ func (f *cardsFixture) hideNow(column string, book int64) {
 	require.NoError(f.t, err)
 }
 
-// A file hidden after the page picked it is never read back: the card opens
-// on its next eligible file in scope, or leaves the page when none is left.
+// The whole list is read from one snapshot: a file hidden after the page was
+// selected is still the one the request shows, with the counts of the same
+// moment; the next request sees the change.
 func TestBookCardsHiddenBetweenSelectionAndRead(t *testing.T) {
 	for _, column := range []string{"duplicate_hidden", "approved"} {
 		t.Run(column, func(t *testing.T) {
@@ -422,32 +423,25 @@ func TestBookCardsHiddenBetweenSelectionAndRead(t *testing.T) {
 			f.rebuild(lone)
 			f.commit()
 			filters := models.BookFilters{AuthorEntity: uuidOf(t, entity)}
+			before, beforeEntries, beforeTotal := f.cards(0, filters)
+			require.Equal(t, []int64{lone, files[0]}, cardIDs(before))
 
 			f.onceBetweenSelectAndRead(func() { f.hideNow(column, files[0]) })
 			books, entries, total := f.cards(0, filters)
-			assert.Equal(t, 2, total)
-			// The single book is the newest; the card opens on its next file.
-			assert.Equal(t, []int64{lone, files[1]}, cardIDs(books))
-			require.NotNil(t, entries[1].Variants)
-			assert.Equal(t, 2, entries[1].Variants.Count)
-			for i := range books {
-				assert.NotEqual(t, files[0], books[i].ID)
-			}
+			assert.Equal(t, cardIDs(before), cardIDs(books), "the request is its snapshot")
+			assert.Equal(t, beforeTotal, total)
+			assert.Equal(t, beforeEntries[1].Variants.Count, entries[1].Variants.Count)
 
-			// Every file of the card gone between the two: the card leaves the
-			// page, the rest of it stays.
-			f.onceBetweenSelectAndRead(func() {
-				f.hideNow(column, files[1])
-				f.hideNow(column, files[2])
-			})
-			books, _, _ = f.cards(0, filters)
-			assert.Equal(t, []int64{lone}, cardIDs(books))
+			books, entries, _ = f.cards(0, filters)
+			assert.Equal(t, []int64{lone, files[1]}, cardIDs(books), "the next request sees the hide")
+			assert.Equal(t, 2, entries[1].Variants.Count)
 		})
 	}
 }
 
-// The variants of a book read only files still visible when they are read:
-// another file gone drops out, the asked-for book gone is no book.
+// The variants of a book are read from one snapshot too: a file hidden, or
+// the asked-for book hidden, after the rows were read does not change the
+// answer; the next request sees it.
 func TestBookVariantsOfHiddenBetweenReadAndHydrate(t *testing.T) {
 	f := cardsDB(t)
 	entity := f.entity("Ефремов")
@@ -457,18 +451,24 @@ func TestBookVariantsOfHiddenBetweenReadAndHydrate(t *testing.T) {
 	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", files[0]) })
 	books, variants, err := BookVariantsOf(context.Background(), files[1], 0)
 	require.NoError(t, err)
+	assert.Equal(t, []int64{files[0], files[1], files[2]}, cardIDs(books), "the request is its snapshot")
+	assert.Equal(t, files[0], variants[0].BookID)
+	books, variants, err = BookVariantsOf(context.Background(), files[1], 0)
+	require.NoError(t, err)
 	assert.Equal(t, []int64{files[1], files[2]}, cardIDs(books))
-	assert.True(t, variants[0].Default, "the best file left is the default")
-	assert.Equal(t, files[1], variants[0].BookID)
+	assert.True(t, variants[0].Default)
 
 	f.onceBetweenSelectAndRead(func() { f.hideNow("approved", files[2]) })
 	_, _, err = BookVariantsOf(context.Background(), files[2], 0)
-	assert.ErrorIs(t, err, pg.ErrNoRows, "the asked-for book went away")
+	require.NoError(t, err, "the asked-for book was visible when the request began")
+	_, _, err = BookVariantsOf(context.Background(), files[2], 0)
+	assert.ErrorIs(t, err, pg.ErrNoRows, "the next request does not see it")
 
-	// A book with no row yet is read the same way.
 	lone := f.variantBook("Час быка", []string{entity})
 	f.commit()
 	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", lone) })
+	_, _, err = BookVariantsOf(context.Background(), lone, 0)
+	require.NoError(t, err)
 	_, _, err = BookVariantsOf(context.Background(), lone, 0)
 	assert.ErrorIs(t, err, pg.ErrNoRows)
 }
@@ -506,45 +506,52 @@ func TestBookCardsPopularCountsEveryVisibleFile(t *testing.T) {
 	assert.Equal(t, []int64{b1, a1}, cardIDs(books))
 }
 
-// The file that replaces a gone one can go too before it is read: the card
-// keeps looking, and opens on the file still visible.
+// A change after the selection leaves the request as it began.
 func TestBookCardsReplacementHiddenToo(t *testing.T) {
 	f := cardsDB(t)
 	entity := f.entity("Брэдбери")
 	files := f.group3(entity, "451 градус по Фаренгейту")
 	f.commit()
+	filters := models.BookFilters{AuthorEntity: uuidOf(t, entity)}
 
 	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", files[0]) })
+	reached := false
 	afterCardsReplaced = func() {
 		afterCardsReplaced = nil
-		f.hideNow("approved", files[1])
+		reached = true
 	}
 	t.Cleanup(func() { afterCardsReplaced = nil })
 
-	books, entries, total := f.cards(0, models.BookFilters{AuthorEntity: uuidOf(t, entity)})
+	books, entries, total := f.cards(0, filters)
 	assert.Equal(t, 1, total)
-	assert.Equal(t, []int64{files[2]}, cardIDs(books), "the card opens on the one file left")
-	assert.Nil(t, entries[0].Variants, "one visible file is a single book")
-	assert.Nil(t, afterCardsReplaced, "the replacement was read after the second hide")
+	assert.Equal(t, []int64{files[0]}, cardIDs(books), "nothing committed mid-request is seen")
+	require.NotNil(t, entries[0].Variants)
+	assert.Equal(t, 3, entries[0].Variants.Count)
+	// The scope is read with visibility in the same snapshot, so a scoped
+	// list never needs a replacement now.
+	assert.False(t, reached)
+
+	books, entries, _ = f.cards(0, filters)
+	assert.Equal(t, []int64{files[1]}, cardIDs(books), "the next request sees the hide")
+	assert.Equal(t, 2, entries[0].Variants.Count)
 }
 
-// A file seen gone stays out for the rest of the request, even if it comes
-// back between two reads: the card settles on a file that was never gone.
+// A file hidden and shown again while a request runs changes nothing for it.
 func TestBookCardsGoneFilesStayOut(t *testing.T) {
 	f := cardsDB(t)
 	entity := f.entity("Азимов")
 	files := f.group3(entity, "Конец Вечности")
 	f.commit()
+	filters := models.BookFilters{AuthorEntity: uuidOf(t, entity)}
 
-	f.onceBetweenSelectAndRead(func() { f.hideNow("duplicate_hidden", files[0]) })
-	afterCardsReplaced = func() {
-		afterCardsReplaced = nil
+	f.onceBetweenSelectAndRead(func() {
+		f.hideNow("duplicate_hidden", files[0])
 		f.hideNow("approved", files[1])
 		_, err := f.scratch.Exec(`UPDATE opds_catalog_book SET duplicate_hidden = false WHERE id = ?`, files[0])
 		require.NoError(t, err)
-	}
-	t.Cleanup(func() { afterCardsReplaced = nil })
-
-	books, _, _ := f.cards(0, models.BookFilters{AuthorEntity: uuidOf(t, entity)})
-	assert.Equal(t, []int64{files[2]}, cardIDs(books))
+	})
+	books, _, _ := f.cards(0, filters)
+	assert.Equal(t, []int64{files[0]}, cardIDs(books))
+	books, _, _ = f.cards(0, filters)
+	assert.Equal(t, []int64{files[0]}, cardIDs(books), "files[0] is visible again; files[1] went")
 }

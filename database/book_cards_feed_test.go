@@ -170,23 +170,38 @@ func TestFeedCardsHiddenNewestFallsBack(t *testing.T) {
 	assert.Equal(t, 2, entries[0].Variants.Count)
 }
 
-// Hidden between the page's selection and its read: the replacement chain of
-// the scoped lists applies to the feed too.
+// The feed is read from one snapshot: changes at both seams of the
+// replacement chain leave the request as it began; the next request sees them.
 func TestFeedCardsHiddenBetweenSelectionAndRead(t *testing.T) {
 	f := cardsDB(t)
 	entity := f.entity("Шекли")
 	files := f.group3(entity, "Обмен разумов")
+	// One day: no mark, so the card picks its file through the replacement
+	// chain, and its second seam runs.
+	f.exec(`UPDATE opds_catalog_book SET registerdate = now() WHERE id IN (?, ?, ?)`, files[0], files[1], files[2])
+	f.rebuild(files[0])
 	f.commit()
+	before, _, _ := f.feed(models.BookFilters{})
+	require.Len(t, before, 1)
 
 	f.onceBetweenSelectAndRead(func() { f.hideNow("approved", files[0]) })
+	reached := false
 	afterCardsReplaced = func() {
 		afterCardsReplaced = nil
+		reached = true
 		f.hideNow("duplicate_hidden", files[1])
 	}
 	t.Cleanup(func() { afterCardsReplaced = nil })
 
 	books, entries, _ := f.feed(models.BookFilters{})
-	assert.Equal(t, []int64{files[2]}, cardIDs(books))
+	assert.True(t, reached, "the replacement chain ran")
+	assert.Equal(t, cardIDs(before), cardIDs(books), "the request is its snapshot")
+	require.NotNil(t, entries[0].Variants)
+	assert.Equal(t, 3, entries[0].Variants.Count)
+
+	books, entries, _ = f.feed(models.BookFilters{})
+	require.Len(t, books, 1, "the next request sees both changes")
+	assert.NotEqual(t, before[0].ID, books[0].ID)
 	assert.Nil(t, entries[0].Variants)
 }
 
@@ -218,36 +233,44 @@ func (f *cardsFixture) freshAndCard() (fresh int64) {
 	return fresh
 }
 
-// The fresh book's rebuild commits between the page's selection and its read:
-// the book joins the card that is on the same page. One entry, the card's,
-// at the fresh book's earlier place, read as it is now.
+// The fresh book's rebuild commits while the request runs: the request lists
+// the page of its snapshot, the fresh book alone and the card without it,
+// each file once; the next request lists the card with the book in it.
 func TestFeedFreshJoinsCardOnPage(t *testing.T) {
 	f := cardsDB(t)
 	fresh := f.freshAndCard()
+	before, beforeEntries, _ := f.feed(models.BookFilters{})
+	require.Len(t, before, 2)
+	require.Equal(t, fresh, before[0].ID)
 
 	f.onceBetweenSelectAndRead(func() { f.rebuildCommitted(fresh) })
 	books, entries, _ := f.feed(models.BookFilters{})
-	require.Len(t, books, 1, "the file is listed once, inside its card")
+	assert.Equal(t, cardIDs(before), cardIDs(books), "one snapshot: no file twice")
+	assert.Nil(t, entries[0].Variants)
+	assert.Equal(t, beforeEntries[1].Variants.Count, entries[1].Variants.Count, "the card's count is of the same moment")
+
+	books, entries, _ = f.feed(models.BookFilters{})
+	require.Len(t, books, 1, "the next request lists the card once")
 	assert.Equal(t, fresh, books[0].ID)
 	require.NotNil(t, entries[0].Variants)
 	assert.Equal(t, 3, entries[0].Variants.Count)
 	assert.Equal(t, models.BookVariantReasonNewVariant, entries[0].Variants.Reason)
 }
 
-// The same with the card on the next page: the fresh book becomes the card in
-// its place, and the next page does not list the card again.
+// The same at a page boundary: page 1 is its snapshot, and the card is never
+// listed twice across the pages a reader turns.
 func TestFeedFreshJoinsCardOnNextPage(t *testing.T) {
 	f := cardsDB(t)
 	fresh := f.freshAndCard()
 
 	f.onceBetweenSelectAndRead(func() { f.rebuildCommitted(fresh) })
-	books, entries, _ := f.feed(models.BookFilters{Limit: 1})
+	books, entries, total := f.feed(models.BookFilters{Limit: 1})
 	assert.Equal(t, []int64{fresh}, cardIDs(books))
-	require.NotNil(t, entries[0].Variants, "the fresh book became its card")
-	assert.Equal(t, 3, entries[0].Variants.Count)
+	assert.Nil(t, entries[0].Variants, "a fresh book of its own, as of the snapshot")
+	assert.Equal(t, 2, total)
 
-	books, _, total := f.feed(models.BookFilters{Limit: 1, Offset: 1})
-	assert.Empty(t, books, "the card is not listed twice across pages")
+	books, _, total = f.feed(models.BookFilters{Limit: 1, Offset: 1})
+	assert.Empty(t, books, "the card took the fresh book's place, not a second one")
 	assert.Equal(t, 1, total)
 }
 
@@ -291,8 +314,8 @@ func TestFeedLowerIDUploadBehindHigher(t *testing.T) {
 	assert.Equal(t, []int64{higher, lower}, cardIDs(books))
 }
 
-// A file that moved into another card on the page mid-request is listed once:
-// replacements never take a file the page already shows.
+// A file that moves into another card while the request runs is listed once,
+// on the card it was in when the request began.
 func TestFeedReplacementSkipsAFileShownOnAnotherCard(t *testing.T) {
 	f := cardsDB(t)
 	e1, e2 := f.entity("Первый"), f.entity("Второй")
@@ -303,9 +326,8 @@ func TestFeedReplacementSkipsAFileShownOnAnotherCard(t *testing.T) {
 	x2 := f.variantBook("Бета", []string{e1}, withDoc("beta-2", "1.0"), addedAgo(1))
 	f.rebuild(x1, y2)
 	f.commit()
+	before, _, _ := f.feed(models.BookFilters{})
 
-	// The card of «Бета» is marked and shows x2; the card of «Альфа» picks
-	// its file at read time. In between, x2 becomes the best file of «Альфа».
 	f.onceBetweenSelectAndRead(func() {
 		_, err := f.scratch.Exec(`UPDATE book_author_display SET entity_ids = ARRAY[?::uuid] WHERE book_id = ?`, e2, x2)
 		require.NoError(t, err)
@@ -314,10 +336,10 @@ func TestFeedReplacementSkipsAFileShownOnAnotherCard(t *testing.T) {
 		f.rebuildCommitted(x2)
 	})
 	books, _, _ := f.feed(models.BookFilters{})
+	assert.Equal(t, cardIDs(before), cardIDs(books), "the request is its snapshot")
 	seen := map[int64]int{}
 	for i := range books {
 		seen[books[i].ID]++
 	}
 	assert.Equal(t, 1, seen[x2], "x2 is listed once")
-	assert.Len(t, books, 2)
 }

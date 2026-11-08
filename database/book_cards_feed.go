@@ -64,77 +64,10 @@ const feedCountSQL = `
 SELECT (SELECT count(*) FROM book_variant_group AS g WHERE (?::text = '' OR g.lang = ?::text))
     + (SELECT count(*) FROM (` + feedFreshSQL + `) AS f)`
 
-// freshMembershipSQL reads the cards the page's fresh books joined after the
-// page was selected: a rebuild that committed in between.
-const freshMembershipSQL = `
-SELECT m.book_id AS shown_id, m.group_key::text AS group_key, g.newest_book_id AS newest, g.mark
-FROM book_variant_member AS m
-JOIN book_variant_group AS g ON g.group_key = m.group_key
-WHERE m.book_id = ANY (?::bigint[])`
-
-// foldFreshIntoCards keeps one identity per file on the page when a fresh
-// book's rebuild committed after the page was selected. A fresh book now in
-// a card that is also on the page gives way to that card, which takes the
-// earlier of the two places; a fresh book now in a card not on the page
-// becomes that card, in its place. Either way the card is read as it is now:
-// its newest file and mark, the shown file following from them.
-func foldFreshIntoCards(ctx context.Context, rows []cardRow) ([]cardRow, error) {
-	var fresh []int64
-	for i := range rows {
-		if rows[i].Fresh {
-			fresh = append(fresh, rows[i].ShownID)
-		}
-	}
-	if len(fresh) == 0 {
-		return rows, nil
-	}
-	var joined []cardRow
-	if _, err := db.QueryContext(ctx, &joined, freshMembershipSQL, pg.Array(fresh)); err != nil {
-		return nil, err
-	}
-	if len(joined) == 0 {
-		return rows, nil
-	}
-	cardOf := make(map[int64]*cardRow, len(joined))
-	for i := range joined {
-		cardOf[joined[i].ShownID] = &joined[i]
-	}
-	now := func(card *cardRow) cardRow {
-		row := cardRow{GroupKey: card.GroupKey, Newest: card.Newest, Mark: card.Mark}
-		if row.Mark != "" {
-			row.ShownID = row.Newest
-		}
-		return row
-	}
-	out := make([]cardRow, 0, len(rows))
-	placed := map[string]int{}
-	for i := range rows {
-		row := rows[i]
-		var card *cardRow
-		if row.Fresh {
-			card = cardOf[row.ShownID]
-		}
-		if card != nil {
-			row = now(card)
-		}
-		if _, ok := placed[row.GroupKey]; ok {
-			// The card is on the page already, at an earlier place, and keeps
-			// it. A fresh book is newer than any card selected below it, so
-			// the earlier place is the fresh book's, already read as it is
-			// now; a card above a fresh book is newer still, and its newest
-			// file and mark are not the fresh book's.
-			continue
-		}
-		placed[row.GroupKey] = len(out)
-		out = append(out, row)
-	}
-	return out, nil
-}
-
 // nextInFeed is nextFiles for the feed: the card's best-ranked visible file.
-func nextInFeed(ctx context.Context, keys []string, gone []int64) ([]cardRow, error) {
+func nextInFeed(ctx context.Context, conn pg.DBI, keys []string, gone []int64) ([]cardRow, error) {
 	var next []cardRow
-	_, err := db.QueryContext(ctx, &next, `
+	_, err := conn.QueryContext(ctx, &next, `
 		SELECT DISTINCT ON (m.group_key) m.book_id AS shown_id, m.group_key::text AS group_key,
 			m.variant_rank AS shown_rank
 		FROM book_variant_member AS m
@@ -147,7 +80,7 @@ func nextInFeed(ctx context.Context, keys []string, gone []int64) ([]cardRow, er
 // getFeedCards is GetBookCards for the feed.
 //
 //nolint:gocritic // reads one filter set; the list path passes it by value throughout
-func getFeedCards(ctx context.Context, userID int64, filters models.BookFilters) ([]models.Book, []CardEntry, int, error) {
+func getFeedCards(ctx context.Context, conn pg.DBI, userID int64, filters models.BookFilters) ([]models.Book, []CardEntry, int, error) {
 	lang := filters.Lang
 	if lang == AllLanguages {
 		lang = ""
@@ -155,12 +88,12 @@ func getFeedCards(ctx context.Context, userID int64, filters models.BookFilters)
 	end := filters.Limit + filters.Offset
 	fresh := []any{lang, lang}
 	var rows []cardRow
-	if _, err := db.QueryContext(ctx, &rows, feedPageSQL,
+	if _, err := conn.QueryContext(ctx, &rows, feedPageSQL,
 		append(append([]any{lang, lang, end}, fresh...), end, filters.Limit, filters.Offset)...); err != nil {
 		return nil, nil, 0, err
 	}
 	var total int
-	if _, err := db.QueryOneContext(ctx, pg.Scan(&total), feedCountSQL,
+	if _, err := conn.QueryOneContext(ctx, pg.Scan(&total), feedCountSQL,
 		append([]any{lang, lang}, fresh...)...); err != nil {
 		return nil, nil, 0, err
 	}
@@ -170,11 +103,7 @@ func getFeedCards(ctx context.Context, userID int64, filters models.BookFilters)
 	if afterCardsSelected != nil {
 		afterCardsSelected()
 	}
-	rows, err := foldFreshIntoCards(ctx, rows)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	books, entries, err := cardEntries(ctx, rows, nextInFeed, false, userID)
+	books, entries, err := cardEntries(ctx, conn, rows, nextInFeed, false, userID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
