@@ -243,8 +243,11 @@ func (h *SearchHandler) Books(c *gin.Context) {
 			Unapproved:          q.UnApproved,
 			IncludeHidden:       q.IncludeHidden,
 			Moderator:           moderator,
-			Limit:               q.Limit,
-			Offset:              q.Offset,
+			// The site's search asks for one hit per card; the service drops
+			// it for a request widened to hidden or unapproved files.
+			GroupCards: q.Cards,
+			Limit:      q.Limit,
+			Offset:     q.Offset,
 		})
 		if err != nil {
 			mapSearchError(c, err)
@@ -256,6 +259,9 @@ func (h *SearchHandler) Books(c *gin.Context) {
 		if err != nil {
 			httputil.NewError(c, http.StatusInternalServerError, err)
 			return
+		}
+		for i := range listed {
+			listed[i].Variants = page.Variants[listed[i].ID]
 		}
 		c.JSON(http.StatusOK, ExportAnswer{Books: listed, Length: pageCount(page.Total, page.Limit)})
 		return

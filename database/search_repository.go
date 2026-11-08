@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"strings"
 
+	"gopds-api/internal/bookvariants"
 	"gopds-api/logging"
 	"gopds-api/models"
 
@@ -337,8 +339,17 @@ admitted AS (
         OR s.word_score >= 0.60
         OR s.trigram_score >= 0.30
 ),
+grouped AS (
+    -- The site's search lists one hit per book card (GroupCards): each
+    -- admitted file carries its card's key and its rank in the card. Without
+    -- the flag the join matches nothing, every file is a card of its own, and
+    -- the order and the total are exactly the per-file ones.
+    SELECT a.*, coalesce(m.group_key::text, 'book:' || a.id) AS g, coalesce(m.variant_rank, 1) AS vr
+    FROM admitted a
+    LEFT JOIN book_variant_member m ON ?::bool AND m.book_id = a.id
+),
 ranked AS (
-    SELECT a.id,
+    SELECT a.id, a.g, a.vr,
         row_number() OVER (
             ORDER BY
                 a.exact_match DESC,
@@ -353,20 +364,28 @@ ranked AS (
                 a.favorite_count DESC,
                 a.id ASC
         ) AS pos
-    FROM admitted a
+    FROM grouped a
+),
+cards AS (
+    -- A card sits at its best file's place and shows its admitted file of
+    -- the lowest rank in the card (then the best placed): the default when it
+    -- matches, else the variant that does.
+    SELECT r.g, min(r.pos) AS gpos, (min(ARRAY[r.vr::bigint, r.pos::bigint, r.id::bigint]))[3] AS shown
+    FROM ranked r
+    GROUP BY r.g
 ),
 page AS (
-    SELECT r.id, r.pos
-    FROM ranked r
-    ORDER BY r.pos
+    SELECT c.shown AS id, c.gpos AS pos, c.g
+    FROM cards c
+    ORDER BY c.gpos
     LIMIT ? OFFSET ?
 ),
 meta AS (
     SELECT
-        (SELECT count(*) FROM admitted) AS total,
+        (SELECT count(*) FROM cards) AS total,
         (SELECT q.query_hash FROM q) AS query_hash
 )
-SELECT p.id, m.total, m.query_hash
+SELECT p.id, p.g AS group_key, m.total, m.query_hash
 FROM meta m
 LEFT JOIN page p ON true
 ORDER BY p.pos
@@ -376,6 +395,7 @@ ORDER BY p.pos
 // row with a NULL id when the page is empty.
 type searchBookRow struct {
 	ID        *int64 `pg:"id"`
+	GroupKey  string `pg:"group_key"`
 	Total     int    `pg:"total"`
 	QueryHash string `pg:"query_hash"`
 }
@@ -430,6 +450,7 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 			req.CollectionID, req.CollectionID,
 			req.CuratedCollectionID, req.CuratedCollectionID,
 			r.entities, r.entities,
+			req.GroupCards,
 			req.Limit, req.Offset)
 		return err
 	}
@@ -438,23 +459,33 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 	}
 
 	ids := make([]int64, 0, len(rows))
+	keyOf := make(map[int64]string, len(rows))
 	for _, row := range rows {
 		page.Total = row.Total
 		page.QueryHash = row.QueryHash
 		if row.ID != nil {
 			ids = append(ids, *row.ID)
+			keyOf[*row.ID] = row.GroupKey
 		}
 	}
 
 	if len(ids) > 0 {
+		if afterBooksRanked != nil {
+			afterBooksRanked()
+		}
 		var books []models.Book
-		if err := r.db.ModelContext(ctx, &books).
+		load := r.db.ModelContext(ctx, &books).
 			Relation("Authors").
 			Relation("Series").
 			Relation("Genres").
 			ColumnExpr("book.*, (SELECT COUNT(*) FROM favorite_books WHERE book_id = book.id) AS favorite_count").
-			Where("book.id IN (?)", pg.In(ids)).
-			Select(); err != nil {
+			Where("book.id IN (?)", pg.In(ids))
+		if req.GroupCards {
+			// Cards are the readers' view, read live as on the lists: a hit
+			// hidden since it was ranked is left out.
+			load = load.Where("book.approved AND NOT book.duplicate_hidden")
+		}
+		if err := load.Select(); err != nil {
 			return page, preferContextError(ctx, err)
 		}
 		page.Books = orderByIDs(ids, books)
@@ -462,9 +493,58 @@ func (r *PGSearchRepository) SearchBooks(ctx context.Context, req models.BookSea
 			return page, preferContextError(ctx, err)
 		}
 		populateSeriesNumbersWithDB(r.db, page.Books)
+		if req.GroupCards {
+			if err := r.cardsOfPage(ctx, &page, keyOf, req.UserID); err != nil {
+				return page, preferContextError(ctx, err)
+			}
+		}
 	}
 
 	return page, nil
+}
+
+// afterBooksRanked, when set (tests only), runs between ranking a page and
+// reading its books, where a concurrent hide can land.
+var afterBooksRanked func()
+
+// cardsOfPage reads what each hit's card holds over its visible files, as the
+// grouped lists do (cardFilesSQL): the card's count and kind for a card of
+// more than one file, and the caller's star and the readers over all of its
+// files. keyOf names each hit's card: a key, or "book:<id>" for a file with
+// no row yet, which is its own card.
+func (r *PGSearchRepository) cardsOfPage(
+	ctx context.Context, page *models.BookSearchPage, keyOf map[int64]string, userID int64,
+) error {
+	keys := make([]string, len(page.Books))
+	ids := make([]int64, len(page.Books))
+	for i := range page.Books {
+		ids[i] = page.Books[i].ID
+		keys[i] = bookvariants.SoloKey(ids[i]).String()
+		if key := keyOf[ids[i]]; !strings.HasPrefix(key, "book:") {
+			keys[i] = key
+		}
+	}
+	var held []cardFilesRow
+	if _, err := r.db.QueryContext(ctx, &held, cardFilesSQL, pg.Array(keys), pg.Array(ids), userID); err != nil {
+		return err
+	}
+	byKey := make(map[string]*cardFilesRow, len(held))
+	for i := range held {
+		byKey[held[i].GroupKey] = &held[i]
+	}
+	page.Variants = map[int64]*models.BookVariantsInfo{}
+	for i := range page.Books {
+		card := byKey[keys[i]]
+		if card == nil {
+			continue
+		}
+		page.Books[i].Fav, page.Books[i].FavoriteCount = card.Fav, card.Readers
+		if card.Files > 1 {
+			kind, count := models.VariantsKind(card.Files, card.Documents)
+			page.Variants[ids[i]] = &models.BookVariantsInfo{Key: uuid.MustParse(keys[i]), Count: count, Kind: kind}
+		}
+	}
+	return nil
 }
 
 // queryWithBookThreshold runs fn inside one transaction with the book-search

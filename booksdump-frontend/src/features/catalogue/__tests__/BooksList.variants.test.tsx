@@ -187,10 +187,10 @@ describe('which lists ask for cards', () => {
             '/author/:id',
         ],
         ['a pinned book', '/author/42?book_id=7', '/author/:id'],
-    ])('sends no cards on %s', async (_name, path, route) => {
+    ])('sends cards=1 on %s too', async (_name, path, route) => {
         renderAt(path, route);
         await waitFor(() => expect(listBooks).toHaveBeenCalled());
-        expect(listBooks.mock.calls[0][0]).not.toHaveProperty('cards');
+        expect(listBooks).toHaveBeenCalledWith(expect.objectContaining({ cards: true }));
     });
 });
 

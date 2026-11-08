@@ -132,6 +132,11 @@ func (s *SearchService) SearchBooks(ctx context.Context, req models.BookSearchRe
 		req.Unapproved = false
 		req.IncludeHidden = false
 	}
+	// Cards are the readers' view: a request widened to hidden or unapproved
+	// files lists every file, as the lists do.
+	if req.Unapproved || req.IncludeHidden {
+		req.GroupCards = false
+	}
 	page, err := s.repo.SearchBooks(ctx, req)
 	logCompletion(modeBooks, req.Query, req.Language, bookScope(req), len(page.Books), page.Total, page.QueryHash, err, start)
 	return page, err

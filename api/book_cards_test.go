@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"gopds-api/database"
@@ -267,4 +268,41 @@ func TestFavWholeGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
 	assert.JSONEq(t, `{"have_favs":true}`, rec.Body.String())
 	assert.Equal(t, []int64{unrelated}, stars())
+}
+
+// A search asks the service for cards only when the site asks for them; the
+// handler hands the page's variants to the listed books.
+func TestBooksSearchAsksForCards(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"/api/books/list?title=" + url.QueryEscape("дюна"), false},
+		{"/api/books/list?title=" + url.QueryEscape("дюна") + "&cards=1", true},
+		{"/api/books/list?book_id=7&cards=1", true},
+		{"/api/books/list?book_id=7", false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			key := uuid.New()
+			search := &fakeSearch{booksPage: models.BookSearchPage{
+				Books: []models.Book{{ID: 7}, {ID: 8}}, Total: 2, Limit: 10,
+				Variants: map[int64]*models.BookVariantsInfo{7: {Key: key, Count: 2, Kind: models.BookVariantsVariants}},
+			}}
+			gin.SetMode(gin.TestMode)
+			r := gin.New()
+			r.Use(func(c *gin.Context) { c.Set("user_id", int64(0)); c.Next() })
+			SetupBookRoutes(r.Group("/api/books"), &SearchHandler{Search: search})
+			rec := doJSON(t, r, http.MethodGet, tc.path, nil)
+			require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+			require.Len(t, search.booksReqs, 1)
+			assert.Equal(t, tc.want, search.booksReqs[0].GroupCards)
+
+			var page struct {
+				Books []map[string]json.RawMessage `json:"books"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
+			assert.JSONEq(t, fmt.Sprintf(`{"key":%q,"count":2,"kind":"variants"}`, key), string(page.Books[0]["variants"]))
+			assert.NotContains(t, page.Books[1], "variants")
+		})
+	}
 }

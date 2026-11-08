@@ -432,3 +432,36 @@ func TestSearchServiceSuggestionsValidation(t *testing.T) {
 		require.ErrorIs(t, err, boom)
 	})
 }
+
+// Grouping is the readers' view of the catalog: a moderator who widened the
+// request to hidden or unapproved files gets every file, as the lists do.
+func TestSearchServiceClearsGroupingForWidenedModerator(t *testing.T) {
+	cases := []struct {
+		name string
+		req  models.BookSearchRequest
+		want bool
+	}{
+		{"a reader", models.BookSearchRequest{Query: "дюна", GroupCards: true}, true},
+		{"a reader asking for hidden files (cleared first)",
+			models.BookSearchRequest{Query: "дюна", GroupCards: true, IncludeHidden: true, Unapproved: true}, true},
+		{"a moderator in the readers' view", models.BookSearchRequest{Query: "дюна", GroupCards: true, Moderator: true}, true},
+		{"a moderator with hidden files",
+			models.BookSearchRequest{Query: "дюна", GroupCards: true, Moderator: true, IncludeHidden: true}, false},
+		{"a moderator with the queue",
+			models.BookSearchRequest{Query: "дюна", GroupCards: true, Moderator: true, Unapproved: true}, false},
+		{"not asked", models.BookSearchRequest{Query: "дюна"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeSearchRepository{}
+			tc.req.Limit = 10
+			_, err := NewSearchService(repo).SearchBooks(context.Background(), tc.req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if repo.bookReq.GroupCards != tc.want {
+				t.Fatalf("GroupCards = %v, want %v", repo.bookReq.GroupCards, tc.want)
+			}
+		})
+	}
+}

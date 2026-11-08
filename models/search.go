@@ -28,8 +28,13 @@ type BookSearchRequest struct {
 	// without this declaration both widening flags above are cleared before
 	// the request reaches the repository.
 	Moderator bool
-	Limit     int
-	Offset    int
+	// GroupCards asks for one hit per book card (the site's search): a card
+	// sits at its best file's place and shows its best-ranked matching file.
+	// The service clears it for a moderator who widened the request; OPDS
+	// and the bot never set it.
+	GroupCards bool
+	Limit      int
+	Offset     int
 }
 
 // BookSearchPage is one ranked page plus the uncapped exact total computed
@@ -40,6 +45,9 @@ type BookSearchPage struct {
 	Limit     int
 	Offset    int
 	QueryHash string
+	// Variants is set for a grouped search, keyed by shown book id, for the
+	// cards of more than one visible file; nil when the search did not group.
+	Variants map[int64]*BookVariantsInfo
 }
 
 // AuthorSearchRequest carries a validated author search.

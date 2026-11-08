@@ -143,11 +143,9 @@ export function useBooksQuery() {
             params.book_id = bookId;
         }
 
-        // One card per book on the feed and the scoped lists; a search and a
-        // pinned book stay one row per file.
-        if (!params.title && !params.book_id) {
-            params.cards = true;
-        }
+        // One card per book everywhere on the site: the feed, the scoped
+        // lists and the search. OPDS and the bot list files on their own paths.
+        params.cards = true;
 
         return params;
     }, [id, location.pathname, page, searchParams, setAuthorId, user?.books_lang]);

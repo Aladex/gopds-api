@@ -376,12 +376,14 @@ func capture(args []string) {
 		out      = fs.String("out", "", "report output path (required)")
 		repeat   = fs.Int("repeat", defaultRepeat, "measured rounds over the whole set, after one unrecorded warm-up round")
 		identity = fs.String("identity", identityLegacy, "authors.identity to search under: legacy or entity")
+		cards    = fs.Bool("group-cards", false, "search as the site does, one hit per book card")
 		addr     = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
 		user     = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass     = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
 		name     = fs.String("database", envOr("GOPDS_POSTGRES_DBNAME", "gopds"), "database name")
 	)
 	_ = fs.Parse(args)
+	groupCards = *cards
 
 	if *input == "" || *out == "" || *repeat < 1 || !knownIdentity(*identity) {
 		usage()
@@ -425,12 +427,14 @@ func compare(args []string) int {
 		out      = fs.String("out", "", "report output path (required)")
 		repeat   = fs.Int("repeat", defaultRepeat, "measured rounds over the whole set, after one unrecorded warm-up round")
 		identity = fs.String("identity", identityLegacy, "authors.identity to search under: legacy or entity")
+		cards    = fs.Bool("group-cards", false, "search as the site does, one hit per book card")
 		addr     = fs.String("host", envOr("GOPDS_POSTGRES_DBHOST", "127.0.0.1:5432"), "database host:port")
 		user     = fs.String("user", envOr("GOPDS_POSTGRES_DBUSER", "gopds"), "database user")
 		pass     = fs.String("password", os.Getenv("GOPDS_POSTGRES_DBPASS"), "database password")
 		name     = fs.String("database", envOr("GOPDS_POSTGRES_DBNAME", "gopds"), "database name")
 	)
 	_ = fs.Parse(args)
+	groupCards = *cards
 
 	if *input == "" || *baseline == "" || *out == "" || *repeat < 1 || !knownIdentity(*identity) {
 		usage()
@@ -630,6 +634,9 @@ func loadQuerySet(path string) (querySet, error) {
 // runQuery executes one eval query through the current public search path:
 // the search repository, for books and authors alike. Both modes use it, so a
 // capture and a compare on the same catalog measure the same code.
+// groupCards makes book searches group their hits into cards (-group-cards).
+var groupCards bool
+
 func runQuery(repo *database.PGSearchRepository, q *evalQuery) (results []capturedResult, total int, note string, err error) {
 	switch q.Kind {
 	case kindBooks:
@@ -637,6 +644,7 @@ func runQuery(repo *database.PGSearchRepository, q *evalQuery) (results []captur
 			Query:       q.Query,
 			AuthorQuery: q.Author,
 			Language:    q.Language,
+			GroupCards:  groupCards,
 			Limit:       q.TopK,
 		})
 		if err != nil {
