@@ -37,6 +37,11 @@ type SearchHandler struct {
 	// picker and the author heading — and a legacy author ID is not found.
 	// nil keeps the legacy identity.
 	Entities AuthorEntityReader
+	// Lists supplies the ordinary list's rows, per file or in cards; nil
+	// reads the package database.
+	Lists BookLists
+
+	ready readiness
 }
 
 // AuthorEntityReader reads what the entity identity shows of authors.
@@ -164,6 +169,9 @@ type bookListQuery struct {
 	// number or an entity UUID, whichever the identity in force names
 	// authors by (authorRef).
 	Author string `form:"author"`
+	// Cards asks for the site's grouped list: one entry per card where the
+	// list is a scope and the card read model is ready (groupCards).
+	Cards bool `form:"cards"`
 }
 
 // maxListLimit is the ordinary list's own page-size clamp, mirrored here
@@ -182,6 +190,7 @@ const maxListLimit = 100
 // @Param  author query string false "Author ID: a legacy number, or an entity UUID under authors.identity=entity"
 // @Param  book_id query int false "Exact book ID"
 // @Param  sort query string false "Ordinary list order: empty for the newest first, author for by author"
+// @Param  cards query bool false "Group a scoped list into cards (the site only); per file when the card read model is not ready"
 // @Tags books
 // @Accept  json
 // @Produce  json
@@ -261,7 +270,11 @@ func (h *SearchHandler) Books(c *gin.Context) {
 	}
 	// No search target: the ordinary list keeps its existing path and semantics
 	// (favorites ordering, collection ordering, users-favorites mode).
-	books, count, err := database.GetBooks(userID, q.BookFilters)
+	if h.groupCards(c.Request.Context(), &q) {
+		h.cardsList(c, userID, &q.BookFilters)
+		return
+	}
+	books, count, err := h.lists().GetBooks(userID, q.BookFilters)
 	if err != nil {
 		httputil.NewError(c, http.StatusInternalServerError, err)
 		return

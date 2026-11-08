@@ -40,6 +40,9 @@ type ListedBook struct {
 	// entity identity it is sent empty, since those authors' links are legacy
 	// and name no author there (linkEntities).
 	AuthorsDisplay *[]models.AuthorDisplay `json:"authors_display,omitempty"`
+	// Variants is set on a grouped list (cards=1) for a card of more than one
+	// visible file; a single book has none, and its JSON is the per-file one.
+	Variants *models.BookVariantsInfo `json:"variants,omitempty"`
 }
 
 // langsAnswer struct for languages list response
@@ -87,8 +90,15 @@ func GetLangs(c *gin.Context) {
 func FavBook(c *gin.Context) {
 	dbId := c.GetInt64("user_id")
 	var favBook models.FavBook
-	if err := c.ShouldBindJSON(&favBook); err == nil {
-		res, err := database.FavBook(dbId, favBook)
+	if bindErr := c.ShouldBindJSON(&favBook); bindErr == nil {
+		var res bool
+		var err error
+		if !favBook.Fav && favBook.WholeGroup {
+			// Unstarring a card unstars every file of it.
+			res, err = database.UnfavBookGroup(dbId, favBook.BookID)
+		} else {
+			res, err = database.FavBook(dbId, favBook)
+		}
 		if err != nil {
 			httputil.NewError(c, http.StatusBadRequest, err)
 			return

@@ -325,6 +325,63 @@ type BookDownload struct {
 type FavBook struct {
 	BookID int64 `json:"book_id"`
 	Fav    bool  `json:"fav"`
+	// WholeGroup, with Fav false, unstars every file of the book's card, not
+	// only the book itself. It changes nothing when starring.
+	WholeGroup bool `json:"whole_group"`
+}
+
+// The kinds of a card (book_variant_group.kind).
+const (
+	BookVariantsSingle    = "single"
+	BookVariantsVariants  = "variants"
+	BookVariantsRevisions = "revisions"
+)
+
+// Why a grouped list shows a card on a file other than its default.
+const (
+	// BookVariantReasonSaved: the file the reader or the collection saved.
+	BookVariantReasonSaved = "saved"
+)
+
+// BookVariantsInfo is what a listed card says of its files. It is sent only
+// for a card of more than one visible file.
+type BookVariantsInfo struct {
+	Key uuid.UUID `json:"key"`
+	// Count is the documents of a card of variants, or the files of a card
+	// whose files are all revisions of one document.
+	Count int    `json:"count"`
+	Kind  string `json:"kind"`
+	// Reason says why the card is shown on this file rather than on its
+	// default; empty when it is the default.
+	Reason string `json:"reason,omitempty"`
+}
+
+// BookVariant is one visible file's place in its card, as the variants of a
+// book list it.
+type BookVariant struct {
+	BookID     int64
+	GroupKey   uuid.UUID
+	Lineage    string
+	Latest     bool
+	Rank       int
+	Tag        string
+	DocVersion string
+	// Default marks the file a card opens on when nothing else is asked:
+	// its best-ranked visible file.
+	Default bool
+}
+
+// VariantsKind is the kind and the count of a card of files visible files
+// holding documents distinct FB2 documents.
+func VariantsKind(files, documents int) (kind string, count int) {
+	switch {
+	case files <= 1:
+		return BookVariantsSingle, 1
+	case documents <= 1:
+		return BookVariantsRevisions, files
+	default:
+		return BookVariantsVariants, documents
+	}
 }
 
 // BookUpdateRequest struct for updating book information

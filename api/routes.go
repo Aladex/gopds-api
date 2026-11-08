@@ -13,6 +13,7 @@ import (
 // methods of the injected handler; the rest stay on their package functions.
 func SetupBookRoutes(r *gin.RouterGroup, search *SearchHandler) {
 	r.GET("/list", search.Books)
+	r.GET("/variants/:id", search.Variants)
 	r.GET("/get/:format/:id", GetBookFile)
 	r.HEAD("/get/:format/:id", HeadBookFile)
 	r.GET("/langs", GetLangs)
