@@ -382,6 +382,18 @@ const BookCard: React.FC<BookCardProps> = ({
             />
         ) : null;
 
+    // A new file of an old book lifts its card to the top of the feed, opened
+    // on that file; the card says so while that file is the one shown.
+    const reason = book.variants?.reason;
+    const feedMark =
+        shown.id !== book.id
+            ? null
+            : reason === 'new_revision'
+              ? 'variantMarkNewRevision'
+              : reason === 'new_variant'
+                ? 'variantMarkNewVariant'
+                : null;
+
     /** Names the block the control opens, for anything reading the page aloud. */
     const detailsID = `book-${book.id}-details`;
 
@@ -537,6 +549,12 @@ const BookCard: React.FC<BookCardProps> = ({
                         {published && (
                             <span>
                                 {t('bookPublished')} {published}
+                            </span>
+                        )}
+                        {/* The feed's new file, while it is the one shown. */}
+                        {feedMark && (
+                            <span data-testid="variant-mark" className="font-semibold text-primary">
+                                {t(feedMark)}
                             </span>
                         )}
                         {/* A phone's variant control ends the dates line. */}

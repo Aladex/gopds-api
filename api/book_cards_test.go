@@ -99,8 +99,10 @@ func TestBooksGroupsOnlyWhenAsked(t *testing.T) {
 		// A reader cannot widen visibility: the flag is dropped and the list
 		// is the readers' one, so it groups.
 		{"cards with include_hidden, reader", false, "/api/books/list?author=12&cards=1&include_hidden=true", true},
-		{"cards with no scope (the feed)", false, "/api/books/list?cards=1", false},
-		{"cards with a language only", false, "/api/books/list?lang=ru&cards=1", false},
+		{"cards on the feed", false, "/api/books/list?cards=1", true},
+		{"cards on the feed in a language", false, "/api/books/list?lang=ru&cards=1", true},
+		{"cards on the feed sorted by author", false, "/api/books/list?cards=1&sort=author", false},
+		{"the feed without cards", false, "/api/books/list?lang=ru", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

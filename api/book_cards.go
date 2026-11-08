@@ -98,9 +98,12 @@ func scopedList(f models.BookFilters) bool {
 }
 
 // groupCards says the ordinary list answers in cards: asked for with
-// cards=1, readers' visibility only, a scoped list, and a walked read model.
+// cards=1, readers' visibility only, a scoped list or the feed in its own
+// order (newest first; the feed sorted otherwise stays per file), and a
+// walked read model.
 func (h *SearchHandler) groupCards(ctx context.Context, q *bookListQuery) bool {
-	return q.Cards && !q.IncludeHidden && !q.UnApproved && scopedList(q.BookFilters) && h.cardsReady(ctx)
+	return q.Cards && !q.IncludeHidden && !q.UnApproved && (scopedList(q.BookFilters) || q.Sort == "") &&
+		h.cardsReady(ctx)
 }
 
 // cardsList answers the ordinary list in cards: each card that holds more

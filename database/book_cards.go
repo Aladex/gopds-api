@@ -105,6 +105,24 @@ type cardRow struct {
 	GroupKey  string `pg:"group_key"`
 	ShownRank int    `pg:"shown_rank"`
 	Total     int    `pg:"total"`
+	// Mark and Newest are the feed's: the card's mark and its newest file,
+	// which the mark is about.
+	Mark   string `pg:"mark"`
+	Newest int64  `pg:"newest"`
+}
+
+// nextFiles finds the next eligible file of each card named by keys, other
+// than the gone files: the list's own idea of where a card may go next.
+type nextFiles func(ctx context.Context, keys []string, gone []int64) ([]cardRow, error)
+
+// nextInScope is nextFiles for a scoped list: the card's best-ranked file in
+// the scope, read again.
+func nextInScope(scoped *orm.Query) nextFiles {
+	return func(ctx context.Context, keys []string, gone []int64) ([]cardRow, error) {
+		var next []cardRow
+		_, err := db.QueryContext(ctx, &next, cardsReplacementSQL, scoped, pg.Array(keys), pg.Array(gone))
+		return next, err
+	}
 }
 
 // cardFilesSQL reads what a page's cards hold over their visible files: the
@@ -160,6 +178,9 @@ func GetBookCards(ctx context.Context, userID int64, filters models.BookFilters)
 	if filters.Limit > 100 || filters.Limit == 0 {
 		filters.Limit = 100
 	}
+	if isFeed(filters) {
+		return getFeedCards(ctx, userID, filters)
+	}
 	scoped, err := cardsScope(ctx, filters, userID)
 	if err != nil {
 		return nil, nil, 0, err
@@ -181,7 +202,7 @@ func GetBookCards(ctx context.Context, userID int64, filters models.BookFilters)
 	if afterCardsSelected != nil {
 		afterCardsSelected()
 	}
-	books, entries, err := cardEntries(ctx, rows, scoped, savedScope(filters), userID)
+	books, entries, err := cardEntries(ctx, rows, nextInScope(scoped), savedScope(filters), userID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -218,9 +239,9 @@ func cardsScope(ctx context.Context, filters models.BookFilters, userID int64) (
 // card leaves the page. saved says the list shows saved files, so a card
 // shown on a file other than its best visible one says why.
 func cardEntries(
-	ctx context.Context, rows []cardRow, scoped *orm.Query, saved bool, userID int64,
+	ctx context.Context, rows []cardRow, next nextFiles, saved bool, userID int64,
 ) ([]models.Book, []CardEntry, error) {
-	books, rows, err := visibleCards(ctx, rows, scoped, userID)
+	books, rows, err := visibleCards(ctx, rows, next, userID)
 	if err != nil || len(rows) == 0 {
 		return []models.Book{}, []CardEntry{}, err
 	}
@@ -263,7 +284,7 @@ const maxReplacementRounds = 8
 // visible file or its scope has none left (or the rounds run out). A card
 // with no file left is dropped.
 func visibleCards(
-	ctx context.Context, rows []cardRow, scoped *orm.Query, userID int64,
+	ctx context.Context, rows []cardRow, next nextFiles, userID int64,
 ) ([]models.Book, []cardRow, error) {
 	current := slices.Clone(rows)
 	ids := make([]int64, len(current))
@@ -281,7 +302,7 @@ func visibleCards(
 	var gone []int64
 	exhausted := map[string]bool{}
 	for round := 0; round < maxReplacementRounds; round++ {
-		more, err := replaceGoneFiles(ctx, current, found, &gone, exhausted, scoped, userID)
+		more, err := replaceGoneFiles(ctx, current, found, &gone, exhausted, next, userID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -306,7 +327,7 @@ func visibleCards(
 // whether there was anything to replace.
 func replaceGoneFiles(
 	ctx context.Context, current []cardRow, found map[int64]*models.Book, gone *[]int64,
-	exhausted map[string]bool, scoped *orm.Query, userID int64,
+	exhausted map[string]bool, next nextFiles, userID int64,
 ) (bool, error) {
 	var keys []string
 	for i := range current {
@@ -318,7 +339,7 @@ func replaceGoneFiles(
 	if len(keys) == 0 {
 		return false, nil
 	}
-	replaced, err := nextCardFiles(ctx, keys, *gone, found, scoped, userID)
+	replaced, err := nextCardFiles(ctx, keys, *gone, found, next, userID)
 	if err != nil {
 		return false, err
 	}
@@ -344,10 +365,10 @@ var afterCardsReplaced func()
 // named by keys, other than the gone files, reads the visible ones into
 // found, and returns the files found by card key.
 func nextCardFiles(
-	ctx context.Context, keys []string, gone []int64, found map[int64]*models.Book, scoped *orm.Query, userID int64,
+	ctx context.Context, keys []string, gone []int64, found map[int64]*models.Book, find nextFiles, userID int64,
 ) (map[string]*cardRow, error) {
-	var next []cardRow
-	if _, err := db.QueryContext(ctx, &next, cardsReplacementSQL, scoped, pg.Array(keys), pg.Array(gone)); err != nil {
+	next, err := find(ctx, keys, gone)
+	if err != nil {
 		return nil, err
 	}
 	replaced := make(map[string]*cardRow, len(next))
@@ -379,7 +400,11 @@ func variantsInfo(row *cardRow, card *cardFilesRow, saved bool) *models.BookVari
 	}
 	kind, count := models.VariantsKind(card.Files, card.Documents)
 	info := &models.BookVariantsInfo{Key: uuid.MustParse(row.GroupKey), Count: count, Kind: kind}
-	if saved && row.ShownRank > card.BestRank {
+	switch {
+	case row.Mark != "" && row.ShownID == row.Newest:
+		// The feed's new file, shown: the mark is about it.
+		info.Reason = row.Mark
+	case saved && row.ShownRank > card.BestRank:
 		info.Reason = models.BookVariantReasonSaved
 	}
 	return info

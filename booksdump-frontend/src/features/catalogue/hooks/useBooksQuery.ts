@@ -143,16 +143,9 @@ export function useBooksQuery() {
             params.book_id = bookId;
         }
 
-        // One card per book on the scoped lists; the feed, a search and a
+        // One card per book on the feed and the scoped lists; a search and a
         // pinned book stay one row per file.
-        const scoped =
-            params.author !== undefined ||
-            params.series !== undefined ||
-            params.genre !== undefined ||
-            params.curated_collection !== undefined ||
-            params.fav === true ||
-            params.users_favorites === true;
-        if (scoped && !params.title && !params.book_id) {
+        if (!params.title && !params.book_id) {
             params.cards = true;
         }
 

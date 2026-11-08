@@ -165,6 +165,7 @@ const scoped = [
     ['a genre', '/books/find/genre/5/1', '/books/find/genre/:id/:page'],
     ['a curated collection', '/collections/3/page/1', '/collections/:id/page/:page'],
     ['the favourites', '/books/favorite/1', '/books/favorite/:page'],
+    ['the feed', '/books/page/1', '/books/page/:page'],
     ["everyone's favourites", '/books/users/favorites/1', '/books/users/favorites/:page'],
 ] as const;
 
@@ -176,7 +177,6 @@ describe('which lists ask for cards', () => {
     });
 
     it.each([
-        ['the feed', '/books/page/1', '/books/page/:page'],
         ['a book search', `/search?q=${encodeURIComponent('дюна')}&type=books`, '/search'],
         [
             'a search inside an author',

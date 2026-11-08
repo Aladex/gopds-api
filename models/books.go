@@ -341,6 +341,11 @@ const (
 const (
 	// BookVariantReasonSaved: the file the reader or the collection saved.
 	BookVariantReasonSaved = "saved"
+	// BookVariantReasonNewRevision: the feed's new file, a newer revision of a
+	// document the card had.
+	BookVariantReasonNewRevision = "new_revision"
+	// BookVariantReasonNewVariant: the feed's new file, another document.
+	BookVariantReasonNewVariant = "new_variant"
 )
 
 // BookVariantsInfo is what a listed card says of its files. It is sent only

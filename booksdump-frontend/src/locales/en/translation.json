@@ -41,6 +41,8 @@
   "variantField.revision": "revision number",
   "variantField.added": "date added",
   "variantDefault": "default",
+  "variantMarkNewRevision": "new revision",
+  "variantMarkNewVariant": "new variant",
   "earlierRevisions_one": "{{count}} earlier revision",
   "earlierRevisions_other": "{{count}} earlier revisions",
   "variantAs": "as “{{title}}”",

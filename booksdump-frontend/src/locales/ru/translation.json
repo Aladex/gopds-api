@@ -44,6 +44,8 @@
   "variantField.revision": "номер редакции",
   "variantField.added": "дата добавления",
   "variantDefault": "основной",
+  "variantMarkNewRevision": "новая редакция",
+  "variantMarkNewVariant": "новый вариант",
   "earlierRevisions_one": "ещё {{count}} ранняя редакция",
   "earlierRevisions_few": "ещё {{count}} ранние редакции",
   "earlierRevisions_many": "ещё {{count}} ранних редакций",

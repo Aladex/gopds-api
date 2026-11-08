@@ -484,3 +484,48 @@ describe('the list of files', () => {
         await waitFor(() => expect(card()).toHaveTextContent('Аннотация файла 12'));
     });
 });
+
+describe('the feed mark', () => {
+    it.each([
+        ['new_variant', 'variantMarkNewVariant'],
+        ['new_revision', 'variantMarkNewRevision'],
+    ] as const)(
+        'feed mark %s shows and opens on the new file, ignoring the remembered choice',
+        async (reason, text) => {
+            localStorage.setItem(`booksdump:variant:${KEY}`, '20');
+            renderCard({
+                isWide: false,
+                book: {
+                    ...base,
+                    id: 30,
+                    annotation: 'Новый файл',
+                    variants: variantsInfo({ reason }),
+                },
+            });
+
+            const mark = screen.getByTestId('variant-mark');
+            expect(mark).toHaveTextContent(text);
+            // In the dates line, before the chip.
+            expect(datesLine()).toContainElement(mark);
+            expect(mark.nextElementSibling).toBe(screen.getByTestId('variant-chip'));
+            await waitFor(() => expect(getBookVariants).toHaveBeenCalledWith(30));
+            expect(card()).toHaveTextContent('Новый файл');
+            expect(card()).not.toHaveTextContent('Аннотация файла 20');
+        },
+    );
+
+    it('is not shown for a saved file, nor after a pick', async () => {
+        renderCard({ book: { ...base, variants: variantsInfo({ reason: 'saved' }) } });
+        expect(screen.queryByTestId('variant-mark')).toBeNull();
+    });
+
+    it('goes when the reader picks another file', async () => {
+        renderCard({
+            book: { ...base, id: 30, variants: variantsInfo({ reason: 'new_variant' }) },
+        });
+        expect(screen.getByTestId('variant-mark')).toBeInTheDocument();
+        const list = await openSelector(true);
+        await userEvent.click(await optionFor(list, /П\. Номер20/));
+        await waitFor(() => expect(screen.queryByTestId('variant-mark')).toBeNull());
+    });
+});
