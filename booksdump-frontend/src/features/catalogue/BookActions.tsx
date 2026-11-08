@@ -48,12 +48,14 @@ export type BookActionsProps = Pick<
     | 'showKindleButton'
     | 'showTelegramButton'
     | 'kindleConfigured'
-    | 'isSendingToKindle'
     | 'onSendToKindle'
     | 'telegramConnected'
-    | 'isSendingToTelegram'
     | 'onSendToTelegram'
 > & {
+    /** Whether the shown file is on its way to the Kindle. */
+    isSendingToKindle?: boolean;
+    /** Whether the shown file is on its way to Telegram. */
+    isSendingToTelegram?: boolean;
     className?: string;
     /** Opens the rail of a wide card: the variant selector of a card with variants. */
     selector?: React.ReactNode;

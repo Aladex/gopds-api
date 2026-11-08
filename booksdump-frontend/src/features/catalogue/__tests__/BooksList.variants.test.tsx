@@ -110,6 +110,8 @@ const toggleFavourite = vi.mocked(booksApi.toggleFavourite);
 const getBookVariants = vi.mocked(booksApi.getBookVariants);
 const getCurrentUser = vi.mocked(authApi.getCurrentUser);
 
+const DAY = 24 * 60 * 60 * 1000;
+
 function makeBook(over: Partial<Book> = {}): Book {
     return {
         id: 1,
@@ -120,8 +122,9 @@ function makeBook(over: Partial<Book> = {}): Book {
         annotation: 'Атмосфера студенческой жизни и уют кампуса.',
         filename: 'book-1',
         cover: true,
-        registerdate: '2026-07-07T20:18:00Z',
-        docdate: '2024-08-26',
+        // Dates from now: the list's checks do not care which day it is.
+        registerdate: new Date(Date.now() - 30 * DAY).toISOString(),
+        docdate: new Date(Date.now() - 400 * DAY).toISOString().slice(0, 10),
         lang: 'ru',
         fav: false,
         approved: true,

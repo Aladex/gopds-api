@@ -92,12 +92,14 @@ export interface BookCardProps {
     showTelegramButton?: boolean;
     /** Whether the reader has a Kindle address to send to. */
     kindleConfigured?: boolean;
-    isSendingToKindle?: boolean;
+    /** Whether a file is on its way to the Kindle; asked for the file the card shows. */
+    isSendingToKindle?: (bookID: number) => boolean;
     /** Asks to send the book, or opens the setup when there is no Kindle yet. */
     onSendToKindle?: (book: Book) => void;
     /** Whether the reader's Telegram bot is connected and may write to them. */
     telegramConnected?: boolean;
-    isSendingToTelegram?: boolean;
+    /** Whether a file is on its way to Telegram; asked for the file the card shows. */
+    isSendingToTelegram?: (bookID: number) => boolean;
     /** Asks to send the book, or opens the Telegram tab when it cannot be sent. */
     onSendToTelegram?: (book: Book) => void;
 }
@@ -349,10 +351,10 @@ const BookCard: React.FC<BookCardProps> = ({
     showKindleButton = false,
     showTelegramButton = false,
     kindleConfigured = false,
-    isSendingToKindle = false,
+    isSendingToKindle,
     onSendToKindle,
     telegramConnected = false,
-    isSendingToTelegram = false,
+    isSendingToTelegram,
     onSendToTelegram,
 }) => {
     const { t } = useTranslation();
@@ -638,10 +640,10 @@ const BookCard: React.FC<BookCardProps> = ({
                         showKindleButton={showKindleButton}
                         showTelegramButton={showTelegramButton}
                         kindleConfigured={kindleConfigured}
-                        isSendingToKindle={isSendingToKindle}
+                        isSendingToKindle={isSendingToKindle?.(shown.id) ?? false}
                         onSendToKindle={onSendToKindle}
                         telegramConnected={telegramConnected}
-                        isSendingToTelegram={isSendingToTelegram}
+                        isSendingToTelegram={isSendingToTelegram?.(shown.id) ?? false}
                         onSendToTelegram={onSendToTelegram}
                     />
                 </div>

@@ -267,10 +267,10 @@ const BooksList: React.FC = () => {
                                 showKindleButton={user?.show_kindle_button !== false}
                                 showTelegramButton={showTelegram}
                                 kindleConfigured={kindle.configured}
-                                isSendingToKindle={kindle.isSending(book.id)}
+                                isSendingToKindle={kindle.isSending}
                                 onSendToKindle={kindle.request}
                                 telegramConnected={telegram.connected}
-                                isSendingToTelegram={telegram.isSending(book.id)}
+                                isSendingToTelegram={telegram.isSending}
                                 onSendToTelegram={telegram.request}
                             />
                         </div>

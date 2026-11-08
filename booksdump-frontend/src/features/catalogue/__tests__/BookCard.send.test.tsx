@@ -125,7 +125,7 @@ describe('the rail says the state of each target', () => {
             ],
             [
                 'a book on its way to the Kindle',
-                { showKindleButton: true, kindleConfigured: true, isSendingToKindle: true },
+                { showKindleButton: true, kindleConfigured: true, isSendingToKindle: () => true },
                 ['sendToKindle.sending'],
                 ['sendToKindle.setupShort'],
             ],
@@ -137,7 +137,11 @@ describe('the rail says the state of each target', () => {
             ],
             [
                 'a book on its way to Telegram',
-                { showTelegramButton: true, telegramConnected: true, isSendingToTelegram: true },
+                {
+                    showTelegramButton: true,
+                    telegramConnected: true,
+                    isSendingToTelegram: () => true,
+                },
                 ['sendToTelegram.sending'],
                 ['sendToTelegram.setupShort'],
             ],
@@ -161,7 +165,7 @@ describe('the rail says the state of each target', () => {
                 showTelegramButton: true,
                 kindleConfigured: false,
                 telegramConnected: true,
-                isSendingToTelegram: true,
+                isSendingToTelegram: () => true,
             });
             const [kindle, telegram] = within(rail()).getAllByRole('button');
 
@@ -235,7 +239,7 @@ describe.each([true, false])('the Telegram button (wide %s)', (isWide) => {
             isWide,
             showTelegramButton: true,
             telegramConnected: true,
-            isSendingToTelegram: true,
+            isSendingToTelegram: () => true,
         });
         const button = telegramButton()!;
 
@@ -296,7 +300,7 @@ describe.each([true, false])('the Kindle button (wide %s)', (isWide) => {
             isWide,
             showKindleButton: true,
             kindleConfigured: true,
-            isSendingToKindle: true,
+            isSendingToKindle: () => true,
         });
         const button = kindleButton()!;
 
@@ -318,7 +322,7 @@ describe('the «Отправить» button on a phone', () => {
             isWide: false,
             showKindleButton: true,
             showTelegramButton: true,
-            isSendingToTelegram: true,
+            isSendingToTelegram: () => true,
         });
         const button = screen.getByRole('button', { name: 'bookSend' });
 

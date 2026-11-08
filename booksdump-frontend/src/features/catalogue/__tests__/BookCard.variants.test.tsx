@@ -288,6 +288,28 @@ describe('picking a row', () => {
         expect(onToggleFavourite).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), 20);
     });
 
+    it('shows the send indicators of the file it shows', async () => {
+        // The listed file is not on its way anywhere; file 20 is, to both.
+        const sending = (id: number) => id === 20;
+        renderCard({
+            showKindleButton: true,
+            showTelegramButton: true,
+            kindleConfigured: true,
+            telegramConnected: true,
+            isSendingToKindle: sending,
+            isSendingToTelegram: sending,
+        });
+        const rail = () => screen.getByTestId('book-actions');
+        expect(rail()).not.toHaveTextContent('sendToKindle.sending');
+        expect(rail()).not.toHaveTextContent('sendToTelegram.sending');
+
+        const list = await openSelector(true);
+        await userEvent.click(await optionFor(list, /П\. Номер20/));
+
+        await waitFor(() => expect(rail()).toHaveTextContent('sendToKindle.sending'));
+        expect(rail()).toHaveTextContent('sendToTelegram.sending');
+    });
+
     it('says which file the phone chip shows after a swap', async () => {
         renderCard({ isWide: false });
         const sheet = await openSelector(false);
