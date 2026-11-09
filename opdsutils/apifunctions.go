@@ -122,7 +122,7 @@ func acquisitionLinks(book *models.Book) []Link {
 		{
 			Href: linkPath + "fb2/" + strconv.FormatInt(book.ID, 10),
 			Rel:  relAcquisition,
-			Type: "application/fb2+zip",
+			Type: "application/fb2+xml",
 		},
 		{
 			Href: linkPath + "epub/" + strconv.FormatInt(book.ID, 10),

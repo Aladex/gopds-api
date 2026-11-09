@@ -131,7 +131,7 @@ func TestOpdsBookVariantsFeedListsTheCardFilesInCardOrder(t *testing.T) {
 				hrefs[l.Type] = true
 			}
 		}
-		assert.True(t, hrefs["application/fb2+zip"], "%s keeps its fb2 link", e.ID)
+		assert.True(t, hrefs["application/fb2+xml"], "%s keeps its fb2 link", e.ID)
 		assert.True(t, hrefs["application/epub+zip"], "%s keeps its epub link", e.ID)
 		assert.True(t, hrefs["application/x-mobipocket-ebook"], "%s keeps its mobi link", e.ID)
 	}
