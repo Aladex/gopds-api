@@ -107,12 +107,15 @@ func (v *v2Stack) settleVariants(ids ...int64) {
 	}
 }
 
+// thisYear anchors the fixtures' publication years: counted back from now.
+var thisYear = time.Now().Year()
+
 // solaris is a card of three documents by translator. By rank: Ким's (the
 // newest year, the default), Ли's, Бо's.
 var solaris = []fileSpec{
-	{doc: "sol-bo", version: "1.0", translator: "Анна Бо", publisher: "АСТ", year: 2002},
-	{doc: "sol-li", version: "1.0", translator: "Ирина Ли", publisher: "Азбука", year: 2010},
-	{doc: "sol-kim", version: "1.0", translator: "Олег Ким", publisher: "Эксмо", year: 2016},
+	{doc: "sol-bo", version: "1.0", translator: "Анна Бо", publisher: "АСТ", year: thisYear - 24},
+	{doc: "sol-li", version: "1.0", translator: "Ирина Ли", publisher: "Азбука", year: thisYear - 16},
+	{doc: "sol-kim", version: "1.0", translator: "Олег Ким", publisher: "Эксмо", year: thisYear - 10},
 }
 
 // answerTexts are the toasts the presses were answered with.
@@ -202,7 +205,9 @@ func TestTheCardOffersItsVariants(t *testing.T) {
 	assert.Equal(t, "editMessageText", list.Method, "the same panel")
 	text := content(&list)
 	for _, want := range []string{"Варианты", "Солярис", "3 варианта", "Отличаются: перевод, издательство и год",
-		"1. пер. О. Ким · Эксмо, 2016 · основной", "2. пер. И. Ли · Азбука, 2010 ✓", "3. пер. А. Бо · АСТ, 2002"} {
+		fmt.Sprintf("1. пер. О. Ким · Эксмо, %d · основной", thisYear-10),
+		fmt.Sprintf("2. пер. И. Ли · Азбука, %d ✓", thisYear-16),
+		fmt.Sprintf("3. пер. А. Бо · АСТ, %d", thisYear-24)} {
 		assert.Contains(t, text, want)
 	}
 	assert.Equal(t, []string{"← К книге", "Домой"}, tgtest.ButtonTexts(t, &list)[3])
@@ -251,10 +256,10 @@ func TestEarlierRevisionsFoldAsOnTheSite(t *testing.T) {
 	v := newV2(t)
 	v.plainCards()
 	files := v.variantCard("Непобедимый", []fileSpec{
-		{doc: "inv-a", version: "1.0", translator: "Анна Бо", publisher: "АСТ", year: 2001},
-		{doc: "inv-a", version: "1.1", translator: "Анна Бо", publisher: "АСТ", year: 2002},
-		{doc: "inv-a", version: "2.0", translator: "Анна Бо", publisher: "АСТ", year: 2003},
-		{doc: "inv-b", version: "1.0", translator: "Ирина Ли", publisher: "Азбука", year: 2010},
+		{doc: "inv-a", version: "1.0", translator: "Анна Бо", publisher: "АСТ", year: thisYear - 25},
+		{doc: "inv-a", version: "1.1", translator: "Анна Бо", publisher: "АСТ", year: thisYear - 24},
+		{doc: "inv-a", version: "2.0", translator: "Анна Бо", publisher: "АСТ", year: thisYear - 23},
+		{doc: "inv-b", version: "1.0", translator: "Ирина Ли", publisher: "Азбука", year: thisYear - 16},
 	})
 	_ = files
 	card := v.openFile("Непобедимый", 3) // Ли's, the newest year: the default
@@ -381,7 +386,7 @@ func TestVariantsPageAfterTheCardShrank(t *testing.T) {
 	var specs []fileSpec
 	for i := 0; i < 7; i++ {
 		specs = append(specs, fileSpec{doc: fmt.Sprintf("seven-%d", i), version: "1.0",
-			translator: fmt.Sprintf("Переводчик %c", 'А'+rune(i)), year: 2000 + i})
+			translator: fmt.Sprintf("Переводчик %c", 'А'+rune(i)), year: thisYear - 30 + i})
 	}
 	files := v.variantCard("Эдем", specs)
 	v.say("эдем")
@@ -443,11 +448,11 @@ func TestCardReadsDoNotGrowWithVariants(t *testing.T) {
 	two := make([]fileSpec, 2)
 	many := make([]fileSpec, 22)
 	for i := range two {
-		two[i] = fileSpec{doc: fmt.Sprintf("two-%d", i), version: "1.0", translator: fmt.Sprintf("Ли %d", i), year: 2000 + i}
+		two[i] = fileSpec{doc: fmt.Sprintf("two-%d", i), version: "1.0", translator: fmt.Sprintf("Ли %d", i), year: thisYear - 30 + i}
 	}
 	for i := range many {
 		many[i] = fileSpec{doc: fmt.Sprintf("many-%d", i%11), version: fmt.Sprintf("1.%d", i/11),
-			translator: fmt.Sprintf("Ким %d", i%11), year: 2000 + i%11}
+			translator: fmt.Sprintf("Ким %d", i%11), year: thisYear - 30 + i%11}
 	}
 	v.variantCard("Кибериада", two)
 	v.variantCard("Насморк", many)

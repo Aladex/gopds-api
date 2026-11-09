@@ -39,7 +39,7 @@ func TestAnOldPageButtonAfterGrouping(t *testing.T) {
 	var specs []fileSpec
 	for i := 0; i < 12; i++ {
 		specs = append(specs, fileSpec{doc: fmt.Sprintf("twelve-%d", i), version: "1.0",
-			translator: fmt.Sprintf("Переводчик %d", i), year: 2000 + i})
+			translator: fmt.Sprintf("Переводчик %d", i), year: thisYear - 30 + i})
 	}
 	v.variantCard("Солярис", specs)
 

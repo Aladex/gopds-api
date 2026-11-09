@@ -30,6 +30,8 @@ type listFixture struct {
 	author int64
 	series int64
 	user   int64
+	// lang is the language of the files written next; "" is Russian.
+	lang string
 }
 
 func newListFixture(t *testing.T) *listFixture {
@@ -72,10 +74,14 @@ func (f *listFixture) scalar(query string, args ...any) int64 {
 // document, numbered serNo in the fixture's series (0: not in it).
 func (f *listFixture) file(title, doc string, serNo int64) int64 {
 	f.t.Helper()
+	lang := f.lang
+	if lang == "" {
+		lang = "ru"
+	}
 	id := f.scalar(`INSERT INTO opds_catalog_book
 		(filename, path, format, title, annotation, lang, registerdate, docdate, approved, cover, md5, duplicate_hidden)
-		VALUES (?, 'lists.zip', 'fb2', ?, '', 'ru', ?, '', true, false, md5(?), false) RETURNING id`,
-		doc+".fb2", title, time.Now().Add(-24*time.Hour), doc)
+		VALUES (?, 'lists.zip', 'fb2', ?, '', ?, ?, '', true, false, md5(?), false) RETURNING id`,
+		doc+".fb2", title, lang, time.Now().Add(-24*time.Hour), doc)
 	f.scalar(`INSERT INTO opds_catalog_bauthor (book_id, author_id) VALUES (?, ?) RETURNING id`, id, f.author)
 	f.exec(`INSERT INTO book_author_display (book_id, position, display, sort_key, search_key, source, credit_id, entity_ids)
 		VALUES (?, 0, 'Станислав Лем', 'лем станислав', 'станислав лем', 'layer', ?, ARRAY[?::uuid])`, id, id, f.entity)
@@ -141,19 +147,26 @@ func cardIDs(books []models.Book) []int64 {
 	return out
 }
 
-// The bot's four scoped lists and the site's grouped list of the same scope
-// hold the same cards, shown on the same files, counted alike.
+// The bot's four scoped lists are the site's grouped list of the same scope
+// under the bot's own order (authors by title, a series by number) and
+// language: the same cards in the same order on every page, shown on the
+// same files, saying the same of them, and counted alike.
 func TestBotListsMatchTheSiteCards(t *testing.T) {
 	f := newListFixture(t)
 	solaris := f.card("Солярис", 3, 1)
 	eden := f.card("Эдем", 2, 2)
 	lone := f.file("Насморк", "nasmork", 0)
+	for i := 0; i < 6; i++ {
+		f.file(fmt.Sprintf("Рассказ %d", i), fmt.Sprintf("story-%d", i), 0)
+	}
+	f.lang = "en"
+	english := f.card("Solaris", 2, 0)
 	f.walk()
 	ranked := f.byRank(solaris)
-	f.exec(`INSERT INTO favorite_books (user_id, book_id) VALUES (?, ?), (?, ?), (?, ?)`,
-		f.user, ranked[2], f.user, lone, f.user, ranked[0])
+	f.exec(`INSERT INTO favorite_books (user_id, book_id) VALUES (?, ?), (?, ?), (?, ?), (?, ?)`,
+		f.user, ranked[2], f.user, lone, f.user, ranked[0], f.user, english[0])
 	curated := f.scalar(`INSERT INTO book_collections (name, is_public, is_curated) VALUES ('Подборка', true, true) RETURNING id`)
-	for pos, book := range []int64{eden[0], ranked[1], lone} {
+	for pos, book := range []int64{eden[0], ranked[1], lone, english[1]} {
 		f.exec(`INSERT INTO book_collection_items (collection_id, book_id, external_title, match_status, position)
 			VALUES (?, ?, 'x', ?, ?)`, curated, book, models.MatchStatusAutoMatched, pos)
 	}
@@ -162,37 +175,49 @@ func TestBotListsMatchTheSiteCards(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 
+	byTitle, bySeries := models.BookSortTitle, models.BookSortSeries
 	cases := []struct {
 		name     string
 		entities bool
 		view     models.TelegramView
-		site     models.BookFilters
+		filters  models.BookFilters
 		total    int
 	}{
-		{"author", false, models.TelegramView{Kind: ViewAuthorBooks, AuthorID: f.author}, models.BookFilters{Author: int(f.author)}, 3},
-		{"author entity", true, models.TelegramView{Kind: ViewAuthorBooks, AuthorID: handle}, models.BookFilters{AuthorEntity: f.entity}, 3},
-		{"series", false, models.TelegramView{Kind: ViewSeriesBooks, SeriesID: f.series}, models.BookFilters{Series: int(f.series)}, 2},
+		{"author, all languages", false, models.TelegramView{Kind: ViewAuthorBooks, AuthorID: f.author},
+			models.BookFilters{Author: int(f.author), Sort: byTitle}, 10},
+		{"author, Russian", false, models.TelegramView{Kind: ViewAuthorBooks, AuthorID: f.author, Lang: "ru"},
+			models.BookFilters{Author: int(f.author), Sort: byTitle, Lang: "ru"}, 9},
+		{"author, English", false, models.TelegramView{Kind: ViewAuthorBooks, AuthorID: f.author, Lang: "en"},
+			models.BookFilters{Author: int(f.author), Sort: byTitle, Lang: "en"}, 1},
+		{"author entity, Russian", true, models.TelegramView{Kind: ViewAuthorBooks, AuthorID: handle, Lang: "ru"},
+			models.BookFilters{AuthorEntity: f.entity, Sort: byTitle, Lang: "ru"}, 9},
+		{"series", false, models.TelegramView{Kind: ViewSeriesBooks, SeriesID: f.series},
+			models.BookFilters{Series: int(f.series), Sort: bySeries}, 2},
 		{"collection", false, models.TelegramView{Kind: ViewCollectionBooks, CollectionID: curated},
-			models.BookFilters{CuratedCollection: curated}, 3},
-		{"favorites", false, models.TelegramView{Kind: ViewFavorites, Favorites: true}, models.BookFilters{Fav: true}, 2},
+			models.BookFilters{CuratedCollection: curated}, 4},
+		{"collection, Russian", false, models.TelegramView{Kind: ViewCollectionBooks, CollectionID: curated, Lang: "ru"},
+			models.BookFilters{CuratedCollection: curated, Lang: "ru"}, 3},
+		// The favorites are listed in every language, whatever the view says.
+		{"favorites", false, models.TelegramView{Kind: ViewFavorites, Favorites: true, Lang: "ru"},
+			models.BookFilters{Fav: true}, 3},
 	}
 	for _, tc := range cases {
 		r := &Router{cfg: Config{Cards: true, Entities: tc.entities}}
-		page, err := r.loadList(ctx, f.bot(), &tc.view, 0)
-		require.NoError(t, err, tc.name)
-		tc.site.Limit = 100
-		books, entries, total, err := database.GetBookCards(ctx, f.user, tc.site)
-		require.NoError(t, err, tc.name)
-		assert.Equal(t, tc.total, page.list.Total, tc.name)
-		assert.Equal(t, total, page.list.Total, "%s: the site's count", tc.name)
-		assert.ElementsMatch(t, cardIDs(books), pageIDs(page), "%s: the site's cards, on the same files", tc.name)
-		require.Len(t, page.list.Variants, len(page.list.Books), tc.name)
-		site := map[int64]*models.BookVariantsInfo{}
-		for i := range entries {
-			site[entries[i].BookID] = entries[i].Variants
-		}
-		for i, b := range page.list.Books {
-			assert.Equal(t, site[b.ID], page.list.Variants[i], "%s: book %d says what the site's says", tc.name, b.ID)
+		for page := 0; page < 2; page++ {
+			name := fmt.Sprintf("%s, page %d", tc.name, page+1)
+			got, err := r.loadList(ctx, f.bot(), &tc.view, page)
+			require.NoError(t, err, name)
+			want := tc.filters
+			want.Limit, want.Offset = 5, page*5
+			books, entries, total, err := database.GetBookCards(ctx, f.user, want)
+			require.NoError(t, err, name)
+			assert.Equal(t, tc.total, got.list.Total, name)
+			assert.Equal(t, total, got.list.Total, "%s: the site's count", name)
+			assert.Equal(t, cardIDs(books), pageIDs(got), "%s: the same cards in the same order, on the same files", name)
+			require.Len(t, got.list.Variants, len(got.list.Books), name)
+			for i := range entries {
+				assert.Equal(t, entries[i].Variants, got.list.Variants[i], "%s: row %d says what the site's says", name, i)
+			}
 		}
 	}
 }
