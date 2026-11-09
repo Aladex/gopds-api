@@ -61,6 +61,9 @@ type Config struct {
 	// Sources supplies a card's translators from the book's current metadata
 	// snapshot; nil leaves the card without them.
 	Sources router.BookSourceLookup
+	// Cards lists books one row per card and lets a card switch between its
+	// files (telegram.cards); off lists every file.
+	Cards bool
 }
 
 // BotManager serves the personal bots: it knows them by webhook path, takes
@@ -474,6 +477,7 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		AuthorLines:  bm.config.AuthorLines,
 		Entities:     bm.config.AuthorEntities,
 		Sources:      bm.config.Sources,
+		Cards:        bm.config.Cards,
 		PostersPath:  func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)

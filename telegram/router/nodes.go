@@ -40,6 +40,11 @@ const (
 	ScrRecent
 	ScrRecentSettings
 	ScrClearRecent
+	// ScrBookVariants is a card's variant list, shown on the file in the
+	// node's entity; ScrBookRevisions is one document's revisions, the
+	// document named by its newest file, opened from the variant list.
+	ScrBookVariants
+	ScrBookRevisions
 )
 
 // More view kinds (plan.md §2.4).
@@ -99,6 +104,8 @@ func (r *Router) painter(ctx context.Context, b *Bot, node *models.TelegramNode)
 		return r.kindleConfirmPainter(ctx, b, node)
 	case ScrKindleStatus:
 		return r.kindleStatusPainter(ctx, node)
+	case ScrBookVariants, ScrBookRevisions:
+		return r.variantsPainter(ctx, b, node)
 	}
 	return nil, screens.CopyExpired, false
 }
@@ -184,6 +191,8 @@ func backLabel(ctx context.Context, b *Bot, parentID int64) string {
 		return screens.ButtonToSettings
 	case ScrRecent:
 		return screens.ButtonToRecent
+	case ScrBookVariants:
+		return screens.ButtonToVariants
 	}
 	return screens.ButtonBack
 }

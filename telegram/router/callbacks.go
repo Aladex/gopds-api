@@ -143,6 +143,11 @@ func (r *Router) act(ctx context.Context, b *Bot, panel *models.TelegramPanel, e
 		return r.setKeepRecent(ctx, b, panel, env)
 	case cbv2.OpClearRecent:
 		return r.clearRecent(ctx, b, panel, parent)
+	case cbv2.OpVariants:
+		if !r.cardsOn(ctx) {
+			return screens.CopyUnsupported
+		}
+		return show(variantsNode(userID, viewID, entity, parent, int(env.Page), env.Arg == variantsOfDocument))
 	}
 	return screens.CopyUnsupported
 }

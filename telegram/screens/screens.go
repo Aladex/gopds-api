@@ -460,6 +460,9 @@ type Card struct {
 	// TranslatorsMore says more are credited («и др.»).
 	Translators     []string
 	TranslatorsMore bool
+	// Variants is the card's files when it has more than one; nil for a
+	// single book.
+	Variants *CardVariants
 }
 
 // CardKeys are the card's envelopes.
@@ -476,6 +479,8 @@ type CardKeys struct {
 	Series      func(id int64) *cbv2.Envelope
 	// Kindle asks to send the book to the reader's Kindle.
 	Kindle *cbv2.Envelope
+	// Variants opens the card's variant list.
+	Variants *cbv2.Envelope
 }
 
 // Limits of the card (plan-ui.md §2.2, §2.6).
@@ -560,6 +565,9 @@ func cardTable(c *Card) [][2]string {
 	return rows
 }
 
+// andOthers ends a list of names cut short, as the site's «и др.».
+const andOthers = " и др."
+
 // labelTranslator labels the card's translators, as the site's colophon.
 const labelTranslator = "Перевод"
 
@@ -577,7 +585,7 @@ func TranslatorsLine(names []string, more bool) string {
 	}
 	line := strings.Join(kept, ", ")
 	if more {
-		line += " и др."
+		line += andOthers
 	}
 	return line
 }
@@ -629,7 +637,13 @@ func cardKeys(c *Card, k *CardKeys, cut bool) [][]Button {
 		}
 		formats = append(formats, btn)
 	}
-	keys := [][]Button{formats}
+	var keys [][]Button
+	if c.Variants != nil && k.Variants != nil {
+		// The choice comes before the download, as the site puts its
+		// selector above «Читать онлайн».
+		keys = append(keys, []Button{{Text: c.Variants.ButtonText(), Env: k.Variants}})
+	}
+	keys = append(keys, formats)
 	favorite := Button{Text: ButtonNotFavorite, Env: k.Favorite(true)}
 	if c.Favorite {
 		favorite = Button{Text: ButtonFavorite, Env: k.Favorite(false)}

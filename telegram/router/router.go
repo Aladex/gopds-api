@@ -104,6 +104,9 @@ type Config struct {
 	Entities bool
 	// Sources supplies a card's translators; nil shows none.
 	Sources BookSourceLookup
+	// Cards lists books one row per card and lets a card switch between its
+	// files, once the card read model is walked (cardsOn).
+	Cards bool
 	// Kindle sends books to Kindle; nil is kindlesend.Default().
 	Kindle *kindlesend.Sender
 	// MediaBaseURL is where Telegram can fetch covers from, for inline
@@ -141,6 +144,8 @@ type Router struct {
 	kindle *kindlesend.Sender
 	// background counts the work an update leaves running: Kindle sends.
 	background sync.WaitGroup
+	// ready remembers whether the card read model has been walked.
+	ready database.VariantsReadiness
 }
 
 // Wait waits for the work updates left running.

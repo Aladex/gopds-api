@@ -331,6 +331,55 @@ func SetFavoriteBook(ctx context.Context, userID, bookID int64, want bool) error
 	})
 }
 
+// TelegramCard is what a bot's card reads of its card besides the shown
+// file: how many visible files it holds, and whether the reader starred any
+// of them.
+type TelegramCard struct {
+	Files int  `pg:"files"`
+	Fav   bool `pg:"fav"`
+}
+
+// telegramCardSQL reads a book's card over its visible files, the book itself
+// among them whether or not it has a row yet.
+const telegramCardSQL = `
+WITH card AS (
+    SELECT m.book_id FROM book_variant_member AS me
+    JOIN book_variant_member AS m ON m.group_key = me.group_key
+    JOIN opds_catalog_book AS b ON b.id = m.book_id AND b.approved AND NOT b.duplicate_hidden
+    WHERE me.book_id = ?0
+    UNION
+    SELECT ?0::bigint)
+SELECT (SELECT count(*) FROM card) AS files,
+    EXISTS (SELECT 1 FROM favorite_books AS f WHERE f.user_id = ?1 AND f.book_id IN (SELECT book_id FROM card)) AS fav`
+
+// TelegramCardOf reads the card of the book a bot's card shows, in one
+// statement: it takes the place of IsFavoriteBook when the bot lists cards.
+func TelegramCardOf(ctx context.Context, userID, bookID int64) (TelegramCard, error) {
+	var card TelegramCard
+	_, err := db.QueryOneContext(ctx, &card, telegramCardSQL, bookID, userID)
+	return card, err
+}
+
+// UnsetFavoriteBookGroup takes every file of the book's card out of the
+// account's favorites, the book itself included: the card's star, as the
+// site's unstar of a card (UnfavBookGroup), under the update's lease.
+func UnsetFavoriteBookGroup(ctx context.Context, userID, bookID int64) error {
+	return db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if err := guardInboxLease(ctx, tx); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `
+			DELETE FROM favorite_books
+			WHERE user_id = ? AND book_id IN (
+				SELECT ?::bigint
+				UNION
+				SELECT other.book_id FROM book_variant_member AS m
+				JOIN book_variant_member AS other ON other.group_key = m.group_key
+				WHERE m.book_id = ?)`, userID, bookID, bookID)
+		return err
+	})
+}
+
 // PreparingFormats are the formats of a book whose delivery jobs to a
 // binding have not ended.
 func PreparingFormats(ctx context.Context, bindingID, bookID int64) ([]string, error) {

@@ -167,7 +167,7 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 	if err != nil {
 		return nil, err
 	}
-	fav, err := database.IsFavoriteBook(ctx, b.Binding.UserID, book.ID)
+	fav, variants, err := r.cardOf(ctx, b.Binding.UserID, book.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 		card := &screens.Card{
 			Book: book, Rich: k.rich, Favorite: fav, DefaultFormat: ui.DefaultFormat,
 			Preparing: preparing, Sending: sending, SiteURL: r.cfg.SiteURL, BackText: back, Kindle: kindle != "",
-			Translators: source.Translators, TranslatorsMore: source.TranslatorsMore,
+			Translators: source.Translators, TranslatorsMore: source.TranslatorsMore, Variants: variants,
 		}
 		if k.rich {
 			card.Cover = r.cover(ctx, b, book)
@@ -227,6 +227,7 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 				return k.env(cbv2.Envelope{Op: cbv2.OpOpenAuthor, EntityID: uint64(id), ViewID: view, ReturnID: self}) // #nosec G115 -- serial ids
 			},
 			BookAuthors: k.env(cbv2.Envelope{Op: cbv2.OpBookAuthors, EntityID: entity, ViewID: view, ReturnID: self}),
+			Variants:    k.env(cbv2.Envelope{Op: cbv2.OpVariants, EntityID: entity, ViewID: view, ReturnID: self}),
 			Kindle:      k.env(cbv2.Envelope{Op: cbv2.OpKindle, EntityID: entity, ViewID: view, ReturnID: self}),
 			Series: func(id int64) *cbv2.Envelope {
 				return k.env(cbv2.Envelope{Op: cbv2.OpOpenSeries, EntityID: uint64(id), ViewID: view, ReturnID: self}) // #nosec G115 -- serial ids
@@ -294,7 +295,14 @@ func (r *Router) download(
 func (r *Router) setFavorite(ctx context.Context, b *Bot, panel *models.TelegramPanel, env *cbv2.Envelope) string {
 	want := env.Arg == 1
 	bookID := int64(env.EntityID) // #nosec G115 -- decoded ids fit
-	if err := database.SetFavoriteBook(ctx, b.Binding.UserID, bookID, want); err != nil {
+	set := database.SetFavoriteBook
+	if !want && r.cardsOn(ctx) {
+		// The star is the card's: unstarring takes every file of it out.
+		set = func(ctx context.Context, userID, bookID int64, _ bool) error {
+			return database.UnsetFavoriteBookGroup(ctx, userID, bookID)
+		}
+	}
+	if err := set(ctx, b.Binding.UserID, bookID, want); err != nil {
 		if !errors.Is(err, database.ErrInboxLeaseLost) {
 			logging.Warnf("Telegram bot %d: changing a favorite: %v", b.Ref, err)
 		}

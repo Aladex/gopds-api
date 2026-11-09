@@ -34,6 +34,16 @@ func Books(n int) string {
 	return strconv.Itoa(n) + " " + Plural(n, "книга", "книги", "книг")
 }
 
+// Variants is the site's «N вариант/варианта/вариантов».
+func Variants(n int) string {
+	return strconv.Itoa(n) + " " + Plural(n, "вариант", "варианта", "вариантов")
+}
+
+// Revisions is the site's «N редакция/редакции/редакций».
+func Revisions(n int) string {
+	return strconv.Itoa(n) + " " + Plural(n, "редакция", "редакции", "редакций")
+}
+
 // Truncate cuts s to at most limit characters, ending a cut text with «…».
 func Truncate(s string, limit int) string {
 	if limit <= 0 {

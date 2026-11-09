@@ -78,3 +78,32 @@ func TestOutOfRangeFieldsAreNotTruncated(t *testing.T) {
 		assert.ErrorIs(t, err, ErrMalformed, name)
 	}
 }
+
+// Ops are stored in buttons already sent: their numbers never move, and a
+// new one is appended.
+func TestOpNumbersArePinned(t *testing.T) {
+	pinned := []Op{OpHome, OpOpenBook, OpOpenAuthor, OpOpenSeries, OpOpenCollection, OpCollections, OpFavorites,
+		OpPage, OpTab, OpBack, OpDownload, OpSetFavorite, OpAnnotation, OpCover, OpBookAuthors, OpPromptAuthor,
+		OpClearAuthor, OpPromptAuthorSearch, OpPromptFavSearch, OpPickAuthor, OpCancelPrompt, OpLanguagePicker,
+		OpSetLanguage, OpSuggestions, OpRetrySearch, OpRetryJob, OpSettings, OpSetFormat, OpHelp, OpFormatHelp,
+		OpDonate, OpConnection, OpCardStyle, OpSetCardStyle, OpInlineHelp, OpInlineCheck, OpAnnotationPage,
+		OpRetryBranch, OpKindle, OpKindleSend, OpRecent, OpResend, OpSetKeepRecent, OpClearRecent, OpVariants}
+	for i, op := range pinned {
+		if int(op) != i+1 {
+			t.Errorf("op %d is numbered %d", i+1, op)
+		}
+	}
+	if OpVariants != 45 {
+		t.Errorf("OpVariants = %d, want 45", OpVariants)
+	}
+	key, bind := []byte("key"), BindCtx{TGBotID: 1, OwnerTGID: 2, ChatID: 3}
+	in := Envelope{Op: OpVariants, EntityID: 77, ViewID: 5, Page: 2, Arg: 1, ReturnID: 9, Generation: 1, Revision: 4}
+	s, err := Encode(&in, key, bind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Decode(s, key, bind)
+	if err != nil || out != in {
+		t.Fatalf("Decode = %+v, %v; want %+v", out, err, in)
+	}
+}

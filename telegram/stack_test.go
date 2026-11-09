@@ -72,6 +72,8 @@ type stack struct {
 	// noSources leaves the bots without a source lookup: cards name no
 	// translators.
 	noSources bool
+	// cardsOff switches telegram.cards off: the bots list every file.
+	cardsOff bool
 }
 
 // secondPod is another process of the same service on the same database and
@@ -173,6 +175,7 @@ func (s *stack) newManager() *telegram.BotManager {
 	}
 	return telegram.NewBotManager(&telegram.Config{
 		Sources:  sources,
+		Cards:    !s.cardsOff,
 		BaseURL:  stackBaseURL,
 		SiteURL:  stackSiteURL,
 		API:      endpoint,

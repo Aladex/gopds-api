@@ -51,6 +51,10 @@ type Config struct {
 // TelegramConfig is the bots' settings that are not per bot.
 type TelegramConfig struct {
 	Manager TelegramManagerConfig `mapstructure:"manager" yaml:"manager"`
+	// Cards lists the bots' books one row per card, as the site does, and
+	// lets a card switch between its files. Off (GOPDS_TELEGRAM_CARDS=false)
+	// lists every file as before, without a release. On by default.
+	Cards bool `mapstructure:"cards" yaml:"cards"`
 }
 
 // TelegramManagerConfig is the technical manager bot that creates readers'
@@ -700,6 +704,9 @@ func setDefaults() {
 	viper.SetDefault("author_metadata.local_normalization.max_attempts", authorMetadataStageMaxAttempts)
 	viper.SetDefault(authorAutopilotQuietKey, authorAutopilotQuietPeriod)
 	setAuthorLLMDefaults()
+
+	// The bots group their lists into cards unless switched off.
+	viper.SetDefault("telegram.cards", true)
 
 	// The book list's author line stays on the legacy catalog until the
 	// operator switches it.

@@ -41,7 +41,7 @@ type SearchHandler struct {
 	// reads the package database.
 	Lists BookLists
 
-	ready readiness
+	ready database.VariantsReadiness
 }
 
 // AuthorEntityReader reads what the entity identity shows of authors.

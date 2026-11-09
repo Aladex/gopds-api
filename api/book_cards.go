@@ -5,12 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"sync"
-	"time"
 
 	"gopds-api/database"
 	"gopds-api/httputil"
-	"gopds-api/logging"
 	"gopds-api/models"
 
 	"github.com/gin-gonic/gin"
@@ -59,32 +56,10 @@ func (h *SearchHandler) lists() BookLists {
 	return catalogLists{}
 }
 
-// cardsReadyTTL is how long the handler trusts its answer about the read
-// model's readiness; it only ever turns from false to true.
-const cardsReadyTTL = 60 * time.Second
-
-// readiness caches BookVariantsReady.
-type readiness struct {
-	mu      sync.Mutex
-	ready   bool
-	checked time.Time
-}
-
 // cardsReady says whether the read model may serve cards, asking at most once
 // a minute. A failed check is not ready: the list falls back to files.
 func (h *SearchHandler) cardsReady(ctx context.Context) bool {
-	h.ready.mu.Lock()
-	defer h.ready.mu.Unlock()
-	if !h.ready.checked.IsZero() && time.Since(h.ready.checked) < cardsReadyTTL {
-		return h.ready.ready
-	}
-	ready, err := h.lists().BookVariantsReady(ctx)
-	if err != nil {
-		logging.Warnf("book variants readiness: %v", err)
-		return false
-	}
-	h.ready.ready, h.ready.checked = ready, time.Now()
-	return ready
+	return h.ready.Ready(ctx, h.lists().BookVariantsReady)
 }
 
 // scopedList says the list is one scope the site groups into cards: an

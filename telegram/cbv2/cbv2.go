@@ -84,6 +84,11 @@ const (
 	OpResend
 	OpSetKeepRecent
 	OpClearRecent
+	// OpVariants opens the variant list of the card shown on EntityID, its
+	// page in Page, from the node in ReturnID; ViewID is the card's view.
+	// Arg 1 narrows it to one document, named by its newest file in
+	// EntityID.
+	OpVariants
 	opEnd
 )
 
