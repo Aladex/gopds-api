@@ -456,6 +456,10 @@ type Card struct {
 	BackText string
 	// Kindle offers «Kindle»: the account has a Kindle address.
 	Kindle bool
+	// Translators are the book's translators as credited, two at most;
+	// TranslatorsMore says more are credited («и др.»).
+	Translators     []string
+	TranslatorsMore bool
 }
 
 // CardKeys are the card's envelopes.
@@ -497,7 +501,7 @@ func CardScreen(c *Card, k *CardKeys) (Screen, bool) {
 	if a := Authors(b, cardAuthors); a != "" {
 		blocks = append(blocks, Line{Text: a, Italic: true})
 	}
-	if rows := cardTable(b); len(rows) > 0 {
+	if rows := cardTable(c); len(rows) > 0 {
 		if !c.Rich {
 			blocks = append(blocks, Gap{})
 		}
@@ -526,7 +530,8 @@ func CardScreen(c *Card, k *CardKeys) (Screen, bool) {
 	return Screen{Doc: Doc{Blocks: blocks}, Keys: cardKeys(c, k, cut)}, cut
 }
 
-func cardTable(b *models.Book) [][2]string {
+func cardTable(c *Card) [][2]string {
+	b := c.Book
 	var rows [][2]string
 	if s := SeriesLine(b); s != "" {
 		rows = append(rows, [2]string{"Серия", s})
@@ -549,7 +554,32 @@ func cardTable(b *models.Book) [][2]string {
 	if y := Year(b); y != "" {
 		rows = append(rows, [2]string{"Год", y})
 	}
+	if t := TranslatorsLine(c.Translators, c.TranslatorsMore); t != "" {
+		rows = append(rows, [2]string{labelTranslator, t})
+	}
 	return rows
+}
+
+// labelTranslator labels the card's translators, as the site's colophon.
+const labelTranslator = "Перевод"
+
+// TranslatorsLine is the card's «Перевод» value, the site colophon's: the
+// names as credited, joined, and «и др.» when more are credited; "" for none.
+func TranslatorsLine(names []string, more bool) string {
+	var kept []string
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			kept = append(kept, n)
+		}
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	line := strings.Join(kept, ", ")
+	if more {
+		line += " и др."
+	}
+	return line
 }
 
 // richParagraphs splits the annotation into at most richAnnotationParagraphs

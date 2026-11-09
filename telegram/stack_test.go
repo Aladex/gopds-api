@@ -18,6 +18,7 @@ import (
 	"gopds-api/services/kindlesend"
 	"gopds-api/telegram"
 	"gopds-api/telegram/delivery"
+	"gopds-api/telegram/router"
 	"gopds-api/telegram/secrets"
 	"gopds-api/telegram/tgapi"
 	"gopds-api/telegram/tgtest"
@@ -68,6 +69,9 @@ type stack struct {
 	clientTimeout time.Duration
 	// managerToken, when set, is the Managed Bots manager's token.
 	managerToken string
+	// noSources leaves the bots without a source lookup: cards name no
+	// translators.
+	noSources bool
 }
 
 // secondPod is another process of the same service on the same database and
@@ -163,7 +167,12 @@ func (s *stack) newManager() *telegram.BotManager {
 		repo := database.NewPGBookSourceRepository(s.db)
 		lines = &services.AuthorLines{Lookup: repo, Entities: repo}
 	}
+	var sources router.BookSourceLookup
+	if !s.noSources {
+		sources = database.NewPGBookSourceRepository(s.db)
+	}
 	return telegram.NewBotManager(&telegram.Config{
+		Sources:  sources,
 		BaseURL:  stackBaseURL,
 		SiteURL:  stackSiteURL,
 		API:      endpoint,

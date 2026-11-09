@@ -58,6 +58,9 @@ type Config struct {
 	ChatWait time.Duration
 	// Donate is how the library may be supported; none hides the button.
 	Donate []config.DonateMethod
+	// Sources supplies a card's translators from the book's current metadata
+	// snapshot; nil leaves the card without them.
+	Sources router.BookSourceLookup
 }
 
 // BotManager serves the personal bots: it knows them by webhook path, takes
@@ -470,6 +473,7 @@ func (bm *BotManager) SetDelivery(d *delivery.Service) {
 		Kindle:       bm.config.Kindle,
 		AuthorLines:  bm.config.AuthorLines,
 		Entities:     bm.config.AuthorEntities,
+		Sources:      bm.config.Sources,
 		PostersPath:  func() string { return viper.GetString("app.posters_path") },
 	}, bm)
 	d.SetCards(bm.router)

@@ -195,10 +195,15 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 	if err != nil {
 		return nil, err
 	}
+	source, err := r.sourceOf(ctx, book.ID)
+	if err != nil {
+		return nil, err
+	}
 	return func(k *keys) screens.Screen {
 		card := &screens.Card{
 			Book: book, Rich: k.rich, Favorite: fav, DefaultFormat: ui.DefaultFormat,
 			Preparing: preparing, Sending: sending, SiteURL: r.cfg.SiteURL, BackText: back, Kindle: kindle != "",
+			Translators: source.Translators, TranslatorsMore: source.TranslatorsMore,
 		}
 		if k.rich {
 			card.Cover = r.cover(ctx, b, book)
@@ -231,6 +236,19 @@ func (r *Router) paintCard(ctx context.Context, b *Bot, node *models.TelegramNod
 		})
 		return screen
 	}, nil
+}
+
+// sourceOf reads the book's source-layer fields; none without a lookup or a
+// current snapshot.
+func (r *Router) sourceOf(ctx context.Context, bookID int64) (models.BookSourceDetail, error) {
+	if r.cfg.Sources == nil {
+		return models.BookSourceDetail{}, nil
+	}
+	details, err := r.cfg.Sources.BookSourceDetails(ctx, []int64{bookID})
+	if err != nil {
+		return models.BookSourceDetail{}, err
+	}
+	return details[bookID], nil
 }
 
 // download asks for a file from the card (plan-ui.md §1.8): a delivery job,

@@ -145,6 +145,7 @@ func initializeTelegram(
 		PublicMediaURL: cfg.TelegramPublicMediaURL,
 		AuthorLines:    lines,
 		AuthorEntities: cfg.Authors.EntityIdentity(),
+		Sources:        database.NewPGBookSourceRepository(database.GetDB()),
 	}
 	telegramBotManager := telegram.NewBotManager(telegramConfig, mainRedisClient, searchService)
 

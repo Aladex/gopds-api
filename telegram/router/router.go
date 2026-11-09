@@ -102,6 +102,8 @@ type Config struct {
 	AuthorLines *services.AuthorLines
 	// Entities names authors by their entities (authors.identity, authors.go).
 	Entities bool
+	// Sources supplies a card's translators; nil shows none.
+	Sources BookSourceLookup
 	// Kindle sends books to Kindle; nil is kindlesend.Default().
 	Kindle *kindlesend.Sender
 	// MediaBaseURL is where Telegram can fetch covers from, for inline
@@ -123,6 +125,13 @@ type Config struct {
 	// died is outlived) and outlasts a Telegram call; zero is 3 min. ChatWait is how long an update
 	// waits for its chat before it is handed back; zero is 30 s.
 	ChatHold, ChatWait time.Duration
+}
+
+// BookSourceLookup reads the source-layer fields of a page of books (the
+// publisher, ISBNs and translators of each one's current metadata snapshot)
+// in one call. A book without a current snapshot has no entry.
+type BookSourceLookup interface {
+	BookSourceDetails(ctx context.Context, bookIDs []int64) (map[int64]models.BookSourceDetail, error)
 }
 
 // Router handles the updates of v2 bots.
