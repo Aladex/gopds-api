@@ -130,7 +130,7 @@ func (f *Feeds) GetCollectionBooks(c *gin.Context) {
 		Links:   rootLinks,
 		Updated: time.Now(),
 	}
-	feed.Items = bookItems(c, f.AuthorLines, books, false)
+	feed.Items = bookItems(c, f.Entries, f.AuthorLines, books, false)
 
 	atom, err := feed.ToAtom()
 	if err != nil {

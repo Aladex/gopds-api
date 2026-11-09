@@ -12,6 +12,8 @@ import (
 // shared search service; navigation, new-books, collections and download
 // handlers keep their existing direct paths. Every feed that lists books
 // gives them their author lines from lines; nil shows the legacy authors.
+// Entries reads what each listed book's entry shows beyond its row — its
+// translators and the files of its card; nil shows neither.
 //
 // entities switches the feeds to the entity identity (authors.identity,
 // design E §4.2): an author feed takes an entity UUID, an entry's <author>
@@ -19,16 +21,18 @@ import (
 // then — and a legacy number is not found. nil keeps the legacy identity.
 func SetupOpdsRoutes(
 	r *gin.RouterGroup, search services.PublicSearch, lines *services.AuthorLines, entities AuthorEntityReader,
+	entries BookEntries,
 ) {
-	searchHandler := &SearchHandler{Search: search, AuthorLines: lines, Entities: entities != nil}
-	feeds := &Feeds{AuthorLines: lines, Entities: entities}
+	searchHandler := &SearchHandler{Search: search, AuthorLines: lines, Entities: entities != nil, Entries: entries}
+	feeds := &Feeds{AuthorLines: lines, Entries: entries, Entities: entities}
 
-	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, "/opds/new/0/0") })
+	r.GET("/", func(c *gin.Context) { c.Redirect(http.StatusMovedPermanently, hrefNewBooks) })
 	r.GET("/new/:page/:author", feeds.GetNewBooks)
 	r.GET("/favorites/:page", feeds.GetNewBooks)
 	if entities != nil {
 		r.GET("/author/:author", feeds.GetNewBooks)
 	}
+	r.GET("/book/:id/variants", feeds.GetBookVariants)
 
 	// Global search
 	r.GET("/search", Search)

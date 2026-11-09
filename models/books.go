@@ -178,6 +178,17 @@ type BookSourceDetail struct {
 	TranslatorsMore bool
 }
 
+// BookEntryDetail is what a book entry of a list shows beyond the book's own
+// row: the translators the file credits (nil when it credits none, with
+// TranslatorsMore when further names remain) and how many visible files its
+// card holds, the file itself included. VariantCount 1 is a file alone in
+// its card; 0 is a page whose card count was not read.
+type BookEntryDetail struct {
+	Translators     []string
+	TranslatorsMore bool
+	VariantCount    int
+}
+
 func (b *Book) DownloadName() string {
 	var nameRegExp = regexp.MustCompile(`[^A-Za-z0-9а-яА-ЯёЁ]+`)
 	var name = nameRegExp.ReplaceAllString(b.Title, "_")

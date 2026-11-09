@@ -220,7 +220,7 @@ func (f *Feeds) GetBooksByLanguage(c *gin.Context) {
 		Links:   rootLinks,
 		Updated: time.Now(),
 	}
-	feed.Items = bookItems(c, f.AuthorLines, books, isKoreader(c))
+	feed.Items = bookItems(c, f.Entries, f.AuthorLines, books, isKoreader(c))
 
 	atom, err := feed.ToAtom()
 	if err != nil {
@@ -346,7 +346,7 @@ func (f *Feeds) GetAuthorBooksByLanguage(c *gin.Context) {
 		Links:   rootLinks,
 		Updated: time.Now(),
 	}
-	feed.Items = bookItems(c, f.AuthorLines, books, isKoreader(c))
+	feed.Items = bookItems(c, f.Entries, f.AuthorLines, books, isKoreader(c))
 
 	atom, err := feed.ToAtom()
 	if err != nil {

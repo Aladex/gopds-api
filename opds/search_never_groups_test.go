@@ -41,7 +41,7 @@ func TestOPDSSearchNeverGroups(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) { c.Set("user_id", int64(0)); c.Next() })
-	SetupOpdsRoutes(r.Group("/opds"), search, &services.AuthorLines{}, nil)
+	SetupOpdsRoutes(r.Group("/opds"), search, &services.AuthorLines{}, nil, nil)
 
 	title := url.QueryEscape("хоббит")
 	for _, path := range []string{

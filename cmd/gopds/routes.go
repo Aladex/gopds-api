@@ -125,7 +125,7 @@ func setupOpdsRoutes(group *gin.RouterGroup, search services.PublicSearch, db pg
 	if authors.EntityIdentity() {
 		entities = database.NewPGBookSourceRepository(db)
 	}
-	opds.SetupOpdsRoutes(group, search, authorLinesOf(db, authors), entities)
+	opds.SetupOpdsRoutes(group, search, authorLinesOf(db, authors), entities, database.NewPGBookEntries(db))
 }
 
 // authorLinesOf is the author lines of listed books for the surfaces outside

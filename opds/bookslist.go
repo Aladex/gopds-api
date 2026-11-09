@@ -27,11 +27,21 @@ func hasNextPage(limit, currentPage, totalCount int) bool {
 // Feeds serves the OPDS feeds that list books outside search: the newest
 // books (all, by author, favorites), the books of a language and the books of
 // a collection. AuthorLines gives each listed book its author line; nil shows
-// the legacy authors. Entities, when set, names authors by their entities
-// (SetupOpdsRoutes).
+// the legacy authors. Entries reads what each listed book's entry shows
+// beyond its row; nil shows no translators and links no variants. Entities,
+// when set, names authors by their entities (SetupOpdsRoutes).
 type Feeds struct {
 	AuthorLines *services.AuthorLines
+	Entries     BookEntries
 	Entities    AuthorEntityReader
+}
+
+// BookEntries reads what a page of book entries shows beyond the rows the
+// feeds already have, in one call for the whole page: the translators each
+// book credits and how many visible files its card holds
+// (database.PGBookEntries). nil is the read switched off.
+type BookEntries interface {
+	BookEntryDetails(ctx context.Context, bookIDs []int64) (map[int64]models.BookEntryDetail, error)
 }
 
 // AuthorEntityReader reads one live author entity (database).
@@ -50,7 +60,7 @@ func (f *Feeds) feedAuthor(c *gin.Context, raw string) (string, services.AuthorR
 	case errors.Is(err, services.ErrInvalidAuthorID):
 		return "0", services.AuthorRef{}, nil, true
 	case errors.Is(err, services.ErrAuthorNotFound):
-		authorNotFound(c)
+		feedNotFound(c)
 		return "", ref, nil, false
 	}
 	if ref.Entity == uuid.Nil {
@@ -59,7 +69,7 @@ func (f *Feeds) feedAuthor(c *gin.Context, raw string) (string, services.AuthorR
 	entity, err := f.Entities.AuthorEntity(c.Request.Context(), ref.Entity)
 	switch {
 	case errors.Is(err, database.ErrAuthorEntityNotFound):
-		authorNotFound(c)
+		feedNotFound(c)
 		return "", ref, nil, false
 	case err != nil:
 		logging.Error(err)
@@ -69,9 +79,9 @@ func (f *Feeds) feedAuthor(c *gin.Context, raw string) (string, services.AuthorR
 	return ref.Entity.String(), ref, &entity, true
 }
 
-// authorNotFound answers a feed of an author that is not there as a path
-// nothing serves is answered.
-func authorNotFound(c *gin.Context) {
+// feedNotFound answers a feed of a book or an author that is not there as a
+// path nothing serves is answered.
+func feedNotFound(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 }
 
@@ -132,7 +142,7 @@ func (f *Feeds) GetNewBooks(c *gin.Context) {
 		feed.Items = append(feed.Items, rootNavigationItems(hf)...)
 	}
 
-	feed.Items = append(feed.Items, bookItems(c, f.AuthorLines, books, isKoreader(c))...)
+	feed.Items = append(feed.Items, bookItems(c, f.Entries, f.AuthorLines, books, isKoreader(c))...)
 
 	atom, err := feed.ToAtom()
 	if err != nil {

@@ -38,32 +38,27 @@ func createPostersLink(book *models.Book) []Link {
 	return links
 }
 
+// TitleVariantsFeed names the feed of a card's other files, in an entry's
+// link and the feed's own title.
+const TitleVariantsFeed = "Другие переводы и редакции"
+
+// typeVariantsFeed is the content type of the feed of a card's other files.
+const typeVariantsFeed = "application/atom+xml;profile=opds-catalog;kind=acquisition"
+
+// relRelated marks a link from an entry to a feed beside it.
+const relRelated = "related"
+
+// relAcquisition marks an entry's open-access download links.
+const relAcquisition = "http://opds-spec.org/acquisition/open-access"
+
 // CreateItem creates an BookItem for xml generate. authors is the book's
 // author line: each name becomes an <author>, and a name linked to a catalog
 // author also gets a link to that author's books; a name without one is
-// shown with no link to guess at.
-func CreateItem(book *models.Book, authors []models.AuthorDisplay, isKoreader bool) Item {
-	posterLinks := createPostersLink(book)
-	linkPath := "/opds/get/"
-
-	links := []Link{
-		{
-			Href: linkPath + "fb2/" + strconv.FormatInt(book.ID, 10),
-			Rel:  "http://opds-spec.org/acquisition/open-access",
-			Type: "application/fb2+zip",
-		},
-		{
-			Href: linkPath + "epub/" + strconv.FormatInt(book.ID, 10),
-			Rel:  "http://opds-spec.org/acquisition/open-access",
-			Type: "application/epub+zip",
-		},
-		{
-			Href: linkPath + "mobi/" + strconv.FormatInt(book.ID, 10),
-			Rel:  "http://opds-spec.org/acquisition/open-access",
-			Type: "application/x-mobipocket-ebook",
-		},
-	}
-	links = append(links, posterLinks...)
+// shown with no link to guess at. detail is what the entry shows beyond the
+// book's own row: the translators it credits and the files of its card, both
+// empty when nothing was read.
+func CreateItem(book *models.Book, authors []models.AuthorDisplay, detail models.BookEntryDetail, isKoreader bool) Item {
+	links := acquisitionLinks(book)
 
 	// Atom requires an author on every entry: a book whose line names no
 	// one — or only blank names, spaces of any kind — is shown as the
@@ -103,17 +98,95 @@ func CreateItem(book *models.Book, authors []models.AuthorDisplay, isKoreader bo
 	if isKoreader && len(annotation) > 20 {
 		annotation = annotation[:20]
 	}
+	if link, ok := variantsLink(book.ID, detail.VariantCount); ok {
+		links = append(links, link)
+	}
 
 	return Item{
-		Title:       book.Title,
+		Title:       entryTitle(book.Title, detail),
 		Link:        links,
 		Authors:     itemAuthors,
-		Description: annotation,
+		Description: entrySummary(annotation, detail),
 		Id:          strconv.FormatInt(book.ID, 10),
 		Updated:     book.RegisterDate,
 		Language:    book.Lang,
 		Issued:      book.DocDate,
 	}
+}
+
+// acquisitionLinks are an entry's open-access links for every format the
+// reader can take the book in, then its cover.
+func acquisitionLinks(book *models.Book) []Link {
+	linkPath := "/opds/get/"
+	links := []Link{
+		{
+			Href: linkPath + "fb2/" + strconv.FormatInt(book.ID, 10),
+			Rel:  relAcquisition,
+			Type: "application/fb2+zip",
+		},
+		{
+			Href: linkPath + "epub/" + strconv.FormatInt(book.ID, 10),
+			Rel:  relAcquisition,
+			Type: "application/epub+zip",
+		},
+		{
+			Href: linkPath + "mobi/" + strconv.FormatInt(book.ID, 10),
+			Rel:  relAcquisition,
+			Type: "application/x-mobipocket-ebook",
+		},
+	}
+	return append(links, createPostersLink(book)...)
+}
+
+// entryTitle is the entry's title: the book's, with the first translator
+// named after it when the file credits one, so the files of one work differ
+// in any reader's list.
+func entryTitle(title string, detail models.BookEntryDetail) string {
+	if len(detail.Translators) == 0 {
+		return title
+	}
+	return fmt.Sprintf("%s (пер. %s)", title, detail.Translators[0])
+}
+
+// entrySummary is the entry's summary text: the annotation, then the
+// translators' line when there is one.
+func entrySummary(annotation string, detail models.BookEntryDetail) string {
+	line := translatorLine(detail)
+	switch {
+	case line == "":
+		return annotation
+	case annotation == "":
+		return line
+	default:
+		return annotation + "\n" + line
+	}
+}
+
+// translatorLine is the entry's line on the file's translators: the names it
+// credits, «и др.» when further names remain; "" when it credits none.
+func translatorLine(detail models.BookEntryDetail) string {
+	if len(detail.Translators) == 0 {
+		return ""
+	}
+	names := strings.Join(detail.Translators, ", ")
+	if detail.TranslatorsMore {
+		names += " и др."
+	}
+	return "Перевод: " + names
+}
+
+// variantsLink is the entry's link to the feed of the other files of its
+// card, none for a card of one file or an unread count.
+func variantsLink(bookID int64, count int) (Link, bool) {
+	if count <= 1 {
+		return Link{}, false
+	}
+	return Link{
+		Href:  fmt.Sprintf("/opds/book/%d/variants", bookID),
+		Rel:   relRelated,
+		Type:  typeVariantsFeed,
+		Title: fmt.Sprintf("%s (%d)", TitleVariantsFeed, count),
+	}, true
 }
 
 // nonBlankAuthors drops the names that are spaces only (Unicode-aware).
@@ -131,7 +204,7 @@ func nonBlankAuthors(authors []models.AuthorDisplay) []models.AuthorDisplay {
 func allBooksLink(href, name string) Link {
 	return Link{
 		Href:  href,
-		Rel:   "related",
+		Rel:   relRelated,
 		Type:  "application/atom+xml;profile=opds-catalog",
 		Title: fmt.Sprintf("Все книги: %s", name),
 	}

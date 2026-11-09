@@ -79,13 +79,8 @@ type translatorRow struct {
 // addTranslators fills in the translators of the books that have an entry,
 // that is a current snapshot.
 func (r *PGBookSourceRepository) addTranslators(ctx context.Context, bookIDs []int64, details map[int64]models.BookSourceDetail) error {
-	var rows []translatorRow
-	if _, err := r.db.QueryContext(ctx, &rows, `
-		SELECT s.book_id, c.source_display_name, c.source_first_name, c.source_middle_name, c.source_last_name
-		FROM book_contributor_credit c
-		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current AND s.book_id IN (?)
-		WHERE c.role = 'translator'
-		ORDER BY s.book_id, c.position`, pg.In(bookIDs)); err != nil {
+	rows, err := translatorRowsOf(ctx, r.db, bookIDs)
+	if err != nil {
 		return err
 	}
 	for start := 0; start < len(rows); {
@@ -100,6 +95,19 @@ func (r *PGBookSourceRepository) addTranslators(ctx context.Context, bookIDs []i
 		start = end
 	}
 	return nil
+}
+
+// translatorRowsOf reads the translator credits of the listed books' current
+// snapshots in credit order, in one query.
+func translatorRowsOf(ctx context.Context, db pg.DBI, bookIDs []int64) ([]translatorRow, error) {
+	var rows []translatorRow
+	_, err := db.QueryContext(ctx, &rows, `
+		SELECT s.book_id, c.source_display_name, c.source_first_name, c.source_middle_name, c.source_last_name
+		FROM book_contributor_credit c
+		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current AND s.book_id IN (?)
+		WHERE c.role = 'translator'
+		ORDER BY s.book_id, c.position`, pg.In(bookIDs))
+	return rows, err
 }
 
 // translatorNamesOf names a book's translators from its credits in credit

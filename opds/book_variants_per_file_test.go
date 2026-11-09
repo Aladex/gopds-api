@@ -40,7 +40,7 @@ func TestOPDSAuthorFeedListsEveryFileOfAGroup(t *testing.T) {
 			reader = repo
 		}
 		SetupOpdsRoutes(r.Group("/opds"), services.NewSearchService(database.NewPGSearchRepositoryFor(db, entities)),
-			lines, reader)
+			lines, reader, database.NewPGBookEntries(db))
 		return r
 	}
 	entries := func(r *gin.Engine, path string) []string {

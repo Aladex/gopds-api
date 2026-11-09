@@ -1,6 +1,7 @@
 package opds
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -29,6 +30,9 @@ type SearchHandler struct {
 	// AuthorLines gives each listed book its author line; nil shows the
 	// legacy authors.
 	AuthorLines *services.AuthorLines
+	// Entries reads what each listed book's entry shows beyond its row; nil
+	// shows no translators and links no variants.
+	Entries BookEntries
 	// Entities: the author search answers author entities, whose feeds go
 	// by their UUIDs (SetupOpdsRoutes).
 	Entities bool
@@ -40,12 +44,14 @@ const (
 	relStart  = "start"
 	relSearch = "search"
 	relNext   = "next"
+	relUp     = "up"
 
 	typeOpdsCatalog   = "application/atom+xml;profile=opds-catalog"
 	typeOpenSearchDsc = "application/opensearchdescription+xml"
 	typeAtom          = "application/atom+xml"
 
 	hrefRoot         = "/opds"
+	hrefNewBooks     = "/opds/new/0/0"
 	hrefOpenSearch   = "/opds-opensearch.xml"
 	hrefSearchTerms  = "/opds/search?searchTerms={searchTerms}"
 	titleSearchBooks = "Поиск книг"
@@ -150,16 +156,37 @@ func isKoreader(c *gin.Context) bool {
 }
 
 // bookItems renders a page of book rows as acquisition entries, reading the
-// author lines of the whole page in one call, and truncating the annotation
-// for KOReader as the feeds always did.
-func bookItems(c *gin.Context, lines *services.AuthorLines, books []models.Book, koreader bool) []*opdsutils.Item {
+// author lines and the entry details of the whole page in one call each, and
+// truncating the annotation for KOReader as the feeds always did.
+func bookItems(c *gin.Context, entries BookEntries, lines *services.AuthorLines, books []models.Book, koreader bool) []*opdsutils.Item {
 	authors := lines.Page(c.Request.Context(), books)
+	details := pageEntryDetails(c.Request.Context(), entries, books)
 	items := []*opdsutils.Item{}
 	for i := range books {
-		bookItem := opdsutils.CreateItem(&books[i], authors[i], koreader)
+		bookItem := opdsutils.CreateItem(&books[i], authors[i], details[books[i].ID], koreader)
 		items = append(items, &bookItem)
 	}
 	return items
+}
+
+// pageEntryDetails reads what the page's entries show beyond their rows. A
+// failed read shows neither the translators nor the variants, as the author
+// lines do: the page is already read, and its plain entries are better than
+// no page.
+func pageEntryDetails(ctx context.Context, entries BookEntries, books []models.Book) map[int64]models.BookEntryDetail {
+	if entries == nil || len(books) == 0 {
+		return nil
+	}
+	ids := make([]int64, len(books))
+	for i := range books {
+		ids[i] = books[i].ID
+	}
+	details, err := entries.BookEntryDetails(ctx, ids)
+	if err != nil {
+		logging.Errorf("Reading the entry details of %d books: %v", len(ids), err)
+		return nil
+	}
+	return details
 }
 
 // authorItems renders author rows as navigation entries pointing at that
@@ -242,7 +269,7 @@ func (h *SearchHandler) Books(c *gin.Context) {
 		Id:      fmt.Sprintf("tag:search:books:%s:%d", url.QueryEscape(filters.Title), page),
 		Links:   links,
 		Updated: time.Now(),
-		Items:   bookItems(c, h.AuthorLines, result.Books, isKoreader(c)),
+		Items:   bookItems(c, h.Entries, h.AuthorLines, result.Books, isKoreader(c)),
 	})
 }
 
@@ -324,7 +351,7 @@ func (h *SearchHandler) BooksByLanguage(c *gin.Context) {
 		Id:      fmt.Sprintf("tag:lang:%s:search:books:%s:%d", lang, url.QueryEscape(filters.Title), page),
 		Links:   links,
 		Updated: time.Now(),
-		Items:   bookItems(c, h.AuthorLines, result.Books, isKoreader(c)),
+		Items:   bookItems(c, h.Entries, h.AuthorLines, result.Books, isKoreader(c)),
 	})
 }
 

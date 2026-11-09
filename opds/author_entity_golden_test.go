@@ -49,7 +49,7 @@ func (ch *characterization) entityRouter() *gin.Engine {
 	r.Use(func(c *gin.Context) { c.Set("user_id", int64(0)); c.Next() })
 	repo := database.NewPGBookSourceRepository(ch.db)
 	SetupOpdsRoutes(r.Group("/opds"), services.NewSearchService(database.NewPGSearchRepositoryFor(ch.db, true)),
-		&services.AuthorLines{Lookup: repo, Entities: repo}, repo)
+		&services.AuthorLines{Lookup: repo, Entities: repo}, repo, database.NewPGBookEntries(ch.db))
 	return r
 }
 
