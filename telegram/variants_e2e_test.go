@@ -34,12 +34,17 @@ type fileSpec struct {
 // variantCard writes a card of the files into the catalog: one title, one
 // language and one author entity, each file its own annotation «Аннотация
 // файла <i>» so a card says which it shows. It brings the card read model up
-// to date and returns the files in the order given.
+// to date and returns the files in the order given. The files are also the
+// books of one legacy author, so a card offers «Книги автора».
 func (v *v2Stack) variantCard(title string, files []fileSpec) []int64 {
 	v.t.Helper()
 	entity := uuid.New()
 	_, err := v.db.Exec(`INSERT INTO author_entity (id, kind, display_name, sort_name, search_key)
 		VALUES (?, 'person', 'Станислав Лем', 'Лем Станислав', public.search_normalize('Станислав Лем'))`, entity)
+	require.NoError(v.t, err)
+	var author int64
+	_, err = v.db.QueryOne(pg.Scan(&author), `INSERT INTO opds_catalog_author (full_name) VALUES (?) RETURNING id`,
+		"Лем Станислав "+entity.String()[:8])
 	require.NoError(v.t, err)
 	ids := make([]int64, len(files))
 	added := time.Now().Add(-24 * time.Hour)
@@ -49,6 +54,8 @@ func (v *v2Stack) variantCard(title string, files []fileSpec) []int64 {
 			VALUES (?, 'variants.zip', 'fb2', ?, ?, 'ru', ?, ?, true, false, md5(?), false) RETURNING id`,
 			fmt.Sprintf("%s-%d.fb2", title, i), title, fmt.Sprintf("Аннотация файла %d.", i),
 			added.Add(time.Duration(i)*time.Second), fmt.Sprint(f.year), fmt.Sprintf("%s-%d-%d", title, i, time.Now().UnixNano()))
+		require.NoError(v.t, err)
+		_, err = v.db.Exec(`INSERT INTO opds_catalog_bauthor (book_id, author_id) VALUES (?, ?)`, ids[i], author)
 		require.NoError(v.t, err)
 		_, err = v.db.Exec(`INSERT INTO book_author_display
 			(book_id, position, display, sort_key, search_key, source, credit_id, entity_ids)

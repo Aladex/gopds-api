@@ -95,6 +95,29 @@ type BookList struct {
 	Sub func(b *models.Book) string
 	// Empty is shown when the list has no books.
 	Empty []Block
+	// Variants is what each listed card says of its other files,
+	// index-aligned with Books; nil, or a nil entry, for a single file.
+	Variants []*models.BookVariantsInfo
+}
+
+// variantsOf is the i-th book's card, nil for a single file.
+func (l *BookList) variantsOf(i int) *models.BookVariantsInfo {
+	if i < len(l.Variants) {
+		return l.Variants[i]
+	}
+	return nil
+}
+
+// VariantsCount is a listed card's «6 вариантов» or «22 редакции», the
+// site's chip on a list; "" for a single file.
+func VariantsCount(info *models.BookVariantsInfo) string {
+	switch {
+	case info == nil || info.Count <= 1:
+		return ""
+	case info.Kind == models.BookVariantsRevisions:
+		return ru.Revisions(info.Count)
+	}
+	return ru.Variants(info.Count)
 }
 
 // ListKeys are a list's envelopes and its extra rows.
@@ -124,10 +147,12 @@ func BookListScreen(l *BookList, k *ListKeys) Screen {
 				n = l.Number(i, b)
 			}
 			blocks = append(blocks, Line{Text: n + ". " + ru.Truncate(b.Title, listLineRunes)})
+			var sub string
 			if l.Sub != nil {
-				if sub := l.Sub(b); sub != "" {
-					blocks = append(blocks, Line{Text: "   " + ru.Truncate(sub, listLineRunes)})
-				}
+				sub = l.Sub(b)
+			}
+			if sub = joinDot(sub, VariantsCount(l.variantsOf(i))); sub != "" {
+				blocks = append(blocks, Line{Text: "   " + ru.Truncate(sub, listLineRunes)})
 			}
 			keys = append(keys, []Button{{Text: n + ". " + ru.Truncate(b.Title, bookButtonRunes), Env: k.Book(b.ID)}})
 		}

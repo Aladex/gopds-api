@@ -141,7 +141,7 @@ func richBookList(l *BookList, k *ListKeys) *Screen {
 				sub = joinDot(noSeriesNumber, sub)
 			}
 		}
-		it.Sub = ru.Truncate(withYear(sub, b), listLineRunes)
+		it.Sub = ru.Truncate(joinDot(withYear(sub, b), VariantsCount(l.variantsOf(i))), listLineRunes)
 		items = append(items, it)
 	}
 	blocks = append(blocks, List{Items: items})

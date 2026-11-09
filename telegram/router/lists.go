@@ -113,7 +113,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 			return nil, aerr
 		}
 		filters.Author, filters.AuthorEntity, filters.Sort = int(author.legacy), author.entity, models.BookSortTitle
-		list.Books, list.Total, err = database.GetBooks(userID, filters)
+		err = r.listBooks(ctx, userID, &filters, list)
 		list.Header = []screens.Block{screens.Title{Text: author.name}, screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Sub, list.Empty = screens.SeriesSub, emptyIn(view.Lang, copyNoAuthorBooks)
 		out.extra = func(k *keys, self, viewID uint64) [][]screens.Button {
@@ -137,7 +137,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 			return nil, serr
 		}
 		filters.Series, filters.Sort = int(view.SeriesID), models.BookSortSeries
-		list.Books, list.Total, err = database.GetBooks(userID, filters)
+		err = r.listBooks(ctx, userID, &filters, list)
 		list.Header = []screens.Block{screens.Title{Text: "Серия «" + series.Ser + "»"},
 			screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Number, list.Sub, list.Empty = screens.SeriesNumber(view.SeriesID), screens.AuthorsLine, emptyIn(view.Lang, copyNoSeriesBooks)
@@ -150,7 +150,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 			return nil, cerr
 		}
 		filters.CuratedCollection = view.CollectionID
-		list.Books, list.Total, err = database.GetBooks(userID, filters)
+		err = r.listBooks(ctx, userID, &filters, list)
 		list.Header = []screens.Block{screens.Title{Text: c.Name}, screens.Footer{Text: screens.CountLine(list.Total, view.Lang)}}
 		list.Sub, list.Empty = screens.AuthorsLine, emptyIn(view.Lang, screens.CopyNoCollectionBooks)
 		out.extra = func(k *keys, self, viewID uint64) [][]screens.Button {
@@ -162,7 +162,7 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 		}
 	case ViewFavorites:
 		filters.Fav, filters.Lang = true, ""
-		list.Books, list.Total, err = database.GetBooks(userID, filters)
+		err = r.listBooks(ctx, userID, &filters, list)
 		list.Header = []screens.Block{screens.Title{Text: "Избранное"}, screens.Footer{Text: ru.Books(list.Total)}}
 		list.Sub = screens.AuthorsLine
 		list.Header, list.Empty = favoritesHeader(list.Total, list.Header)
@@ -189,6 +189,27 @@ func (r *Router) loadList(ctx context.Context, b *Bot, view *models.TelegramView
 	}
 	r.creditAuthors(ctx, list.Books)
 	return out, nil
+}
+
+// listBooks fills a page of a scoped list: one row per card, as the site's
+// grouped list of the same scope, while the bot lists cards (cardsOn);
+// every file otherwise.
+func (r *Router) listBooks(ctx context.Context, userID int64, filters *models.BookFilters, list *screens.BookList) error {
+	if !r.cardsOn(ctx) {
+		var err error
+		list.Books, list.Total, err = database.GetBooks(userID, *filters)
+		return err
+	}
+	books, entries, total, err := database.GetBookCards(ctx, userID, *filters)
+	if err != nil {
+		return err
+	}
+	list.Books, list.Total = books, total
+	list.Variants = make([]*models.BookVariantsInfo, len(entries))
+	for i := range entries {
+		list.Variants[i] = entries[i].Variants
+	}
+	return nil
 }
 
 // favoritesHeader is the favorites' title, or their empty state.
