@@ -3,6 +3,7 @@ package screens
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"gopds-api/models"
 	"gopds-api/telegram/cbv2"
@@ -90,4 +91,51 @@ func TestInlineDescriptionSaysVariants(t *testing.T) {
 	card := InlineCardArticle(b, &models.BookVariantsInfo{Count: 22, Kind: models.BookVariantsRevisions}, "https://site", "")
 	assert.Equal(t, "Станислав Лем · русский · 22 редакции", card.Description)
 	assert.Equal(t, "b5", card.ID, "the result names the shown file")
+}
+
+// A long second line keeps the card's count: the line is cut before it,
+// plain and rich, in lists and in results.
+func TestALongSubtitleKeepsTheCount(t *testing.T) {
+	long := []models.Book{{ID: 1, Title: "Хоббит", Authors: []models.Author{{FullName: strings.Repeat("Толкин ", 20)}},
+		Series: []*models.Series{{Ser: strings.Repeat("Средиземье ", 30), SerNo: 1}}}}
+	info := &models.BookVariantsInfo{Key: uuid.New(), Count: 6, Kind: models.BookVariantsVariants}
+	check := func(name, sub string) {
+		t.Helper()
+		assert.True(t, strings.HasSuffix(sub, " · 6 вариантов"), "%s: %q", name, sub)
+		assert.LessOrEqual(t, utf8.RuneCountInString(sub), 200, name)
+		assert.Contains(t, sub, "…", "%s: the rest is cut", name)
+	}
+	richSubs := func(s *Screen) []string {
+		var out []string
+		for _, b := range s.Rich.Doc.Blocks {
+			if l, ok := b.(List); ok {
+				for _, it := range l.Items {
+					out = append(out, it.Sub)
+				}
+			}
+		}
+		return out
+	}
+	secondLine := func(s *Screen) string {
+		lines := strings.Split(s.Doc.Plain(), "\n")
+		for i, l := range lines {
+			if strings.HasPrefix(l, "1. ") && i+1 < len(lines) {
+				return strings.TrimPrefix(lines[i+1], "   ")
+			}
+		}
+		return ""
+	}
+
+	list := BookListScreen(&BookList{Books: long, Total: 1, Sub: SeriesSub, Variants: []*models.BookVariantsInfo{info}}, testListKeys)
+	check("list, plain", secondLine(&list))
+	check("list, rich", richSubs(&list)[0])
+
+	keys := &ResultsKeys{
+		Tab: func(uint8) *cbv2.Envelope { return env() }, RetryTab: func(uint8) *cbv2.Envelope { return env() },
+		RetryAll: env(), Page: func(int) *cbv2.Envelope { return env() }, Book: func(int64) *cbv2.Envelope { return env() },
+		Home: env(),
+	}
+	res := ResultsScreen(&Results{Query: "х", Books: long, BookTotal: 1, Variants: map[int64]*models.BookVariantsInfo{1: info}}, keys)
+	check("results, plain", secondLine(&res))
+	check("results, rich", richSubs(&res)[0])
 }

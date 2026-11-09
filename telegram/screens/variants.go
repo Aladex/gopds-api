@@ -532,12 +532,15 @@ func (l *VariantsList) rows(items []variantItem, k *VariantsKeys) (plain []Block
 			sub = joinNonEmpty(" · ", sub, copyVariantDefault)
 		}
 		line := strconv.Itoa(it.n) + ". " + joinNonEmpty(" · ", first, sub)
-		button := strconv.Itoa(it.n) + ". " + ru.Truncate(first, variantRowRunes)
+		prefix := strconv.Itoa(it.n) + ". "
 		if it.row.Book.ID == v.ShownID {
 			line += " " + copyShown
-			button = copyShown + " " + button
+			prefix = copyShown + " " + prefix
 			sub = joinNonEmpty(" · ", sub, copyShown)
 		}
+		// The number and the mark are inside the button's limit: the label
+		// is what is cut.
+		button := prefix + ru.Truncate(first, variantRowRunes-utf8.RuneCountInString(prefix))
 		plain = append(plain, Line{Text: ru.Truncate(line, listLineRunes)})
 		keys = append(keys, []Button{{Text: button, Env: k.Pick(it.row.Book.ID)}})
 		item := Item{Value: it.n, Link: Button{Text: ru.Truncate(first, listLineRunes), Env: k.Pick(it.row.Book.ID)},

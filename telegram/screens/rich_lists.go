@@ -79,7 +79,7 @@ func richBookItems(r *Results, k *ResultsKeys) []Block {
 		items = append(items, Item{
 			Value: r.Page*PageSize + i + 1,
 			Link:  Button{Text: ru.Truncate(b.Title, listLineRunes), Env: k.Book(b.ID)},
-			Sub:   ru.Truncate(joinDot(withYear(bookSubline(b), b), VariantsCount(r.Variants[b.ID])), listLineRunes),
+			Sub:   withCount(withYear(bookSubline(b), b), VariantsCount(r.Variants[b.ID])),
 		})
 	}
 	return []Block{List{Items: items}}
@@ -141,7 +141,7 @@ func richBookList(l *BookList, k *ListKeys) *Screen {
 				sub = joinDot(noSeriesNumber, sub)
 			}
 		}
-		it.Sub = ru.Truncate(joinDot(withYear(sub, b), VariantsCount(l.variantsOf(i))), listLineRunes)
+		it.Sub = withCount(withYear(sub, b), VariantsCount(l.variantsOf(i)))
 		items = append(items, it)
 	}
 	blocks = append(blocks, List{Items: items})

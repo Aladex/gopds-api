@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"gopds-api/models"
 	"gopds-api/telegram/cbv2"
@@ -108,6 +109,19 @@ func (l *BookList) variantsOf(i int) *models.BookVariantsInfo {
 	return nil
 }
 
+// withCount is a row's second line with its card's count at the end, cut to
+// a list line's length before the count, so a long line never hides it.
+func withCount(line, count string) string {
+	if count == "" {
+		return ru.Truncate(line, listLineRunes)
+	}
+	if line == "" {
+		return count
+	}
+	room := listLineRunes - utf8.RuneCountInString(count) - utf8.RuneCountInString(" · ")
+	return ru.Truncate(line, room) + " · " + count
+}
+
 // VariantsCount is a listed card's «6 вариантов» or «22 редакции», the
 // site's chip on a list; "" for a single file.
 func VariantsCount(info *models.BookVariantsInfo) string {
@@ -151,8 +165,8 @@ func BookListScreen(l *BookList, k *ListKeys) Screen {
 			if l.Sub != nil {
 				sub = l.Sub(b)
 			}
-			if sub = joinDot(sub, VariantsCount(l.variantsOf(i))); sub != "" {
-				blocks = append(blocks, Line{Text: "   " + ru.Truncate(sub, listLineRunes)})
+			if sub = withCount(sub, VariantsCount(l.variantsOf(i))); sub != "" {
+				blocks = append(blocks, Line{Text: "   " + sub})
 			}
 			keys = append(keys, []Button{{Text: n + ". " + ru.Truncate(b.Title, bookButtonRunes), Env: k.Book(b.ID)}})
 		}

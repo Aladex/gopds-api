@@ -296,8 +296,8 @@ func bookList(r *Results, k *ResultsKeys) ([]Block, [][]Button) {
 		b := &r.Books[i]
 		n := r.Page*PageSize + i + 1
 		blocks = append(blocks, Line{Text: strconv.Itoa(n) + ". " + ru.Truncate(b.Title, listLineRunes)})
-		if second := joinDot(bookSubline(b), VariantsCount(r.Variants[b.ID])); second != "" {
-			blocks = append(blocks, Line{Text: "   " + ru.Truncate(second, listLineRunes)})
+		if second := withCount(bookSubline(b), VariantsCount(r.Variants[b.ID])); second != "" {
+			blocks = append(blocks, Line{Text: "   " + second})
 		}
 		buttons = append(buttons, []Button{{Text: strconv.Itoa(n) + ". " + ru.Truncate(b.Title, bookButtonRunes), Env: k.Book(b.ID)}})
 	}

@@ -20,6 +20,13 @@ import (
 
 const hobbit = "Хоббит, или Туда и обратно"
 
+// thisYear anchors every year of the fixtures: publication years too are
+// counted back from now.
+var thisYear = time.Now().Year()
+
+// yearsAgo is the year n years back, as a document date or a label says it.
+func yearsAgo(n int) string { return strconv.Itoa(thisYear - n) }
+
 func daysAgo(n int) time.Time { return time.Now().AddDate(0, 0, -n) }
 
 // isoDaysAgo is a document date n days back, as the catalog stores one.
@@ -51,11 +58,11 @@ func added(t time.Time) rowOpt           { return func(r *VariantRow) { r.Book.R
 
 func TestVariantLabel(t *testing.T) {
 	rows := []VariantRow{
-		vrow(1, translators("Кирилл Королёв"), publisher("АСТ"), docdate("2025"), lineage("a")),
-		vrow(2, translators("Наталья Прохорова"), publisher("Миликон-пресс"), docdate("2005"), lineage("b")),
+		vrow(1, translators("Кирилл Королёв"), publisher("АСТ"), docdate(yearsAgo(1)), lineage("a")),
+		vrow(2, translators("Наталья Прохорова"), publisher("Миликон-пресс"), docdate(yearsAgo(21)), lineage("b")),
 	}
 	assert.Equal(t, []LabelField{FieldTranslator, FieldPublisherYear}, DifferingFields(rows))
-	assert.Equal(t, "пер. Н. Прохорова · Миликон-пресс, 2005",
+	assert.Equal(t, "пер. Н. Прохорова · Миликон-пресс, "+yearsAgo(21),
 		VariantLabel(&rows[1], []LabelField{FieldTranslator, FieldPublisherYear}, hobbit))
 
 	day := isoDaysAgo(5)
@@ -89,7 +96,10 @@ func TestVariantLabel(t *testing.T) {
 }
 
 func TestDifferingFieldsRevisionOnlyInsideALineage(t *testing.T) {
-	rows := []VariantRow{vrow(1, lineage("a"), version("1.0"), docdate("2001")), vrow(2, lineage("b"), version("2.3"), docdate("2015"))}
+	rows := []VariantRow{
+		vrow(1, lineage("a"), version("1.0"), docdate(yearsAgo(25))),
+		vrow(2, lineage("b"), version("2.3"), docdate(yearsAgo(11))),
+	}
 	assert.NotContains(t, DifferingFields(rows), FieldRevision)
 	rows = append(rows, vrow(3, lineage("b"), version("2.2"), older()))
 	assert.Contains(t, DifferingFields(rows), FieldRevision)
@@ -109,13 +119,13 @@ func sixHobbits(shown int64) *CardVariants {
 	var rows []VariantRow
 	id := int64(1)
 	for i := range names {
-		r := vrow(id, translators(names[i]), publisher(pubs[i]), docdate(strconv.Itoa(1976+5*i)), lineage(fmt.Sprintf("l%d", i)))
+		r := vrow(id, translators(names[i]), publisher(pubs[i]), docdate(yearsAgo(50-5*i)), lineage(fmt.Sprintf("l%d", i)))
 		r.Rank = len(rows) + 1
 		rows = append(rows, r)
 		id++
 		if i == 2 {
 			for _, v := range []string{"0.9", "0.8"} {
-				o := vrow(id, translators(names[i]), publisher(pubs[i]), docdate(strconv.Itoa(1976+5*i)), lineage("l2"), version(v), older())
+				o := vrow(id, translators(names[i]), publisher(pubs[i]), docdate(yearsAgo(50-5*i)), lineage("l2"), version(v), older())
 				o.Rank = len(rows) + 1
 				rows = append(rows, o)
 				id++
@@ -181,9 +191,9 @@ func TestVariantsScreen(t *testing.T) {
 	text := s.Doc.Plain()
 	for _, want := range []string{
 		"Варианты", hobbit, "6 вариантов", "Отличаются: перевод, издательство и год",
-		"1. пер. Н. Рахманова · Детская литература, 1976 · основной",
-		"2. пер. Н. Прохорова · Миликон-пресс, 1981 ✓",
-		"3. пер. В. Маторина · Северо-Запад, 1986\n   ещё 2 ранние редакции",
+		"1. пер. Н. Рахманова · Детская литература, " + yearsAgo(50) + " · основной",
+		"2. пер. Н. Прохорова · Миликон-пресс, " + yearsAgo(45) + " ✓",
+		"3. пер. В. Маторина · Северо-Запад, " + yearsAgo(40) + "\n   ещё 2 ранние редакции",
 		"Страница 1 из 2",
 	} {
 		assert.Contains(t, text, want)
@@ -242,4 +252,52 @@ func TestCardKeysWithVariants(t *testing.T) {
 	assert.Equal(t, []string{"Вариант 2 из 6 · пер. Н. Прохор…"}, keysOf(&withRow)[0])
 	assert.Equal(t, keys.Variants, withRow.Keys[0][0].Env)
 	assert.Equal(t, keysOf(&single), keysOf(&withRow)[1:], "the rest of the keyboard is the single book's")
+}
+
+// A row's button keeps its number and check mark inside the button's limit:
+// a long label is cut, not the button made longer.
+func TestVariantRowButtonFitsWithItsPrefix(t *testing.T) {
+	card := sixHobbits(1)
+	card.Rows[0].Translators = []string{"Анна " + strings.Repeat("Длиннофамильная", 3)}
+	s := VariantsScreen(&VariantsList{Card: card}, testVariantsKeys)
+	first := keysOf(&s)[0][0]
+	assert.True(t, strings.HasPrefix(first, "✓ 1. пер. А. "), first)
+	assert.True(t, strings.HasSuffix(first, "…"), first)
+	assert.Equal(t, 32, utf8.RuneCountInString(first), first)
+	for _, row := range keysOf(&s) {
+		for _, b := range row {
+			assert.LessOrEqual(t, utf8.RuneCountInString(b), 32, b)
+		}
+	}
+}
+
+// The rich list is the same rows: numbered links that pick their file, the
+// default and the shown file marked in the second line, a document's fold
+// the action of its row, and the pager in the message.
+func TestVariantsScreenRich(t *testing.T) {
+	s := VariantsScreen(&VariantsList{Card: sixHobbits(2)}, testVariantsKeys)
+	require.NotNil(t, s.Rich)
+	var items []Item
+	pager := false
+	for _, b := range s.Rich.Doc.Blocks {
+		switch blk := b.(type) {
+		case List:
+			items = blk.Items
+		case Buttons:
+			pager = true
+		}
+	}
+	require.Len(t, items, 5)
+	assert.True(t, pager, "two pages: the pager is in the message")
+	assert.Equal(t, 1, items[0].Value)
+	assert.Equal(t, "пер. Н. Рахманова", items[0].Link.Text)
+	assert.Equal(t, uint64(1), items[0].Link.Env.EntityID)
+	assert.Contains(t, items[0].Sub, "основной")
+	assert.Contains(t, items[1].Sub, "✓")
+	require.NotNil(t, items[2].Action, "the third document folds two revisions")
+	assert.Equal(t, "ещё 2 ранние редакции", items[2].Action.Text)
+	assert.Equal(t, uint8(1), items[2].Action.Env.Arg)
+	assert.Equal(t, uint64(3), items[2].Action.Env.EntityID)
+	assert.Nil(t, items[0].Action)
+	assert.Equal(t, [][]string{{ButtonToBook, ButtonHome}}, keysOf(s.Rich), "only the way out is a keyboard")
 }
