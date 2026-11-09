@@ -102,7 +102,7 @@ func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, scop
 		defer cancel()
 		got, err := r.cfg.Search.SearchBooks(bctx, models.BookSearchRequest{
 			Query: view.Query, Language: view.Lang, AuthorID: scope.legacy, AuthorEntityID: scope.entity,
-			Limit: bookLimit, Offset: bookOffset,
+			Limit: bookLimit, Offset: bookOffset, GroupCards: r.cardsOn(ctx),
 		})
 		if err != nil {
 			logging.Warnf("Telegram v2: book search failed: %v", err)
@@ -111,7 +111,7 @@ func (r *Router) searchPage(ctx context.Context, view *models.TelegramView, scop
 		}
 		res.BookTotal = got.Total
 		if tab == 0 {
-			res.Books = got.Books
+			res.Books, res.Variants = got.Books, got.Variants
 			r.creditAuthors(bctx, res.Books)
 		}
 	}()

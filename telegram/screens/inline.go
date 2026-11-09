@@ -30,6 +30,14 @@ func InlineResultID(bookID int64) string { return "b" + strconv.FormatInt(bookID
 // Telegram can fetch covers from; "" leaves the result without one. Nothing
 // in it is private: a public page link, a public cover URL, the title.
 func InlineArticle(b *models.Book, siteURL, mediaBase string) *tgmodels.InlineQueryResultArticle {
+	return InlineCardArticle(b, nil, siteURL, mediaBase)
+}
+
+// InlineCardArticle is InlineArticle for a card: its description ends with
+// what the card holds («6 вариантов»); variants nil is a single book.
+func InlineCardArticle(
+	b *models.Book, variants *models.BookVariantsInfo, siteURL, mediaBase string,
+) *tgmodels.InlineQueryResultArticle {
 	title := ru.Truncate(strings.TrimSpace(b.Title), inlineTitleRunes)
 	text := inlineMarker + title
 	if author := Authors(b, listAuthors); author != "" {
@@ -45,7 +53,7 @@ func InlineArticle(b *models.Book, siteURL, mediaBase string) *tgmodels.InlineQu
 	return &tgmodels.InlineQueryResultArticle{
 		ID:          InlineResultID(b.ID),
 		Title:       title,
-		Description: inlineDescription(b),
+		Description: joinDot(inlineDescription(b), VariantsCount(variants)),
 		InputMessageContent: &tgmodels.InputTextMessageContent{
 			MessageText: text, Entities: []tgmodels.MessageEntity{link},
 			LinkPreviewOptions: &tgmodels.LinkPreviewOptions{IsDisabled: &off},

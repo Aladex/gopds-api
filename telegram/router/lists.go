@@ -234,11 +234,18 @@ func emptyIn(lang, line string) []screens.Block {
 func (r *Router) searchList(ctx context.Context, list *screens.BookList, req *models.BookSearchRequest) error {
 	sctx, cancel := context.WithTimeout(ctx, r.cfg.SearchTimeout)
 	defer cancel()
+	req.GroupCards = r.cardsOn(ctx)
 	got, err := r.cfg.Search.SearchBooks(sctx, *req)
 	if err != nil {
 		return err
 	}
 	list.Books, list.Total = got.Books, got.Total
+	if got.Variants != nil {
+		list.Variants = make([]*models.BookVariantsInfo, len(got.Books))
+		for i := range got.Books {
+			list.Variants[i] = got.Variants[got.Books[i].ID]
+		}
+	}
 	return nil
 }
 

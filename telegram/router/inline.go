@@ -76,14 +76,14 @@ func (r *Router) inlineResults(ctx context.Context, b *Bot, q *tgbot.InlineQuery
 	if utf8.RuneCountInString(query) > screens.MaxQuery {
 		return results, ""
 	}
-	books, total, err := r.inlineBooks(ctx, b, query, offset)
+	books, variants, total, err := r.inlineBooks(ctx, b, query, offset)
 	if err != nil {
 		logging.Warnf("Telegram bot %d: inline search: %v", b.Ref, err)
 		return results, ""
 	}
 	r.creditAuthors(ctx, books)
 	for i := range books {
-		results = append(results, screens.InlineArticle(&books[i], r.cfg.SiteURL, r.cfg.MediaBaseURL))
+		results = append(results, screens.InlineCardArticle(&books[i], variants[books[i].ID], r.cfg.SiteURL, r.cfg.MediaBaseURL))
 	}
 	following := offset + inlinePage
 	if len(books) < inlinePage || following >= total || following >= inlineMaxOffset {
@@ -92,21 +92,40 @@ func (r *Router) inlineResults(ctx context.Context, b *Bot, q *tgbot.InlineQuery
 	return results, strconv.Itoa(following)
 }
 
-// inlineBooks reads one page of an inline answer's books.
-func (r *Router) inlineBooks(ctx context.Context, b *Bot, query string, offset int) ([]models.Book, int, error) {
+// inlineBooks reads one page of an inline answer's books, and what each
+// listed card says of its other files, by book id (nil while the bot lists
+// files): a search, or with no query the favorites, one row per card as the
+// panels list them.
+func (r *Router) inlineBooks(ctx context.Context, b *Bot, query string, offset int) (
+	books []models.Book, variants map[int64]*models.BookVariantsInfo, total int, err error) {
+	cards := r.cardsOn(ctx)
 	if query == "" {
-		return database.GetBooks(b.Binding.UserID, models.BookFilters{Fav: true, Limit: inlinePage, Offset: offset})
+		filters := models.BookFilters{Fav: true, Limit: inlinePage, Offset: offset}
+		if !cards {
+			books, total, err = database.GetBooks(b.Binding.UserID, filters)
+			return books, nil, total, err
+		}
+		var entries []database.CardEntry
+		books, entries, total, err = database.GetBookCards(ctx, b.Binding.UserID, filters)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		variants = make(map[int64]*models.BookVariantsInfo, len(entries))
+		for i := range entries {
+			variants[entries[i].BookID] = entries[i].Variants
+		}
+		return books, variants, total, nil
 	}
 	ui, err := database.GetTelegramUserUI(ctx, b.Binding.UserID)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	sctx, cancel := context.WithTimeout(ctx, r.cfg.SearchTimeout)
 	defer cancel()
 	got, err := r.cfg.Search.SearchBooks(sctx, models.BookSearchRequest{
-		Query: query, Language: ui.SearchLang, Limit: inlinePage, Offset: offset,
+		Query: query, Language: ui.SearchLang, Limit: inlinePage, Offset: offset, GroupCards: cards,
 	})
-	return got.Books, got.Total, err
+	return got.Books, got.Variants, got.Total, err
 }
 
 // viaBot handles the owner's message sent through an inline pick: if it is

@@ -146,6 +146,9 @@ type Results struct {
 	AuthorName string
 	// Suggestions are offered on an empty page.
 	Suggestions []models.AutocompleteSuggestion
+	// Variants is what each listed card says of its other files, by the
+	// shown book's id; nil when the search did not group.
+	Variants map[int64]*models.BookVariantsInfo
 }
 
 // ResultsKeys are the envelopes the results buttons carry; the router fills
@@ -293,7 +296,7 @@ func bookList(r *Results, k *ResultsKeys) ([]Block, [][]Button) {
 		b := &r.Books[i]
 		n := r.Page*PageSize + i + 1
 		blocks = append(blocks, Line{Text: strconv.Itoa(n) + ". " + ru.Truncate(b.Title, listLineRunes)})
-		if second := bookSubline(b); second != "" {
+		if second := joinDot(bookSubline(b), VariantsCount(r.Variants[b.ID])); second != "" {
 			blocks = append(blocks, Line{Text: "   " + ru.Truncate(second, listLineRunes)})
 		}
 		buttons = append(buttons, []Button{{Text: strconv.Itoa(n) + ". " + ru.Truncate(b.Title, bookButtonRunes), Env: k.Book(b.ID)}})

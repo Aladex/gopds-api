@@ -53,3 +53,41 @@ func TestListRowSaysVariants(t *testing.T) {
 	assert.Equal(t, strings.ReplaceAll(strings.ReplaceAll(text, " · 6 вариантов", ""), "\n   22 редакции", ""),
 		single.Doc.Plain(), "without cards the rows are as they were")
 }
+
+// A results page lists cards as the lists do: the count on the second line,
+// plain and rich, and the tab counting cards.
+func TestResultsRowSaysVariants(t *testing.T) {
+	books := []models.Book{{ID: 1, Title: "Солярис", Authors: []models.Author{{FullName: "Станислав Лем"}}}, {ID: 2, Title: "Эдем"}}
+	res := &Results{Query: "лем", Books: books, BookTotal: 2,
+		Variants: map[int64]*models.BookVariantsInfo{1: {Key: uuid.New(), Count: 3, Kind: models.BookVariantsVariants}}}
+	keys := &ResultsKeys{
+		Tab: func(uint8) *cbv2.Envelope { return env() }, RetryTab: func(uint8) *cbv2.Envelope { return env() },
+		RetryAll: env(), Page: func(int) *cbv2.Envelope { return env() }, Book: func(int64) *cbv2.Envelope { return env() },
+		Home: env(),
+	}
+	s := ResultsScreen(res, keys)
+	text := s.Doc.Plain()
+	assert.Contains(t, text, "1. Солярис\n   Станислав Лем · 3 варианта")
+	assert.NotContains(t, text, "Эдем\n   ", "a single book without an author has no second line")
+	assert.Equal(t, "✓ Книги · 2", s.Keys[0][0].Text, "the tab counts what the search counted: cards")
+
+	require.NotNil(t, s.Rich)
+	var subs []string
+	for _, b := range s.Rich.Doc.Blocks {
+		if l, ok := b.(List); ok {
+			for _, it := range l.Items {
+				subs = append(subs, it.Sub)
+			}
+		}
+	}
+	assert.Equal(t, []string{"Станислав Лем · 3 варианта", ""}, subs)
+}
+
+// The inline picker says what a card holds, after the language.
+func TestInlineDescriptionSaysVariants(t *testing.T) {
+	b := &models.Book{ID: 5, Title: "Солярис", Lang: "ru", Authors: []models.Author{{FullName: "Станислав Лем"}}}
+	assert.Equal(t, "Станислав Лем · русский", InlineArticle(b, "https://site", "").Description)
+	card := InlineCardArticle(b, &models.BookVariantsInfo{Count: 22, Kind: models.BookVariantsRevisions}, "https://site", "")
+	assert.Equal(t, "Станислав Лем · русский · 22 редакции", card.Description)
+	assert.Equal(t, "b5", card.ID, "the result names the shown file")
+}

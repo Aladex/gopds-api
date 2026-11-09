@@ -79,7 +79,7 @@ func richBookItems(r *Results, k *ResultsKeys) []Block {
 		items = append(items, Item{
 			Value: r.Page*PageSize + i + 1,
 			Link:  Button{Text: ru.Truncate(b.Title, listLineRunes), Env: k.Book(b.ID)},
-			Sub:   ru.Truncate(withYear(bookSubline(b), b), listLineRunes),
+			Sub:   ru.Truncate(joinDot(withYear(bookSubline(b), b), VariantsCount(r.Variants[b.ID])), listLineRunes),
 		})
 	}
 	return []Block{List{Items: items}}

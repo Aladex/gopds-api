@@ -10,6 +10,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/scanfixture"
 	"gopds-api/models"
+	"gopds-api/services"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
@@ -288,3 +289,39 @@ func (h countHook) BeforeQuery(ctx context.Context, _ *pg.QueryEvent) (context.C
 }
 
 func (countHook) AfterQuery(context.Context, *pg.QueryEvent) error { return nil }
+
+// The inline picker with no query lists the favorites as the panel does: one
+// entry per card, on the saved file, saying what the card holds.
+func TestInlineFavoritesOneEntryPerCard(t *testing.T) {
+	f := newListFixture(t)
+	solaris := f.card("Солярис", 3, 0)
+	f.walk()
+	ranked := f.byRank(solaris)
+	f.exec(`INSERT INTO favorite_books (user_id, book_id) VALUES (?, ?), (?, ?)`, f.user, ranked[2], f.user, ranked[1])
+	r := &Router{cfg: Config{Cards: true}}
+	books, variants, total, err := r.inlineBooks(context.Background(), f.bot(), "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, books, 1)
+	assert.Equal(t, ranked[1], books[0].ID, "the best-ranked saved file")
+	require.NotNil(t, variants[books[0].ID])
+	assert.Equal(t, 3, variants[books[0].ID].Count)
+}
+
+// A search in the favorites lists the saved file of a card, once.
+func TestFavoritesSearchShowsTheSavedFile(t *testing.T) {
+	f := newListFixture(t)
+	solaris := f.card("Солярис", 3, 0)
+	f.walk()
+	ranked := f.byRank(solaris)
+	f.exec(`INSERT INTO favorite_books (user_id, book_id) VALUES (?, ?)`, f.user, ranked[2])
+	r := &Router{cfg: Config{Cards: true, SearchTimeout: 5 * time.Second,
+		Search: services.NewSearchService(database.NewPGSearchRepositoryFor(f.db, false))}}
+	page, err := r.loadList(context.Background(), f.bot(), &models.TelegramView{Kind: ViewFavoritesSearch, Query: "солярис"}, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, page.list.Total)
+	assert.Equal(t, []int64{ranked[2]}, pageIDs(page))
+	require.Len(t, page.list.Variants, 1)
+	require.NotNil(t, page.list.Variants[0])
+	assert.Equal(t, 3, page.list.Variants[0].Count)
+}

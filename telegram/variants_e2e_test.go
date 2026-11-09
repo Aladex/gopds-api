@@ -124,11 +124,13 @@ func (v *v2Stack) answerTexts() []string {
 	return out
 }
 
-// openFile searches the title and opens, from the per-file results, the
-// card of the file whose annotation is the i-th; it returns the results
-// panel's message, now the card.
+// openFile searches the title and opens the card of the file whose
+// annotation is the i-th: from the results when they list files, through the
+// card's variant list when they list cards. It returns the results panel's
+// message, now the card.
 func (v *v2Stack) openFile(title string, i int) tgtest.Call {
 	v.t.Helper()
+	want := fmt.Sprintf("Аннотация файла %d.", i)
 	v.say(strings.ToLower(title))
 	results := v.lastSend()
 	for _, label := range tgtest.Labels(v.t, &results) {
@@ -137,14 +139,45 @@ func (v *v2Stack) openFile(title string, i int) tgtest.Call {
 		}
 		v.tap(&results, label)
 		card := v.latest(results.MessageID)
-		if strings.Contains(content(&card), fmt.Sprintf("Аннотация файла %d.", i)) {
+		if strings.Contains(content(&card), want) {
 			return card
+		}
+		if picked, ok := v.pickVariant(&card, want); ok {
+			return picked
 		}
 		v.tap(&card, "← К результатам")
 		results = v.latest(results.MessageID)
 	}
 	v.t.Fatalf("no result opens file %d of %q", i, title)
 	return tgtest.Call{}
+}
+
+// pickVariant opens, from a card with variants, the file whose card shows
+// want, trying the variant list's rows in turn.
+func (v *v2Stack) pickVariant(card *tgtest.Call, want string) (tgtest.Call, bool) {
+	v.t.Helper()
+	button := firstRow(v.t, card)[0]
+	if strings.HasPrefix(button, "EPUB") || strings.HasPrefix(button, "FB2") {
+		return tgtest.Call{}, false
+	}
+	v.tap(card, button)
+	list := v.latest(card.MessageID)
+	var rows []string
+	for _, label := range tgtest.Labels(v.t, &list) {
+		if strings.Contains(label, ". ") && !strings.Contains(label, "ранн") {
+			rows = append(rows, label)
+		}
+	}
+	for _, row := range rows {
+		v.tap(&list, row)
+		picked := v.latest(card.MessageID)
+		if strings.Contains(content(&picked), want) {
+			return picked, true
+		}
+		v.tap(&picked, firstRow(v.t, &picked)[0])
+		list = v.latest(card.MessageID)
+	}
+	return tgtest.Call{}, false
 }
 
 func firstRow(t *testing.T, c *tgtest.Call) []string {
@@ -300,15 +333,32 @@ func TestCardsOffKeepTheCardPerFile(t *testing.T) {
 	assert.Contains(t, tgtest.Labels(t, &card), "☆ В избранное", "the star is the file's")
 }
 
-// A list's button names a file, and opens the card on it: a button sent
-// before the release opens what it named, now with the variant row.
+// A list's button names a file, and opens the card on it: a button of a
+// per-file list, sent before the release, opens what it named, now with the
+// variant row.
 func TestAnOldOpenBookButtonOpensItsFile(t *testing.T) {
 	v := newV2(t)
 	v.plainCards()
 	v.variantCard("Солярис", solaris)
-	card := v.openFile("Солярис", 0)
-	assert.Contains(t, content(&card), "Аннотация файла 0.")
-	assert.Equal(t, []string{"Вариант 3 из 3 · пер. А. Бо"}, firstRow(t, &card))
+	off := *v
+	off.stack = func() *stack { s := *v.stack; s.cardsOff = true; return s.start() }()
+	off.say("солярис")
+	results := off.lastSend()
+	require.Contains(t, tgtest.Labels(t, &results), "✓ Книги · 3", "the release before listed the files")
+	for _, label := range tgtest.Labels(t, &results) {
+		if !strings.Contains(label, "Солярис") {
+			continue
+		}
+		v.tap(&results, label)
+		card := v.latest(results.MessageID)
+		if strings.Contains(content(&card), "Аннотация файла 0.") {
+			assert.Equal(t, []string{"Вариант 3 из 3 · пер. А. Бо"}, firstRow(t, &card))
+			return
+		}
+		v.tap(&card, "← К результатам")
+		results = v.latest(results.MessageID)
+	}
+	t.Fatal("no old button opened Бо's file")
 }
 
 // The shown file gone: its variant list is not there.
@@ -440,9 +490,14 @@ func TestASingleBookCardReadsAsBefore(t *testing.T) {
 	v.openFixtureCard()
 	off.openFixtureCard()
 
-	var on, without int
-	on = v.leaseStatements(func() { v.openFixtureCard() })
-	without = off.leaseStatements(func() { off.openFixtureCard() })
-	t.Logf("statements: a single book's search and card with cards on %d, off %d", on, without)
+	// The card alone: the search itself reads more with cards (the cards of
+	// its page), which Task 4 measures on its own.
+	openOnly := func(p *v2Stack) int {
+		p.say("мир")
+		results := p.lastSend()
+		return p.leaseStatements(func() { p.openFixtureCardFrom(&results) })
+	}
+	on, without := openOnly(v), openOnly(&off)
+	t.Logf("statements: a single book's card with cards on %d, off %d", on, without)
 	assert.Equal(t, without, on)
 }

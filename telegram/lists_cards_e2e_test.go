@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gopds-api/telegram/screens"
+	"gopds-api/telegram/tgtest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,4 +63,20 @@ func TestAnOldPageButtonAfterGrouping(t *testing.T) {
 	assert.Contains(t, content(&list), "12 вариантов")
 	assert.NotContains(t, content(&list), "Страница")
 	assert.Contains(t, v.answerTexts(), "Список изменился. Открыта последняя страница.")
+}
+
+// A typed search lists cards: the tab counts them, a row says what its card
+// holds, and the row opens the card on its default file.
+func TestTypedSearchListsCards(t *testing.T) {
+	v := newV2(t)
+	v.plainCards()
+	v.variantCard("Солярис", solaris)
+	v.say("солярис")
+	results := v.lastSend()
+	assert.Contains(t, tgtest.Labels(t, &results), "✓ Книги · 1")
+	assert.Contains(t, content(&results), "3 варианта")
+	v.tap(&results, labelWith(t, &results, "1. Солярис"))
+	card := v.latest(results.MessageID)
+	assert.Contains(t, content(&card), "Аннотация файла 2.", "Ким's file, the default")
+	assert.Equal(t, []string{"3 варианта"}, firstRow(t, &card))
 }
