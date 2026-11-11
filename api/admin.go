@@ -76,6 +76,12 @@ func SetupAdminRoutes(r *gin.RouterGroup) {
 	SetupAuthorEntityRoutes(r.Group("/author-metadata/entities"), func() AuthorEntityAdminService {
 		return authorEntityAdminService()
 	})
+
+	// The review triage of the review queue (the triage admin comes from its
+	// wiring point)
+	SetupAuthorReviewTriageRoutes(r.Group("/author-metadata/triage"), func() AuthorReviewTriageService {
+		return authorReviewTriageService()
+	})
 }
 
 // UsersAnswer struct for users list in admin space

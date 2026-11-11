@@ -238,6 +238,15 @@ func initializeAuthorMetadata(db *pg.DB, archivesDir string, c *config.AuthorMet
 		services.NewWikidataFetchLoop(db, services.NewQLeverSource(), services.WikidataFetchConfig{}),
 		newAuthorAutopilot(db, c),
 	}
+	// The review triage plans, applies and undoes what an administrator
+	// asks for, through the review service's own decisions; it runs whatever
+	// the switch says, as the entity build does.
+	api.SetAuthorReviewTriageService(services.NewAuthorReviewTriageAdmin(db))
+	if review, err := services.NewAuthorMetadataReviewService(db, services.AuthorMetadataReviewConfigFrom(c)); err != nil {
+		authorMetadataNotStarted(err)
+	} else {
+		workers = append(workers, services.NewAuthorReviewTriageLoop(db, review, services.AuthorReviewTriageConfig{}))
+	}
 	if c.Enabled {
 		// Workers that cannot be built do not stop the acceptance pass.
 		if stages, err := buildAuthorMetadataWorkers(db, archivesDir, c); err != nil {

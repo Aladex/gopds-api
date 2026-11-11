@@ -188,6 +188,15 @@ const (
 	AuthorMetadataEventAutopilotMergeStarted   AuthorMetadataEventName = "author_metadata.autopilot_merge_started"
 	AuthorMetadataEventAutopilotStepFailed     AuthorMetadataEventName = "author_metadata.autopilot_step_failed"
 	AuthorMetadataEventAutopilotSwitched       AuthorMetadataEventName = "author_metadata.autopilot_switched"
+
+	// The review triage (design/review-triage). Planned: a dry run stored
+	// its plan (RunID: the batch, Count: its items); Item: the apply or the
+	// undo of one item ended (RunID, ReviewItemID, Status: its outcome,
+	// SQLState of a failure); Failed: a batch failed (Error, RunID) or a
+	// step of the worker failed and is retried (Warn).
+	AuthorMetadataEventTriagePlanned AuthorMetadataEventName = "author_metadata.triage_planned"
+	AuthorMetadataEventTriageItem    AuthorMetadataEventName = "author_metadata.triage_item"
+	AuthorMetadataEventTriageFailed  AuthorMetadataEventName = "author_metadata.triage_failed"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -230,6 +239,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventAutopilotResolveStarted,
 		AuthorMetadataEventAutopilotBuildStarted, AuthorMetadataEventAutopilotMergeStarted,
 		AuthorMetadataEventAutopilotStepFailed, AuthorMetadataEventAutopilotSwitched,
+		AuthorMetadataEventTriagePlanned, AuthorMetadataEventTriageItem, AuthorMetadataEventTriageFailed,
 	}
 }
 
@@ -249,6 +259,8 @@ const (
 	AuthorMetadataStageWikidata AuthorMetadataStage = "wikidata"
 	// AuthorMetadataStageAutopilot is the author autopilot.
 	AuthorMetadataStageAutopilot AuthorMetadataStage = "autopilot"
+	// AuthorMetadataStageReviewTriage is the review triage's worker.
+	AuthorMetadataStageReviewTriage AuthorMetadataStage = "review_triage"
 )
 
 // AuthorMetadataEvent is one log record. Every field is an identifier, a
@@ -319,7 +331,7 @@ var (
 		AuthorMetadataStageExtraction, AuthorMetadataStageLocalNormalization,
 		AuthorMetadataStageDualWrite, AuthorMetadataStageReview, AuthorMetadataStageRunner,
 		AuthorMetadataStageAcceptance, AuthorMetadataStageDisplayModel, AuthorMetadataStageEntityBuild,
-		AuthorMetadataStageWikidata, AuthorMetadataStageAutopilot,
+		AuthorMetadataStageWikidata, AuthorMetadataStageAutopilot, AuthorMetadataStageReviewTriage,
 	)
 	knownClasses  = closedSet(database.AuthorMetadataAttemptErrorClasses()...)
 	knownStatuses = authorMetadataEventStatuses()
@@ -398,6 +410,9 @@ func authorMetadataEventStatuses() map[string]bool {
 	}
 	set[database.AdjudicationSame], set[database.AdjudicationDifferent] = true, true
 	set[database.AdjudicationUnclear] = true
+	for _, v := range AuthorReviewTriageStatuses() {
+		set[v] = true
+	}
 	return set
 }
 
@@ -417,14 +432,15 @@ func closedEventName(name AuthorMetadataEventName) AuthorMetadataEventName {
 
 // closedWorkerLabel accepts the labels the runner's stages carry: the
 // extraction stage's, the acceptance pass's, the LLM worker's, the author display
-// model's, the entity build's, the Wikidata fetch's and the autopilot's own
-// labels, and a local normalization loop's label with its index.
+// model's, the entity build's, the Wikidata fetch's, the autopilot's and the
+// review triage's own labels, and a local normalization loop's label with its index.
 func closedWorkerLabel(label string) string {
 	if label == string(AuthorMetadataStageExtraction) || label == string(AuthorMetadataStageAcceptance) ||
 		label == authorLLMWorkerName || label == authorLLMMergeWorkerName || label == authorLLMEvalDriverName ||
 		label == authorLLMMergeEvalDriverName ||
 		label == string(AuthorMetadataStageDisplayModel) || label == string(AuthorMetadataStageEntityBuild) ||
-		label == string(AuthorMetadataStageWikidata) || label == authorAutopilotName {
+		label == string(AuthorMetadataStageWikidata) || label == authorAutopilotName ||
+		label == authorReviewTriageName {
 		return label
 	}
 	index, ok := strings.CutPrefix(label, string(AuthorMetadataStageLocalNormalization)+"-")
