@@ -519,3 +519,47 @@ func TestStepsAreTheCascadeInOrder(t *testing.T) {
 	assert.Empty(t, Step(9).Name())
 	assert.Equal(t, "triage-v1", RuleVersion)
 }
+
+// An item two steps hold for is decided by the earlier one, with its own
+// name and evidence: the cascade stops at the first step that holds.
+func TestTheFirstStepThatHoldsDecides(t *testing.T) {
+	swapped := person("Андреев", "Михаил")
+	caps := Name{Given: "МИХАИЛ", Family: "АНДРЕЕВ", Display: "МИХАИЛ АНДРЕЕВ", Sort: "АНДРЕЕВ, МИХАИЛ", Kind: "person"}
+	capsItem := candidate("case_defect", caps)
+	capsItem.Source = source("case_defect", []string{"all_caps"}, "МИХАИЛ", nil, "АНДРЕЕВ")
+	capsItem.Answers = fourModel(ptrName(swapped), "person")
+
+	zorro := handle("Зорро")
+	given := Name{Given: "Зорро", Display: "Зорро", Sort: "Зорро", Kind: "person"}
+	handleItem := candidate("mononym", zorro)
+	handleItem.Source = source("mononym", []string{"single_token"}, "Зорро", nil, "")
+	handleItem.Answers = fourModel(ptrName(given), "person")
+
+	for title, c := range map[string]struct {
+		c     *Candidate
+		later Step
+		after Name
+		other Name
+	}{
+		"four models before the rules": {c: capsItem, later: StepRules, after: swapped,
+			other: person("Михаил", "Андреев")},
+		"four models before the kept handle": {c: handleItem, later: StepKeepHandle, after: given, other: zorro},
+	} {
+		t.Run(title, func(t *testing.T) {
+			env := testEnv()
+			cons := JudgesConsensus(c.c.Answers)
+			other, _, ok := cascade[c.later](c.c, env, &cons)
+			require.True(t, ok, "the later step holds too")
+			require.Equal(t, c.other, other)
+			require.NotEqual(t, c.after, other, "the two steps give different names")
+
+			d := Decide(c.c, env)
+			assert.Equal(t, StepFourModel, d.Step)
+			assert.Equal(t, "four_model", d.Rule)
+			assert.Equal(t, ActionEdit, d.Action)
+			assert.Equal(t, c.after, d.After)
+			assert.Equal(t, Evidence{RunID: 14, Arm: "a", BatchSize: 4, Canonical: "c1", Form: "person",
+				PairRunID: 14, PairArm: "a", PairBatchSize: 4}, d.Evidence)
+		})
+	}
+}
