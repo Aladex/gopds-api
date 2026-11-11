@@ -72,26 +72,33 @@ const PipelineCarousel: React.FC<PipelineCarouselProps> = ({ pipeline, selected,
     const { nodes, problems, stoppedAt } = pipeline;
     const index = selected === null ? -1 : STAGES.indexOf(selected);
 
-    const { trackRef, active, dragging, go, trackProps } = useSnapCarousel({
+    const { trackRef, dragging, go, trackProps } = useSnapCarousel({
         count: STAGES.length,
         align: 'start',
         onActiveChange: (rest) => {
             const stage = STAGES[rest];
-            if (stage !== undefined && stage !== selected) onSelect(stage, { replace: true });
+            if (stage === undefined || stage === selected) return;
+            rested.current = rest;
+            onSelect(stage, { replace: true });
         },
     });
 
     // The track follows the selection. The first stage known opens in place;
-    // after that a new one glides to its card, unless the track already
-    // rests there because a swipe chose it.
+    // after that a new one glides to its card, unless the track rests there
+    // because it chose that stage itself. Any other selection glides even to
+    // the card the track still shows, since a glide already under way would
+    // otherwise carry it off and its rest would take the selection along.
     const shown = useRef<number | null>(null);
+    const rested = useRef<number | null>(null);
     useEffect(() => {
         if (index < 0 || shown.current === index) return;
         const first = shown.current === null;
         shown.current = index;
-        if (!first && index === active) return;
+        const fromRest = rested.current === index;
+        rested.current = null;
+        if (!first && fromRest) return;
         go(index, first ? 'auto' : 'smooth');
-    }, [index, active, go]);
+    }, [index, go]);
 
     const chainIndex = selected === null ? -1 : CHAIN.indexOf(selected);
     const fraction = chainIndex < 0 ? 0 : chainIndex / (CHAIN.length - 1);

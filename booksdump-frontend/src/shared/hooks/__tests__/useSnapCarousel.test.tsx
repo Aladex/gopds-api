@@ -150,4 +150,47 @@ describe('useSnapCarousel', () => {
         expect(reported).toHaveBeenCalledTimes(1);
         expect(reported).toHaveBeenCalledWith(2);
     });
+    test('a rest from before a glide does not outvote where the glide was sent', () => {
+        vi.useFakeTimers();
+        const reported = vi.fn();
+        render(<Harness count={6} align="start" onActiveChange={reported} />);
+        const { track } = layOut();
+        // The glide has been asked for but has not moved the track yet.
+        track.scrollTo = vi.fn() as never;
+
+        // A swipe stops on slide 2, and before its rest is reported the
+        // reader asks for the first slide.
+        track.scrollLeft = 2 * PITCH;
+        fireEvent.scroll(track);
+        fireEvent.keyDown(track, { key: 'Home' });
+        act(() => vi.advanceTimersByTime(400));
+        expect(reported).not.toHaveBeenCalled();
+
+        // The glide arrives, and where it arrives is reported.
+        track.scrollLeft = 0;
+        fireEvent.scroll(track);
+        act(() => vi.advanceTimersByTime(400));
+        expect(reported.mock.calls).toEqual([[0]]);
+    });
+
+    test('a finger on the track takes over from a glide', () => {
+        vi.useFakeTimers();
+        const reported = vi.fn();
+        render(<Harness count={6} align="start" onActiveChange={reported} />);
+        const { track } = layOut();
+        track.scrollTo = vi.fn() as never;
+        track.scrollLeft = 3 * PITCH;
+        fireEvent.scroll(track);
+        act(() => vi.advanceTimersByTime(400));
+        reported.mockClear();
+
+        // A glide to the first slide is under way when a finger catches the
+        // track and leaves it on slide 2: that is the reader's choice.
+        fireEvent.keyDown(track, { key: 'Home' });
+        fireEvent.pointerDown(track, { pointerType: 'touch', button: 0 });
+        track.scrollLeft = 2 * PITCH;
+        fireEvent.scroll(track);
+        act(() => vi.advanceTimersByTime(400));
+        expect(reported.mock.calls).toEqual([[2]]);
+    });
 });

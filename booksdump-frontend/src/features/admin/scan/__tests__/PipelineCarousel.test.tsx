@@ -1,9 +1,11 @@
+import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { MemoryRouter, useLocation, useSearchParams } from 'react-router';
 
 import PipelineCarousel from '@/features/admin/scan/PipelineCarousel';
-import { derivePipeline, type StageKey } from '@/features/admin/scan/pipeline';
+import { derivePipeline, type Pipeline, type StageKey } from '@/features/admin/scan/pipeline';
 import en from '@/locales/en/translation.json';
 import ru from '@/locales/ru/translation.json';
 import { formatMoment } from '@/features/admin/scan/scanUi';
@@ -70,6 +72,21 @@ const draw = (input: 'healthy' | 'twoProblems', selected?: StageKey | null) => {
         />,
     );
     return { pipeline, onSelect, view };
+};
+
+/** The page's part: the stage lives in ?stage=, as BookScanning keeps it. */
+const AddressedCarousel: React.FC<{ pipeline: Pipeline }> = ({ pipeline }) => {
+    const [params, setParams] = useSearchParams();
+    const location = useLocation();
+    const selected = (params.get('stage') as StageKey | null) ?? pipeline.defaultStage;
+    const select = (stage: StageKey, options?: { replace: boolean }) =>
+        setParams({ stage }, { replace: options?.replace ?? false });
+    return (
+        <>
+            <PipelineCarousel pipeline={pipeline} selected={selected} onSelect={select} />
+            <output aria-label="address">{location.search}</output>
+        </>
+    );
 };
 
 const dotsRow = () => screen.getByRole('group', { name: ru['scanPanel.carousel.dots'] });
@@ -207,6 +224,105 @@ describe('PipelineCarousel', () => {
             act(() => vi.advanceTimersByTime(500));
 
             expect(onSelect).toHaveBeenCalledWith('names', { replace: true });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+    test('a selection made during a glide is where the track and the address end', () => {
+        vi.useFakeTimers();
+        try {
+            const now = new Date();
+            const pipeline = derivePipeline(healthy(now), now);
+            render(
+                <MemoryRouter initialEntries={['/?stage=human']}>
+                    <AddressedCarousel pipeline={pipeline} />
+                </MemoryRouter>,
+            );
+            const track = screen.getByRole('group', { name: ru['scanPanel.carousel.track'] });
+            track.getBoundingClientRect = () => ({ left: 0, width: 300 }) as DOMRect;
+            track.style.paddingLeft = `${INSET}px`;
+            track.querySelectorAll<HTMLElement>('[data-slide]').forEach((slide) => {
+                slide.getBoundingClientRect = () =>
+                    ({
+                        left: INSET + Number(slide.dataset.slide) * PITCH - track.scrollLeft,
+                        width: 100,
+                    }) as DOMRect;
+            });
+            // A browser glide: it heads for the last place asked and gets there
+            // a few frames later, unless it is asked for another place first.
+            let heading = 0;
+            scrollTo.mockImplementation(({ left, behavior }: ScrollToOptions) => {
+                heading = left ?? 0;
+                if (behavior !== 'smooth') track.scrollLeft = heading;
+            });
+            const frame = (left: number) => {
+                track.scrollLeft = left;
+                fireEvent.scroll(track);
+            };
+            const address = () => screen.getByLabelText('address').textContent;
+            const dot = (key: StageKey) =>
+                within(dotsRow())
+                    .getAllByRole('button')
+                    .find((button) => button.getAttribute('data-dot') === key)!;
+
+            // The page opens on the human card and rests there.
+            frame(5 * PITCH);
+            act(() => vi.advanceTimersByTime(500));
+            expect(address()).toBe('?stage=human');
+
+            // «Архивы» starts a glide away; before the track has left the
+            // human card, the human pill is chosen again.
+            fireEvent.click(dot('arch'));
+            frame(5 * PITCH - 20);
+            fireEvent.click(dot('human'));
+            expect(address()).toBe('?stage=human');
+
+            // The glide ends wherever it was last sent.
+            frame((5 * PITCH - 20 + heading) / 2);
+            frame(heading);
+            act(() => vi.advanceTimersByTime(500));
+
+            expect(address()).toBe('?stage=human');
+            expect(track.scrollLeft).toBe(5 * PITCH);
+            expect(dot('human')).toHaveAttribute('aria-current', 'true');
+            expect(document.querySelector('[data-slide="5"] [data-stage-node]')).toHaveAttribute(
+                'aria-current',
+                'true',
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+    test('a stage the track chose by coming to rest does not glide it again', () => {
+        vi.useFakeTimers();
+        try {
+            const now = new Date();
+            const pipeline = derivePipeline(healthy(now), now);
+            render(
+                <MemoryRouter initialEntries={['/?stage=human']}>
+                    <AddressedCarousel pipeline={pipeline} />
+                </MemoryRouter>,
+            );
+            const track = screen.getByRole('group', { name: ru['scanPanel.carousel.track'] });
+            track.getBoundingClientRect = () => ({ left: 0, width: 300 }) as DOMRect;
+            track.style.paddingLeft = `${INSET}px`;
+            track.querySelectorAll<HTMLElement>('[data-slide]').forEach((slide) => {
+                slide.getBoundingClientRect = () =>
+                    ({
+                        left: INSET + Number(slide.dataset.slide) * PITCH - track.scrollLeft,
+                        width: 100,
+                    }) as DOMRect;
+            });
+            scrollTo.mockClear();
+
+            // The reader's swipe stops on «Имена»: the address follows it, and
+            // nothing is sent after a finger that may already be on its way on.
+            track.scrollLeft = 2 * PITCH;
+            fireEvent.scroll(track);
+            act(() => vi.advanceTimersByTime(500));
+
+            expect(screen.getByLabelText('address')).toHaveTextContent('?stage=names');
+            expect(scrollTo).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }

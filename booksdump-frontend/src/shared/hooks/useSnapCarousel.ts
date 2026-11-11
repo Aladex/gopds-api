@@ -13,12 +13,16 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
  * the finger, and the end of a swipe is not a tap at all, so both are stopped
  * before they reach the slide or its controls.
  *
- * Slides are the track's descendants marked `data-slide`. Nothing here listens
- * to the wheel: a vertical wheel, like a vertical pan, belongs to the page.
+ * Slides are the track's descendants marked `data-slide`. Nothing here moves
+ * the track on the wheel: a vertical wheel, like a vertical pan, belongs to the
+ * page.
  *
  * `onActiveChange` hears only where the track comes to rest, not every slide a
  * swipe passes on its way, so a caller that opens something per slide opens
- * only the one the reader stopped on.
+ * only the one the reader stopped on. While a glide `go` started is under way,
+ * a rest anywhere but its destination is not reported: the reader asked for
+ * that destination after whatever left the track there. A finger or a wheel
+ * on the track hands it back to the reader.
  */
 
 /** How long after the track last moved a tap is taken for the end of a swipe. */
@@ -49,6 +53,7 @@ export interface SnapCarousel {
         | 'onPointerUp'
         | 'onPointerCancel'
         | 'onLostPointerCapture'
+        | 'onWheel'
     >;
 }
 
@@ -69,6 +74,8 @@ export function useSnapCarousel({
         moving: boolean;
     } | null>(null);
     const restTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    /** The slide a smooth `go` is gliding to, until it rests or is taken over. */
+    const heading = useRef<number | null>(null);
     const reportRef = useRef(onActiveChange);
     useLayoutEffect(() => {
         reportRef.current = onActiveChange;
@@ -111,13 +118,22 @@ export function useSnapCarousel({
     };
 
     const go = (index: number, behavior: ScrollBehavior = 'smooth') => {
+        const track = trackRef.current;
         const all = slides();
         const target = all[index];
-        if (!target) return;
-        trackRef.current?.scrollTo({
-            left: target.offsetLeft - all[0].offsetLeft,
-            behavior,
-        });
+        if (!track || !target) return;
+        const left = target.offsetLeft - all[0].offsetLeft;
+        // Only a glide that will actually move the track has a destination to
+        // wait for; the far end is as far as the track goes.
+        const end = track.scrollWidth - track.clientWidth;
+        const reach = end > 0 ? Math.min(left, end) : left;
+        heading.current =
+            behavior === 'smooth' && Math.abs(track.scrollLeft - reach) >= 1 ? index : null;
+        track.scrollTo({ left, behavior });
+    };
+
+    const takeOver = () => {
+        heading.current = null;
     };
 
     const onScroll = () => {
@@ -127,7 +143,11 @@ export function useSnapCarousel({
             if (restTimer.current !== null) clearTimeout(restTimer.current);
             restTimer.current = setTimeout(() => {
                 restTimer.current = null;
-                reportRef.current?.(nearest());
+                const rest = nearest();
+                const asked = heading.current;
+                heading.current = null;
+                if (asked !== null && asked !== rest) return;
+                reportRef.current?.(rest);
             }, SCROLL_SETTLE_MS);
         }
         if (next === active) return;
@@ -165,6 +185,7 @@ export function useSnapCarousel({
 
     // A mouse has no swipe of its own, so its drag is laid over the same track.
     const onPointerDown = (event: React.PointerEvent) => {
+        takeOver();
         if (event.pointerType !== 'mouse' || event.button !== 0) return;
         drag.current = {
             x: event.clientX,
@@ -218,6 +239,7 @@ export function useSnapCarousel({
             onPointerUp: onPointerEnd,
             onPointerCancel: onPointerEnd,
             onLostPointerCapture: onPointerEnd,
+            onWheel: takeOver,
         },
     };
 }
