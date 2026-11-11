@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Progress } from '@/shared/ui/progress';
 import { cn } from '@/shared/lib/utils';
-import type { NodeState, Reason, StageKey } from './pipeline';
+import type { NodeState, Reason, StageKey, StageNode } from './pipeline';
 
 /*
  * The small pieces every part of the scan tab shares: the warning amber, the
@@ -116,6 +116,18 @@ export function reasonText(t: TFunction, reason: Reason, compact = false): strin
         ? `${line} · ${t('scanPanel.since', { date: values.since })}`
         : line;
 }
+
+/** A node's big figure: «стоит» on a stuck stage, a dash before its source answers. */
+export const nodeFigure = (t: TFunction, node: StageNode): string =>
+    node.state === 'stuck'
+        ? t('scanPanel.stuck')
+        : node.figure === null
+          ? '—'
+          : formatCount(node.figure);
+
+/** A node's accessible name: the stage, its figure and why, so red is never only a colour. */
+export const nodeLabel = (t: TFunction, node: StageNode): string =>
+    `${stageName(t, node.key)}: ${nodeFigure(t, node)} · ${reasonText(t, node.reason, true)}`;
 
 interface StagePanelProps {
     stage: StageKey;

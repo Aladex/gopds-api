@@ -8,11 +8,10 @@ import { reasonText, StateDot, stageName, WARNING_TEXT } from './scanUi';
 import StageNode from './StageNode';
 
 /*
- * The chain card. On a wide screen (graph) the five stages stand in one row
- * joined by arrows, the arrow into the stage the flow stops at dashed red and
- * every arrow after it dashed grey, with the human review branching off under
- * it. Until the phone carousel lands (grid) the same nodes wrap in two columns
- * with the review full-width under them.
+ * The chain card on a wide screen: the five stages stand in one row joined by
+ * arrows, the arrow into the stage the flow stops at dashed red and every
+ * arrow after it dashed grey, with the human review branching off under it.
+ * A phone draws the same chain as a carousel (PipelineCarousel).
  *
  * The header names every problem as a pill, in the derivation's order (stuck
  * first), and holds «Сканировать новые».
@@ -23,7 +22,6 @@ interface PipelineGraphProps {
     /** null while the page waits for its sources to pick the default stage. */
     selected: StageKey | null;
     onSelect: (stage: StageKey) => void;
-    layout: 'graph' | 'grid';
     onScan: () => void;
     scanDisabled: boolean;
 }
@@ -55,21 +53,16 @@ const PipelineGraph: React.FC<PipelineGraphProps> = ({
     pipeline,
     selected,
     onSelect,
-    layout,
     onScan,
     scanDisabled,
 }) => {
     const { t } = useTranslation();
     const { nodes, problems } = pipeline;
-    const graph = layout === 'graph';
 
     return (
         <section
             aria-label={t('scanPanel.title')}
-            className={cn(
-                'flex flex-col rounded-xl border bg-card text-card-foreground shadow-sm',
-                graph ? 'gap-3 px-5 pt-3.5 pb-4' : 'gap-3 p-4',
-            )}
+            className="flex flex-col gap-3 rounded-xl border bg-card px-5 pt-3.5 pb-4 text-card-foreground shadow-sm"
         >
             <div className="flex min-h-8 flex-wrap items-center gap-2.5">
                 <h3 className="text-base font-medium">{t('scanPanel.title')}</h3>
@@ -115,43 +108,34 @@ const PipelineGraph: React.FC<PipelineGraphProps> = ({
                 </Button>
             </div>
 
-            <div
-                className={cn(
-                    'grid',
-                    graph ? 'grid-cols-5 gap-x-7 gap-y-3.5' : 'grid-cols-2 gap-2.5',
-                )}
-            >
+            <div className="grid grid-cols-5 gap-x-7 gap-y-3.5">
                 {CHAIN.map((key, index) => (
                     <div key={key} className="relative min-w-0">
                         <StageNode
                             node={nodes[key]}
                             selected={selected === key}
                             onSelect={() => onSelect(key)}
-                            variant={graph ? 'graph' : 'card'}
+                            variant="graph"
                             className="h-full w-full"
                         />
-                        {graph && index < CHAIN.length - 1 && (
+                        {index < CHAIN.length - 1 && (
                             <Arrow style={arrowStyle(index, pipeline.stoppedAt)} />
                         )}
                     </div>
                 ))}
-                {graph && (
-                    <p className="col-span-2 self-center text-right text-[12.5px] text-muted-foreground">
-                        {t('scanPanel.branchNote')}
-                    </p>
-                )}
+                <p className="col-span-2 self-center text-right text-[12.5px] text-muted-foreground">
+                    {t('scanPanel.branchNote')}
+                </p>
                 <div className="relative col-span-2 min-w-0">
-                    {graph && (
-                        <span
-                            aria-hidden="true"
-                            className="absolute -top-3.5 left-1/2 h-3.5 w-[1.5px] bg-input"
-                        />
-                    )}
+                    <span
+                        aria-hidden="true"
+                        className="absolute -top-3.5 left-1/2 h-3.5 w-[1.5px] bg-input"
+                    />
                     <StageNode
                         node={nodes.human}
                         selected={selected === 'human'}
                         onSelect={() => onSelect('human')}
-                        variant={graph ? 'graph' : 'card'}
+                        variant="graph"
                         row
                         className="w-full"
                     />

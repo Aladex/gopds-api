@@ -1203,6 +1203,8 @@
   "scanPanel.reason.human.open": "waiting for your decision",
   "scanPanel.reason.human.empty": "the queue is empty",
   "scanPanel.title": "Pipeline",
+  "scanPanel.carousel.dots": "Pipeline stages",
+  "scanPanel.carousel.track": "Stage cards: the left and right arrows move between stages",
   "scanPanel.allGood": "all running",
   "scanPanel.problems_one": "{{count}} problem:",
   "scanPanel.problems_other": "{{count}} problems:",

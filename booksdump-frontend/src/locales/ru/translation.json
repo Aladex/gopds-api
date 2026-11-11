@@ -1225,6 +1225,8 @@
   "scanPanel.reason.human.open": "ждут твоего решения",
   "scanPanel.reason.human.empty": "очередь пуста",
   "scanPanel.title": "Конвейер",
+  "scanPanel.carousel.dots": "Этапы конвейера",
+  "scanPanel.carousel.track": "Карточки этапов: стрелки влево и вправо листают этапы",
   "scanPanel.allGood": "всё идёт",
   "scanPanel.problems_one": "{{count}} проблема:",
   "scanPanel.problems_few": "{{count}} проблемы:",

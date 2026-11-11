@@ -15,6 +15,7 @@ import { Progress } from '@/shared/ui/progress';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { ADMIN_TABLE_WIDE_QUERY } from '@/shared/layout/breakpoints';
 import { cn } from '@/shared/lib/utils';
+import PipelineCarousel from '@/features/admin/scan/PipelineCarousel';
 import PipelineGraph from '@/features/admin/scan/PipelineGraph';
 import {
     derivePipeline,
@@ -85,7 +86,7 @@ const BookScanning: React.FC = () => {
     const { t } = useTranslation();
     const scan = useBookScan();
     // The graph from 900 px, where the queue also switches from its route to
-    // its modal; below it the nodes wrap in two columns until the carousel.
+    // its modal; below it the chain is a carousel.
     const wide = useMediaQuery(ADMIN_TABLE_WIDE_QUERY);
     const metadata = useScanSource('metadataRun');
     const llmNames = useScanSource('llmNames');
@@ -137,24 +138,30 @@ const BookScanning: React.FC = () => {
     const chosen = stageFromParams(searchParams);
     const selected = chosen ?? (settled ? pipeline.defaultStage : null);
 
-    /** Selects a stage: it goes into the address, and the old tab leaves it. */
-    const select = (stage: StageKey) => {
+    /**
+     * Selects a stage: it goes into the address, and the old tab leaves it. A
+     * carousel swipe replaces the entry, so swiping does not fill the history.
+     */
+    const select = (stage: StageKey, options?: { replace: boolean }) => {
         const next = new URLSearchParams(searchParams);
         next.delete('tab');
         next.set('stage', stage);
-        setSearchParams(next);
+        setSearchParams(next, { replace: options?.replace ?? false });
     };
 
     return (
         <div className={cn('flex min-w-0 flex-col', wide ? 'gap-4' : 'gap-3')}>
-            <PipelineGraph
-                pipeline={pipeline}
-                selected={selected}
-                onSelect={select}
-                layout={wide ? 'graph' : 'grid'}
-                onScan={scan.handleStartScan}
-                scanDisabled={Boolean(scan.status?.is_running || scan.isFixScanning)}
-            />
+            {wide ? (
+                <PipelineGraph
+                    pipeline={pipeline}
+                    selected={selected}
+                    onSelect={select}
+                    onScan={scan.handleStartScan}
+                    scanDisabled={Boolean(scan.status?.is_running || scan.isFixScanning)}
+                />
+            ) : (
+                <PipelineCarousel pipeline={pipeline} selected={selected} onSelect={select} />
+            )}
 
             {selected === null ? (
                 <p role="status" className="px-1 text-sm text-muted-foreground">

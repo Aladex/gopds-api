@@ -66,3 +66,10 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 if (typeof Element.prototype.scrollIntoView !== 'function') {
     Element.prototype.scrollIntoView = function scrollIntoView() {};
 }
+
+// The same for scrolling an element to a position: jsdom has no layout, so a
+// carousel opening on its selected slide would throw here. Tests that care
+// where a track scrolls install their own spy over this.
+if (typeof Element.prototype.scrollTo !== 'function') {
+    Element.prototype.scrollTo = function scrollTo() {};
+}

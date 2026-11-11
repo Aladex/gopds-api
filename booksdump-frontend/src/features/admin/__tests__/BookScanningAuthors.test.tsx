@@ -96,7 +96,8 @@ it('loads the review queue only on the review stage', async () => {
     await screen.findByRole('button', { name: 'Walk the catalogue', hidden: true });
     expect(api.listAuthorReviewItems).not.toHaveBeenCalled();
 
-    const human = container.querySelector<HTMLElement>('[data-stage-node="human"]');
+    // On a phone the dots row selects; a peeking card only glides into view.
+    const human = container.querySelector<HTMLElement>('[data-dot="human"]');
     fireEvent.click(human!);
     await waitFor(() => expect(api.listAuthorReviewItems).toHaveBeenCalled());
 });

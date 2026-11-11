@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/shared/lib/utils';
 import type { StageNode as StageNodeData } from './pipeline';
-import { formatCount, reasonText, StateDot, stageName, WARNING_TEXT } from './scanUi';
+import { nodeFigure, nodeLabel, reasonText, StateDot, stageName, WARNING_TEXT } from './scanUi';
 
 /*
  * One stage of the chain: its dot and name, its big figure, its reason line and
@@ -41,12 +41,7 @@ const StageNode: React.FC<StageNodeProps> = ({
     const name = stageName(t, node.key);
     const loading = node.reason.key === 'loading';
     const reason = reasonText(t, node.reason, true);
-    const big =
-        node.state === 'stuck'
-            ? t('scanPanel.stuck')
-            : node.figure === null
-              ? '—'
-              : formatCount(node.figure);
+    const big = nodeFigure(t, node);
     return (
         <button
             type="button"
@@ -54,7 +49,7 @@ const StageNode: React.FC<StageNodeProps> = ({
             data-state={node.state}
             data-loading={loading ? '' : undefined}
             aria-current={selected ? 'true' : undefined}
-            aria-label={`${name}: ${big} · ${reason}`}
+            aria-label={nodeLabel(t, node)}
             onClick={onSelect}
             className={cn(
                 'relative flex min-w-0 rounded-[10px] border border-border/60 bg-card text-left transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-focus',

@@ -203,7 +203,9 @@ it('a chosen stage survives a new problem', async () => {
     serve(healthy(now));
     renderAt('/admin/book-scanning');
 
-    fireEvent.click(await settledNode('names'));
+    // On a phone the dots row selects; a peeking card only glides into view.
+    await settledNode('names');
+    fireEvent.click(document.querySelector<HTMLElement>('[data-dot="names"]')!);
     expect(await panel('Имена')).toBeInTheDocument();
     expect(node('names')).toHaveAttribute('aria-current', 'true');
 

@@ -9,6 +9,7 @@ import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/shared/ui/dialog';
 import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from '@/shared/ui/drawer';
 import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
+import { useSnapCarousel } from '@/shared/hooks/useSnapCarousel';
 import { cn } from '@/shared/lib/utils';
 import { copyText } from '@/shared/lib/copyText';
 
@@ -59,13 +60,6 @@ const COMPACT_QUERY = '(max-width: 375px) and (max-height: 699px)';
 
 /** A fixed 40px toolbar, two lines of address and the 200px code. */
 const QR_VIEW_HEIGHT = 272;
-
-/** How long after the track last moved a tap is taken for the end of a swipe. */
-const SCROLL_SETTLE_MS = 160;
-const DRAG_SETTLE_MS = 250;
-
-/** Pixels a mouse has to travel before it means a drag. */
-const DRAG_THRESHOLD = 6;
 
 /** Opens a method's code, remembering what asked so that going back can return to it. */
 type QrOpener = (event: React.MouseEvent<HTMLElement>, id: string) => void;
@@ -311,14 +305,10 @@ const Sleeve: React.FC<{
  * CardCarousel is several cards as a row of whole sleeves, each with its own
  * action, the next one showing at the edge to say there is more.
  *
- * The scrolling is the browser's: a snapping track moves under a finger, a
- * trackpad and a sideways wheel with nothing here to arbitrate, and the slide
- * nearest its centre is whichever one is selected. The rest exists because a
- * track can be scrolled past things that can be pressed. A tap on a card that
- * is only peeking means that card, not what is under the finger, and the end of
- * a swipe is not a tap at all, so both are stopped before they reach the card
- * or its controls. The dots and the count sit outside every sleeve for the same
- * reason.
+ * The track is useSnapCarousel's, centred: the browser scrolls it, the slide
+ * nearest its centre is the selected one, and a tap on a card that is only
+ * peeking, or the end of a swipe, never reaches the card or its controls. The
+ * dots and the count sit outside every sleeve for the same reason.
  */
 const CardCarousel: React.FC<{
     cards: DonateMethod[];
@@ -327,118 +317,10 @@ const CardCarousel: React.FC<{
     onQr: QrOpener;
 }> = ({ cards, compact, qrId, onQr }) => {
     const { t } = useTranslation();
-    const track = useRef<HTMLDivElement>(null);
-    const [active, setActive] = useState(0);
-    const [dragging, setDragging] = useState(false);
-    const settledAt = useRef(0);
-    const drag = useRef<{
-        x: number;
-        y: number;
-        left: number;
-        pointer: number;
-        moving: boolean;
-    } | null>(null);
-
-    const slides = () =>
-        Array.from(track.current?.querySelectorAll<HTMLElement>('[data-slide]') ?? []);
-
-    const nearest = () => {
-        const box = track.current?.getBoundingClientRect();
-        if (!box) return 0;
-        const centre = box.left + box.width / 2;
-        const distances = slides().map((slide) => {
-            const rect = slide.getBoundingClientRect();
-            return Math.abs(rect.left + rect.width / 2 - centre);
-        });
-        return distances.indexOf(Math.min(...distances));
-    };
-
-    const go = (index: number) => {
-        const all = slides();
-        const target = all[index];
-        if (!target) return;
-        track.current?.scrollTo({
-            left: target.offsetLeft - all[0].offsetLeft,
-            behavior: 'smooth',
-        });
-    };
-
-    const onScroll = () => {
-        settledAt.current = performance.now() + SCROLL_SETTLE_MS;
-        const next = nearest();
-        if (next === active) return;
-        // Focus left behind would sit on a slide that has just been hidden.
-        const all = slides();
-        if (all[active]?.contains(document.activeElement)) {
-            all[next]?.querySelector('button')?.focus({ preventScroll: true });
-        }
-        setActive(next);
-    };
-
-    const onClickCapture = (event: React.MouseEvent) => {
-        const slide = (event.target as Element).closest<HTMLElement>('[data-slide]');
-        if (!slide) return;
-        const index = Number(slide.dataset.slide);
-        const moving = performance.now() < settledAt.current;
-        if (!moving && index === active) return;
-        // Prevented for the link, stopped for the card.
-        event.preventDefault();
-        event.stopPropagation();
-        if (!moving) go(index);
-    };
-
-    const onKeyDown = (event: React.KeyboardEvent) => {
-        const target = {
-            ArrowLeft: active - 1,
-            ArrowRight: active + 1,
-            Home: 0,
-            End: cards.length - 1,
-        }[event.key];
-        if (target === undefined) return;
-        event.preventDefault();
-        go(target);
-    };
-
-    // A mouse has no swipe of its own, so its drag is laid over the same track.
-    const onPointerDown = (event: React.PointerEvent) => {
-        if (event.pointerType !== 'mouse' || event.button !== 0) return;
-        drag.current = {
-            x: event.clientX,
-            y: event.clientY,
-            left: track.current?.scrollLeft ?? 0,
-            pointer: event.pointerId,
-            moving: false,
-        };
-    };
-
-    const onPointerMove = (event: React.PointerEvent) => {
-        const state = drag.current;
-        const element = track.current;
-        if (!state || !element) return;
-        const dx = event.clientX - state.x;
-        const dy = event.clientY - state.y;
-        if (!state.moving) {
-            if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > DRAG_THRESHOLD) {
-                drag.current = null;
-                return;
-            }
-            if (Math.abs(dx) <= DRAG_THRESHOLD) return;
-            state.moving = true;
-            element.setPointerCapture(state.pointer);
-            setDragging(true);
-        }
-        event.preventDefault();
-        element.scrollLeft = state.left - dx;
-    };
-
-    const onPointerEnd = () => {
-        const state = drag.current;
-        drag.current = null;
-        if (!state?.moving) return;
-        setDragging(false);
-        settledAt.current = performance.now() + DRAG_SETTLE_MS;
-        go(nearest());
-    };
+    const { trackRef, active, dragging, go, trackProps } = useSnapCarousel({
+        count: cards.length,
+        align: 'center',
+    });
 
     return (
         <section
@@ -456,18 +338,11 @@ const CardCarousel: React.FC<{
             className="w-[min(calc(100%+1.5rem),384px)] min-w-0 shrink-0"
         >
             <div
-                ref={track}
+                ref={trackRef}
                 role="group"
                 tabIndex={0}
                 aria-label={t('donateCarouselHint')}
-                onScroll={onScroll}
-                onClickCapture={onClickCapture}
-                onKeyDown={onKeyDown}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerEnd}
-                onPointerCancel={onPointerEnd}
-                onLostPointerCapture={onPointerEnd}
+                {...trackProps}
                 className={cn(
                     'flex gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain py-1',
                     'touch-pan-x touch-pan-y [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
