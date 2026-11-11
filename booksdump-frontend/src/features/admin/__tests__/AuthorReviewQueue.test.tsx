@@ -1272,6 +1272,12 @@ describe('stale modal state and delayed responses', () => {
             await confirmDialog();
             fireEvent.click(screen.getByRole('button', { name: 'Close' }));
             await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+            // The queue reads the focused row for its own inline evidence once
+            // the focus rests (a 150 ms debounce from the list load). Let that
+            // read land first: otherwise it races the baseline below and is
+            // counted as a refresh the closed modal never sent.
+            const row = screen.getByRole('listitem', { name: 'Fixture Display A' });
+            await within(row).findByRole('heading', { name: 'In the file' });
             const readsBefore = api.getAuthorReviewItem.mock.calls.length;
 
             await act(async () => {
