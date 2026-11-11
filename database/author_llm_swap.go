@@ -161,7 +161,7 @@ type AuthorLLMSwapSource struct {
 
 // AuthorLLMSwapSources lists the inputs a swap candidate may be: every
 // current author credit of the fingerprint selected automatically on one
-// structured_person result, and no override, no admin decision and no other
+// structured_person result, and no unrevoked override, no admin decision and no other
 // selection on the fingerprint (a manual decision is never touched).
 func AuthorLLMSwapSources(ctx context.Context, db pg.DBI) ([]AuthorLLMSwapSource, error) {
 	var rows []AuthorLLMSwapSource
@@ -195,7 +195,7 @@ func AuthorLLMSwapSources(ctx context.Context, db pg.DBI) ([]AuthorLLMSwapSource
 					WHERE o.source_fingerprint = p.source_fingerprint
 						AND (o.override_id IS NOT NULL OR o.decided_by_user_id IS NOT NULL))
 				AND NOT EXISTS (SELECT 1 FROM contributor_manual_override m
-					WHERE m.source_fingerprint = p.source_fingerprint)
+					WHERE m.source_fingerprint = p.source_fingerprint AND m.revoked_at IS NULL)
 			ORDER BY p.source_fingerprint, p.extractor_version`)
 		return err
 	})

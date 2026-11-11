@@ -905,7 +905,8 @@ func LinkedBooksOfFingerprint(ctx context.Context, db pg.DBI, fingerprint []byte
 }
 
 // FlagManualSchemaIncompatibility opens a review item — reason
-// incompatible_manual_schema — for every scope whose active override selects
+// incompatible_manual_schema — for every scope whose active (newest
+// unrevoked) override selects
 // a manual result written under a different result schema version than
 // currentSchemaVersion (contract 3.11: the old result stays in history, the
 // decision is flagged for review, not rewritten). Manual rows are immutable,
@@ -920,6 +921,7 @@ func FlagManualSchemaIncompatibility(ctx context.Context, db pg.DBI, currentSche
 			SELECT DISTINCT ON (coalesce(scope_credit_id, 0), coalesce(scope_fingerprint, '\x'::bytea))
 				scope_credit_id, scope_fingerprint, source_fingerprint, result_id
 			FROM contributor_manual_override
+			WHERE revoked_at IS NULL
 			ORDER BY coalesce(scope_credit_id, 0), coalesce(scope_fingerprint, '\x'::bytea), id DESC
 		)
 		INSERT INTO contributor_review_item (scope_credit_id, scope_fingerprint, source_fingerprint, reason, proposal_result_id)

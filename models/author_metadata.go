@@ -523,7 +523,9 @@ type ContributorNormalizationResult struct {
 
 // ContributorManualOverride is an immutable manual decision for exactly one
 // scope: ScopeCreditID or ScopeFingerprint. SourceFingerprint is the source
-// it is about; CreditRole and ResultMethod are fixed by the schema.
+// it is about; CreditRole and ResultMethod are fixed by the schema. A revoked
+// override (RevokedAt set, once, by RevokedByUserID) is history: it selects
+// nothing, and the newest unrevoked override of a scope is the active one.
 type ContributorManualOverride struct {
 	tableName         struct{}            `pg:"contributor_manual_override"`
 	ID                int64               `pg:"id,pk"`
@@ -535,6 +537,8 @@ type ContributorManualOverride struct {
 	ResultMethod      NormalizationMethod `pg:"result_method,default:'manual'"`
 	CreatedByUserID   int64               `pg:"created_by_user_id"`
 	CreatedAt         time.Time           `pg:"created_at,default:now()"`
+	RevokedAt         *time.Time          `pg:"revoked_at"`
+	RevokedByUserID   *int64              `pg:"revoked_by_user_id"`
 }
 
 // BookContributorCreditSelection is where one author credit stands: selected,

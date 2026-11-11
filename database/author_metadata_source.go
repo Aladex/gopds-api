@@ -469,14 +469,15 @@ func lockForNewCredits(ctx context.Context, conn pg.DBI, extractorVersion string
 	return lockAuthorInputs(ctx, conn, extractorVersion, rows)
 }
 
-// ActiveOverrideForFingerprint returns the newest fingerprint-scoped manual
-// override for the exact source fingerprint, or nil when none exists: it
+// ActiveOverrideForFingerprint returns the newest unrevoked fingerprint-scoped
+// manual override for the exact source fingerprint, or nil when none exists: it
 // applies to credits written after it, and any source change produces another
 // fingerprint that does not inherit it (contract 3.11).
 func ActiveOverrideForFingerprint(conn pg.DBI, fingerprint []byte) (*models.ContributorManualOverride, error) {
 	override := new(models.ContributorManualOverride)
 	err := conn.Model(override).
 		Where("scope_fingerprint = ?", fingerprint).
+		Where("revoked_at IS NULL").
 		Order("id DESC").
 		Limit(1).
 		Select()
@@ -491,7 +492,8 @@ func ActiveOverrideForFingerprint(conn pg.DBI, fingerprint []byte) (*models.Cont
 
 // ActiveOverrideForCredit returns the credit's active manual override: a
 // credit-scoped override wins over a fingerprint-scoped one (contract 3.11
-// precedence). nil, nil when the credit has none.
+// precedence), and a revoked override of either scope is no override. nil,
+// nil when the credit has none.
 func ActiveOverrideForCredit(conn pg.DBI, creditID int64) (*models.ContributorManualOverride, error) {
 	credit := new(models.BookContributorCredit)
 	err := conn.Model(credit).Where("id = ?", creditID).Select()
@@ -505,6 +507,7 @@ func ActiveOverrideForCredit(conn pg.DBI, creditID int64) (*models.ContributorMa
 	override := new(models.ContributorManualOverride)
 	err = conn.Model(override).
 		Where("scope_credit_id = ?", creditID).
+		Where("revoked_at IS NULL").
 		Order("id DESC").
 		Limit(1).
 		Select()

@@ -183,6 +183,9 @@ func TestNormalizationSchemaRelationsAndIndexes(t *testing.T) {
 		"author_llm_token_tally", "author_llm_job", "author_llm_attempt", "author_llm_provider_state",
 		"author_llm_verdict", "author_llm_canary_run", "author_llm_eval_skip", "author_llm_resolve_report",
 		"author_llm_relearn", "author_llm_eval_adjudication", "author_llm_merge_input",
+		// Migration 84's review triage batch: a batch of review decisions, not
+		// a provider Batch.
+		"author_review_triage_batch",
 	}, llm)
 }
 
@@ -343,7 +346,8 @@ func TestNormalizationHistoryIsImmutable(t *testing.T) {
 		fp := fingerprint(32, 0x34)
 		result := f.result(manualRow(fp, actor))
 		override := f.returningID(overrideInsert, nil, fp, fp, result, actor)
-		f.requireImmutable("contributor_manual_override", override)
+		// Migration 84: a revoke is the one change (TestOverrideRevokeIsTheOnlyChange).
+		f.requireImmutable("contributor_manual_override", override, "revoked_at", "revoked_by_user_id")
 	})
 
 	t.Run("acceptance class", func(t *testing.T) {
@@ -384,9 +388,11 @@ func TestNormalizationHistoryIsImmutable(t *testing.T) {
 			got[r.TriggerName] = r.FunctionName + "(" + strings.TrimSuffix(r.TriggerArgs, ",") + ")"
 		}
 		assert.Equal(t, map[string]string{
-			"author_acceptance_class_immutable":             "author_metadata_reject_mutation()",
-			"contributor_normalization_result_immutable":    "author_metadata_reject_mutation()",
-			"contributor_manual_override_immutable":         "author_metadata_reject_mutation()",
+			"author_acceptance_class_immutable":          "author_metadata_reject_mutation()",
+			"contributor_normalization_result_immutable": "author_metadata_reject_mutation()",
+			"contributor_manual_override_immutable": "author_metadata_reject_mutation(" +
+				"revoked_at,revoked_by_user_id)",
+			"contributor_manual_override_revoke_once":       "contributor_manual_override_revoke_once()",
 			"book_contributor_credit_selection_consistency": "book_contributor_credit_selection_check()",
 			"book_contributor_credit_selection_identity": "author_metadata_reject_mutation(" +
 				"state,result_id,basis,override_id,policy_version,unresolved_reason,decided_by_user_id,decided_at)",
