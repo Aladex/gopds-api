@@ -218,7 +218,10 @@ func (l *AuthorReviewTriageLoop) failPlan(ctx context.Context, batchID int64, cl
 // work decides or undoes one chunk of the batch, then rests a pause; with
 // nothing left the batch is applied. A build of the author entities reads
 // the credits a decision moves and refuses a pass whose input moved, so
-// while one runs nothing is decided.
+// while one runs nothing is decided. Every item checks in its own
+// transaction that the batch still works: one an administrator stopped ends
+// the chunk there, also for the items already read. A long chunk records its
+// progress, which renews the lease, every third of a lease.
 func (l *AuthorReviewTriageLoop) work(ctx context.Context, batch *database.TriageBatch) (bool, error) {
 	build, err := database.ActiveAuthorEntityBuild(ctx, l.db)
 	if err != nil {
@@ -240,6 +243,7 @@ func (l *AuthorReviewTriageLoop) work(ctx context.Context, batch *database.Triag
 		return true, database.FinishTriageBatch(ctx, l.db, batch.ID, l.owner)
 	}
 	done := 0
+	recorded := time.Now()
 	for i := range items {
 		if ctx.Err() != nil {
 			break
@@ -249,10 +253,23 @@ func (l *AuthorReviewTriageLoop) work(ctx context.Context, batch *database.Triag
 		} else {
 			err = l.applyItem(ctx, batch, &items[i])
 		}
+		if errors.Is(err, database.ErrTriageStopped) {
+			LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+				Name: AuthorMetadataEventTriageStopped, Stage: AuthorMetadataStageReviewTriage, RunID: batch.ID,
+				Worker: authorReviewTriageName,
+			})
+			return false, nil
+		}
 		if err != nil {
 			return false, err
 		}
 		done++
+		if time.Since(recorded) >= l.cfg.Lease/3 {
+			if pErr := database.ProgressTriageBatch(ctx, l.db, batch.ID, l.owner, l.cfg.Lease, done); pErr != nil {
+				return false, pErr
+			}
+			done, recorded = 0, time.Now()
+		}
 	}
 	if pErr := database.ProgressTriageBatch(ctx, l.db, batch.ID, l.owner, l.cfg.Lease, done); pErr != nil {
 		return false, pErr
@@ -264,10 +281,22 @@ func (l *AuthorReviewTriageLoop) work(ctx context.Context, batch *database.Triag
 // errTriagePinned: the fingerprint was pinned by hand after the dry run.
 var errTriagePinned = errors.New("services: the fingerprint is pinned by hand")
 
-// timeouts bounds every statement of one item's transaction.
-func (l *AuthorReviewTriageLoop) timeouts(ctx context.Context, tx *pg.Tx) error {
-	_, err := tx.ExecContext(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d; SET LOCAL statement_timeout = %d`,
-		l.cfg.LockTimeout.Milliseconds(), l.cfg.StatementTimeout.Milliseconds()))
+// errTriageBatchUnchecked: an item's transaction could not read its batch;
+// the item is left as it is and the chunk ends.
+var errTriageBatchUnchecked = errors.New("services: the triage batch could not be checked")
+
+// begin bounds every statement of one item's transaction, then checks that
+// the batch is still in status and holds it there until the transaction
+// ends (database.CheckTriageBatch).
+func (l *AuthorReviewTriageLoop) begin(ctx context.Context, tx *pg.Tx, batchID int64, status string) error {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d; SET LOCAL statement_timeout = %d`,
+		l.cfg.LockTimeout.Milliseconds(), l.cfg.StatementTimeout.Milliseconds())); err != nil {
+		return fmt.Errorf("%w: %w", errTriageBatchUnchecked, err)
+	}
+	err := database.CheckTriageBatch(ctx, tx, batchID, status)
+	if err != nil && !errors.Is(err, database.ErrTriageStopped) {
+		return fmt.Errorf("%w: %w", errTriageBatchUnchecked, err)
+	}
 	return err
 }
 
@@ -275,15 +304,15 @@ func (l *AuthorReviewTriageLoop) timeouts(ctx context.Context, tx *pg.Tx) error 
 // review service, as the administrator who asked for the apply, and logs
 // it. An item that changed since the dry run is skipped: decided or retried
 // by hand (conflict), another proposal or a new pin (skipped_changed). Any
-// other error fails only this item. Only a lost lease or a shutdown stops
-// the chunk.
+// other error fails only this item. A stopped batch, a batch that cannot be
+// checked or a shutdown leave the item planned and stop the chunk.
 func (l *AuthorReviewTriageLoop) applyItem(ctx context.Context, batch *database.TriageBatch, item *database.TriageWorkItem) error {
 	decision, err := triageDecision(item)
 	if err == nil {
 		_, err = l.review.DecideWithin(ctx, item.ReviewItemID, deref(batch.ApplyRequestedByUserID), decision, DecideHooks{
 			Before: func(tx *pg.Tx) error {
-				if tErr := l.timeouts(ctx, tx); tErr != nil {
-					return tErr
+				if bErr := l.begin(ctx, tx, batch.ID, database.TriageBatchApplying); bErr != nil {
+					return bErr
 				}
 				pinned, pErr := database.FingerprintPinned(ctx, tx, item.Fingerprint)
 				if pErr != nil {
@@ -304,6 +333,8 @@ func (l *AuthorReviewTriageLoop) applyItem(ctx context.Context, batch *database.
 	case err == nil:
 	case ctx.Err() != nil:
 		return ctx.Err()
+	case errors.Is(err, database.ErrTriageStopped), errors.Is(err, errTriageBatchUnchecked):
+		return err
 	case errors.Is(err, database.ErrTriageItemTaken):
 		return nil
 	case errors.Is(err, database.ErrReviewConflict), errors.Is(err, database.ErrReviewNotFound):
@@ -350,12 +381,13 @@ func triageDecision(item *database.TriageWorkItem) (database.ReviewDecision, err
 // transaction with its log row. An override that is gone (the book was
 // deleted with it, or it was revoked) is gone; credits read under another
 // extractor version since block it until the next undo request; anything
-// else fails only this item.
+// else fails only this item. A stopped batch, one that cannot be checked or
+// a shutdown leave the item as it is and stop the chunk.
 func (l *AuthorReviewTriageLoop) undoItem(ctx context.Context, batch *database.TriageBatch, item *database.TriageWorkItem) error {
 	actor := deref(batch.UndoRequestedByUserID)
 	var outcome string
 	err := l.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		if err := l.timeouts(ctx, tx); err != nil {
+		if err := l.begin(ctx, tx, batch.ID, database.TriageBatchUndoing); err != nil {
 			return err
 		}
 		if item.OverrideID == nil {
@@ -376,6 +408,8 @@ func (l *AuthorReviewTriageLoop) undoItem(ctx context.Context, batch *database.T
 	case err == nil:
 	case ctx.Err() != nil:
 		return ctx.Err()
+	case errors.Is(err, database.ErrTriageStopped), errors.Is(err, errTriageBatchUnchecked):
+		return err
 	case errors.Is(err, database.ErrTriageItemTaken):
 		return nil
 	case errors.Is(err, database.ErrOverrideNotFound), errors.Is(err, database.ErrOverrideRevoked):

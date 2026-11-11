@@ -75,6 +75,15 @@ func (f *fakeTriage) Undo(_ context.Context, _, actor int64, step int16) (int, e
 	return 4, f.err
 }
 
+func (f *fakeTriage) Stop(_ context.Context, id, actor int64) (*database.TriageBatch, error) {
+	f.record("stop")
+	f.actor = actor
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &database.TriageBatch{ID: id, Status: database.TriageBatchStopped, AppliedSteps: []int16{}}, nil
+}
+
 const triageBase = "/api/admin/author-metadata/triage"
 
 func triageRouter(svc AuthorReviewTriageService) *gin.Engine {
@@ -133,6 +142,7 @@ func TestTriageRoutesNeedAdmin(t *testing.T) {
 		{http.MethodGet, triageBase + "/batches/3/audit-sample", http.StatusOK},
 		{http.MethodPost, triageBase + "/batches/3/apply", http.StatusAccepted},
 		{http.MethodPost, triageBase + "/batches/3/undo", http.StatusAccepted},
+		{http.MethodPost, triageBase + "/batches/3/stop", http.StatusOK},
 	}
 	user := adminSession(t, false)
 	for _, route := range routes {
@@ -142,7 +152,7 @@ func TestTriageRoutesNeedAdmin(t *testing.T) {
 	}
 	assert.Empty(t, svc.calls, "a non-admin reached the service")
 	admin := adminSession(t, true)
-	for _, path := range []string{"/batches", "/batches/3/apply", "/batches/3/undo"} {
+	for _, path := range []string{"/batches", "/batches/3/apply", "/batches/3/undo", "/batches/3/stop"} {
 		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, triageBase+path, admin, false),
 			"%s checks the CSRF pair", path)
 	}
@@ -247,4 +257,36 @@ func TestTriageApplyAndUndoAnswers(t *testing.T) {
 	svc.err = database.ErrTriageBatchState
 	rec = csrfRequest(t, r, http.MethodPost, triageBase+"/batches/3/undo", `{"step":0}`)
 	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestTriageStopAnswers(t *testing.T) {
+	svc := &fakeTriage{}
+	r := triageRouter(svc)
+	rec := csrfRequest(t, r, http.MethodPost, triageBase+"/batches/3/stop", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, adminActorID, svc.actor)
+	var got struct {
+		Batch database.TriageBatch `json:"batch"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	assert.Equal(t, int64(3), got.Batch.ID)
+	assert.Equal(t, database.TriageBatchStopped, got.Batch.Status)
+
+	rec = csrfRequest(t, r, http.MethodPost, triageBase+"/batches/x/stop", "")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, []string{"stop"}, svc.calls, "a bad ID reaches no service")
+	for _, c := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{database.ErrTriageBatchState, http.StatusConflict, "batch_state"},
+		{database.ErrTriageBatchNotFound, http.StatusNotFound, "batch_not_found"},
+		{errors.New("boom"), http.StatusInternalServerError, "internal_error"},
+	} {
+		svc.err = c.err
+		rec = csrfRequest(t, r, http.MethodPost, triageBase+"/batches/3/stop", "")
+		assert.Equal(t, c.status, rec.Code, c.code)
+		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, c.code), rec.Body.String())
+	}
 }

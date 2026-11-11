@@ -386,14 +386,18 @@ func TestApplyResumesAfterLeaseLoss(t *testing.T) {
 	require.True(t, worked)
 	assert.ErrorIs(t, database.ProgressTriageBatch(e.ctx, e.db, batch.ID, first.owner, defaultTriageLease, 1),
 		database.ErrTriageLeaseLost, "the first worker's progress is refused")
+	view, err := database.ReadTriageBatch(e.ctx, e.db, batch.ID)
+	require.NoError(t, err)
+	require.Equal(t, database.TriageBatchApplying, view.Batch.Status)
+	for i := range stale {
+		require.NoError(t, first.applyItem(e.ctx, &view.Batch, &stale[i]), "the first worker's stale chunk")
+	}
 	done := e.drain(second, batch.ID)
 	assert.Equal(t, database.TriageBatchApplied, done.Status)
 	assert.Equal(t, 4, done.ItemsDone)
-
-	view, err := database.ReadTriageBatch(e.ctx, e.db, batch.ID)
-	require.NoError(t, err)
 	for i := range stale {
-		require.NoError(t, first.applyItem(e.ctx, &view.Batch, &stale[i]), "the first worker's stale chunk")
+		assert.ErrorIs(t, first.applyItem(e.ctx, &view.Batch, &stale[i]), database.ErrTriageStopped,
+			"no item starts once the batch ended")
 	}
 	rows := e.rowsOf(batch.ID)
 	for _, s := range []triageSeed{set.fourModel, set.edit, set.classify, set.accept} {

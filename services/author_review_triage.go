@@ -347,6 +347,21 @@ func (a *AuthorReviewTriageAdmin) Undo(ctx context.Context, id, actor int64, ste
 	return database.RequestTriageUndo(ctx, a.db, id, actor, step)
 }
 
+// Stop stops an applying or undoing batch for good: when it returns, no
+// item starts any more. The item in flight commits or rolls back first.
+// What was applied stays and can be undone; the rest stays planned.
+func (a *AuthorReviewTriageAdmin) Stop(ctx context.Context, id, actor int64) (*database.TriageBatch, error) {
+	batch, err := database.StopTriageBatch(ctx, a.db, id, actor)
+	if err != nil {
+		return nil, err
+	}
+	LogAuthorMetadataEvent(AuthorMetadataEventInfo, &AuthorMetadataEvent{
+		Name: AuthorMetadataEventTriageStopped, Stage: AuthorMetadataStageReviewTriage, RunID: id,
+		Count: batch.ItemsDone,
+	})
+	return batch, nil
+}
+
 // Audit sample pools.
 const (
 	TriagePoolSample  = "sample"

@@ -16,9 +16,9 @@ import (
 
 // The review triage of the author review queue (design/review-triage): a dry
 // run that plans a decision for every open item, the plan's table, and the
-// audit sample to label. Admin only: the group is mounted behind
-// AdminMiddleware; the start of a dry run checks the double-submit CSRF
-// token. The dry run goes on in the background; a second one while a batch
+// audit sample to label, the apply, its stop and its undo. Admin only: the
+// group is mounted behind AdminMiddleware; every POST checks the
+// double-submit CSRF token. The dry run goes on in the background; a second one while a batch
 // works is a 409 active_run_exists.
 
 // AuthorReviewTriageService is what the triage handlers need;
@@ -30,6 +30,7 @@ type AuthorReviewTriageService interface {
 	AuditSample(ctx context.Context, id int64) ([]database.TriageAuditRow, error)
 	Apply(ctx context.Context, id, actor int64) error
 	Undo(ctx context.Context, id, actor int64, step int16) (int, error)
+	Stop(ctx context.Context, id, actor int64) (*database.TriageBatch, error)
 }
 
 // Error codes of the triage routes.
@@ -78,6 +79,10 @@ func (unavailableReviewTriage) Undo(context.Context, int64, int64, int16) (int, 
 	return 0, errAuthorReviewTriageUnavailable
 }
 
+func (unavailableReviewTriage) Stop(context.Context, int64, int64) (*database.TriageBatch, error) {
+	return nil, errAuthorReviewTriageUnavailable
+}
+
 // reviewTriageHandler serves the triage routes.
 type reviewTriageHandler struct {
 	svc func() AuthorReviewTriageService
@@ -94,6 +99,7 @@ func SetupAuthorReviewTriageRoutes(r *gin.RouterGroup, svc func() AuthorReviewTr
 	r.GET("/batches/:id/audit-sample", h.auditSample)
 	r.POST("/batches/:id/apply", middlewares.CSRFMiddleware(), h.apply)
 	r.POST("/batches/:id/undo", middlewares.CSRFMiddleware(), h.undo)
+	r.POST("/batches/:id/stop", middlewares.CSRFMiddleware(), h.stop)
 }
 
 // abortTriageError answers an error with its closed code; anything unknown
@@ -225,7 +231,8 @@ const triageMaxStep = 8
 // undo godoc
 // @Summary Undo a step, or the whole batch, of an applied triage batch
 // @Description Instant; the worker revokes the batch's overrides in the background and the items reopen.
-// @Description A blocked or failed undo is asked again; a gone one is not. 409 batch_state: nothing to undo.
+// @Description A blocked or failed undo is asked again; a gone one is not. A stopped batch undoes what it
+// @Description applied. 409 batch_state: nothing to undo.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Batch ID"
@@ -250,6 +257,30 @@ func (h *reviewTriageHandler) undo(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{jsonKeyMarked: marked})
+}
+
+// stop godoc
+// @Summary Stop an applying or undoing triage batch
+// @Description Waits for the item in flight to commit or roll back; once answered, no item starts any more,
+// @Description after a restart neither. What was applied stays and can be undone; the rest stays planned.
+// @Description 409 batch_state: the batch does not apply or undo.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Batch ID"
+// @Produce json
+// @Success 200 {object} map[string]database.TriageBatch
+// @Router /api/admin/author-metadata/triage/batches/{id}/stop [post]
+func (h *reviewTriageHandler) stop(c *gin.Context) {
+	id, actor, ok := triageWrite(c)
+	if !ok {
+		return
+	}
+	batch, err := h.svc().Stop(c.Request.Context(), id, actor)
+	if err != nil {
+		abortTriageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyBatch: batch})
 }
 
 // triageWrite reads the batch ID and the administrator of a write; false

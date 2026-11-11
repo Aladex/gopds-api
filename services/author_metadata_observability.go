@@ -193,10 +193,13 @@ const (
 	// its plan (RunID: the batch, Count: its items); Item: the apply or the
 	// undo of one item ended (RunID, ReviewItemID, Status: its outcome,
 	// SQLState of a failure); Failed: a batch failed (Error, RunID) or a
-	// step of the worker failed and is retried (Warn).
+	// step of the worker failed and is retried (Warn); Stopped: an
+	// administrator stopped a batch (RunID; logged by the admin request, and
+	// by the worker that found it stopped mid-chunk).
 	AuthorMetadataEventTriagePlanned AuthorMetadataEventName = "author_metadata.triage_planned"
 	AuthorMetadataEventTriageItem    AuthorMetadataEventName = "author_metadata.triage_item"
 	AuthorMetadataEventTriageFailed  AuthorMetadataEventName = "author_metadata.triage_failed"
+	AuthorMetadataEventTriageStopped AuthorMetadataEventName = "author_metadata.triage_stopped"
 )
 
 // AuthorMetadataEventNames lists every event.
@@ -240,6 +243,7 @@ func AuthorMetadataEventNames() []AuthorMetadataEventName {
 		AuthorMetadataEventAutopilotBuildStarted, AuthorMetadataEventAutopilotMergeStarted,
 		AuthorMetadataEventAutopilotStepFailed, AuthorMetadataEventAutopilotSwitched,
 		AuthorMetadataEventTriagePlanned, AuthorMetadataEventTriageItem, AuthorMetadataEventTriageFailed,
+		AuthorMetadataEventTriageStopped,
 	}
 }
 

@@ -23,6 +23,9 @@ var (
 	ErrTriageBatchState  = errors.New("database: the triage batch is not in a state that allows this")
 	// ErrTriageLeaseLost: another worker holds the batch now.
 	ErrTriageLeaseLost = errors.New("database: the triage batch's lease is held by another worker")
+	// ErrTriageStopped: the batch no longer applies or undoes: an
+	// administrator stopped it, or it ended.
+	ErrTriageStopped = errors.New("database: the triage batch was stopped")
 )
 
 // Triage batch statuses.
@@ -34,6 +37,7 @@ const (
 	TriageBatchUndoing    = "undoing"
 	TriageBatchFailed     = "failed"
 	TriageBatchSuperseded = "superseded"
+	TriageBatchStopped    = "stopped"
 )
 
 // Triage item outcomes.
@@ -76,11 +80,14 @@ type TriageBatch struct {
 	ItemsTotal             int             `pg:"items_total,use_zero" json:"items_total"`
 	ItemsDone              int             `pg:"items_done,use_zero" json:"items_done"`
 	Failure                string          `pg:"failure" json:"failure,omitempty"`
+	StopRequestedByUserID  *int64          `pg:"stop_requested_by_user_id" json:"stop_requested_by_user_id,omitempty"`
+	StopRequestedAt        *time.Time      `pg:"stop_requested_at" json:"stop_requested_at,omitempty"`
 }
 
 const triageBatchColumns = `id, rule_version, status, created_by_user_id, created_at, planned_at,
 	apply_requested_at, undo_requested_at, finished_at, apply_requested_by_user_id, undo_requested_by_user_id,
-	applied_steps, audit, counts, items_total, items_done, coalesce(failure, '') AS failure`
+	applied_steps, audit, counts, items_total, items_done, coalesce(failure, '') AS failure,
+	stop_requested_by_user_id, stop_requested_at`
 
 // TriagePlanItem is one open review item with the plan a dry run made for
 // it. Step 0 is no step: the item is left or excluded.
@@ -557,11 +564,12 @@ func RequestTriageApply(
 	return err
 }
 
-// RequestTriageUndo hands an applied batch to the worker to undo the applied
-// items of step, or of every step when step is 0: those whose override is
-// not revoked yet and that are not gone. A blocked or failed undo is
-// therefore asked again; a gone one never is. It returns how many items it
-// marked; none is ErrTriageBatchState.
+// RequestTriageUndo hands an applied or stopped batch to the worker to undo
+// the applied items of step, or of every step when step is 0: those whose
+// override is not revoked yet and that are not gone. A blocked or failed undo
+// is therefore asked again; a gone one never is. A stopped apply undoes what
+// it applied and never touches what it left planned. It returns how many
+// items it marked; none is ErrTriageBatchState.
 func RequestTriageUndo(ctx context.Context, db *pg.DB, batchID, actor int64, step int16) (int, error) {
 	if actor <= 0 || step < 0 {
 		return 0, ErrTriageBatchState
@@ -572,7 +580,7 @@ func RequestTriageUndo(ctx context.Context, db *pg.DB, batchID, actor int64, ste
 		switch {
 		case err != nil:
 			return err
-		case batch.Status != TriageBatchApplied:
+		case batch.Status != TriageBatchApplied && batch.Status != TriageBatchStopped:
 			return ErrTriageBatchState
 		}
 		res, err := tx.ExecContext(ctx, `
@@ -713,18 +721,79 @@ func ProgressTriageBatch(
 	return nil
 }
 
-// FinishTriageBatch ends owner's apply or undo: the batch is applied.
+// FinishTriageBatch ends owner's apply or undo: the batch is applied, or
+// stopped again when it is the undo of a stopped apply (items it never
+// reached are still planned).
 func FinishTriageBatch(ctx context.Context, db pg.DBI, batchID int64, owner uuid.UUID) error {
 	res, err := db.ExecContext(ctx, `
-		UPDATE public.author_review_triage_batch
-		SET status = 'applied', items_done = items_total, finished_at = now(), lease_owner = NULL,
-			lease_until = NULL
+		UPDATE public.author_review_triage_batch b
+		SET status = CASE WHEN EXISTS (SELECT 1 FROM public.author_review_triage_item t
+				WHERE t.batch_id = b.id AND t.outcome = 'planned') THEN 'stopped' ELSE 'applied' END,
+			items_done = items_total, finished_at = now(), lease_owner = NULL, lease_until = NULL
 		WHERE id = ? AND lease_owner = ? AND status IN ('applying', 'undoing')`, batchID, owner)
 	if err != nil {
 		return fmt.Errorf("finishing the triage batch: %w", err)
 	}
 	if res.RowsAffected() != 1 {
 		return ErrTriageLeaseLost
+	}
+	return nil
+}
+
+// StopTriageBatch stops an applying or undoing batch for good, as actor: no
+// worker takes it again and no item starts after it returns. It waits for
+// the item in flight, whose transaction holds the batch (CheckTriageBatch),
+// to commit or roll back. What was applied or undone stays; the rest stays
+// as it is, and progress counts what was done. ErrTriageBatchState: the batch
+// does not apply or undo.
+func StopTriageBatch(ctx context.Context, db *pg.DB, batchID, actor int64) (*TriageBatch, error) {
+	if actor <= 0 {
+		return nil, ErrTriageBatchState
+	}
+	var stopped []TriageBatch
+	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		batch, err := lockTriageBatch(ctx, tx, batchID)
+		switch {
+		case err != nil:
+			return err
+		case batch.Status != TriageBatchApplying && batch.Status != TriageBatchUndoing:
+			return ErrTriageBatchState
+		}
+		left := `outcome = 'planned'`
+		if batch.Status == TriageBatchUndoing {
+			left = `outcome = 'applied' AND undo_requested_at IS NOT NULL AND undo_outcome IS NULL`
+		}
+		_, err = tx.QueryContext(ctx, &stopped, `
+			UPDATE public.author_review_triage_batch
+			SET status = 'stopped', stop_requested_by_user_id = ?1, stop_requested_at = now(), lease_owner = NULL,
+				lease_until = NULL,
+				items_done = greatest(0, items_total - (SELECT count(*) FROM public.author_review_triage_item
+					WHERE batch_id = ?0 AND `+left+`))
+			WHERE id = ?0
+			RETURNING `+triageBatchColumns, batchID, actor)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &stopped[0], nil
+}
+
+// CheckTriageBatch is the first statement of an item's transaction: the
+// batch must still be in status, and it stays so until the item commits or
+// rolls back, since a stop waits for the share lock taken here.
+// ErrTriageStopped otherwise.
+func CheckTriageBatch(ctx context.Context, tx pg.DBI, batchID int64, status string) error {
+	var current string
+	_, err := tx.QueryOneContext(ctx, pg.Scan(&current), `
+		SELECT status FROM public.author_review_triage_batch WHERE id = ? FOR SHARE`, batchID)
+	switch {
+	case errors.Is(err, pg.ErrNoRows):
+		return ErrTriageStopped
+	case err != nil:
+		return fmt.Errorf("checking the triage batch: %w", err)
+	case current != status:
+		return ErrTriageStopped
 	}
 	return nil
 }
