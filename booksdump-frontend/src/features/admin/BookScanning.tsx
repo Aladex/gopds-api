@@ -93,6 +93,7 @@ const BookScanning: React.FC = () => {
     const llmMerge = useScanSource('llmMerge');
     const entity = useScanSource('entity');
     const merges = useScanSource('merges');
+    const reviewCounts = useScanSource('reviewCounts');
     const [searchParams, setSearchParams] = useSearchParams();
 
     const fixPercent = scan.fixScanStatus?.progress_percent ?? 0;
@@ -109,6 +110,7 @@ const BookScanning: React.FC = () => {
                     llmMerge: llmMerge.data,
                     entity: entity.data,
                     mergesUnanchored: merges.data?.unanchored ?? null,
+                    reviewCounts: reviewCounts.data,
                 },
                 new Date(),
             ),
@@ -125,6 +127,7 @@ const BookScanning: React.FC = () => {
             llmMerge.data,
             entity.data,
             merges.data,
+            reviewCounts.data,
         ],
     );
 

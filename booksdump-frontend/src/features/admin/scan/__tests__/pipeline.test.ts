@@ -634,3 +634,57 @@ describe('stageFromParams', () => {
         expect(stageFromParams(new URLSearchParams(query))).toBe(expected);
     });
 });
+
+describe('the human review from the queue counts', () => {
+    it('shows the important items as the figure and the singles in the reason', () => {
+        const NOW = new Date();
+        const p = derivePipeline(
+            { ...healthy(NOW), reviewCounts: { important: 3_650, singles: 9_409 } },
+            NOW,
+        );
+        expect(p.nodes.human).toMatchObject({ state: 'waiting', figure: 3_650 });
+        expect(p.nodes.human.reason).toEqual({
+            key: 'human.important',
+            values: { count: 3_650, singles: 9_409 },
+        });
+    });
+
+    it('reads the counts before the metadata run answers', () => {
+        const NOW = new Date();
+        const p = derivePipeline(
+            { ...healthy(NOW), metadataRun: null, reviewCounts: { important: 2, singles: 0 } },
+            NOW,
+        );
+        expect(p.nodes.human).toMatchObject({ state: 'waiting', figure: 2 });
+        expect(p.nodes.human.reason).toEqual({ key: 'human.open', values: { count: 2 } });
+    });
+
+    it('only singles left: nothing important waits, the singles still show', () => {
+        const NOW = new Date();
+        const p = derivePipeline(
+            { ...healthy(NOW), reviewCounts: { important: 0, singles: 9_409 } },
+            NOW,
+        );
+        expect(p.nodes.human).toMatchObject({ state: 'ok', figure: 0 });
+        expect(p.nodes.human.reason).toEqual({
+            key: 'human.singlesOnly',
+            values: { singles: 9_409 },
+        });
+    });
+
+    it('both empty is the empty queue', () => {
+        const NOW = new Date();
+        const p = derivePipeline(
+            { ...healthy(NOW), reviewCounts: { important: 0, singles: 0 } },
+            NOW,
+        );
+        expect(p.nodes.human).toMatchObject({ state: 'ok', figure: 0 });
+        expect(p.nodes.human.reason).toEqual({ key: 'human.empty' });
+    });
+
+    it('without counts the run figure stays', () => {
+        const NOW = new Date();
+        const p = derivePipeline({ ...healthy(NOW), reviewCounts: null }, NOW);
+        expect(p.nodes.human).toMatchObject({ state: 'waiting', figure: 13_023 });
+    });
+});

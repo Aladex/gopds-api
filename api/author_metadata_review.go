@@ -30,6 +30,8 @@ import (
 const (
 	jsonKeyItems = "items"
 	jsonKeyItem  = "item"
+	// jsonKeyCounts holds the open queue split by view.
+	jsonKeyCounts = "counts"
 )
 
 // Closed error codes of the review API beyond the shared ones.
@@ -38,6 +40,7 @@ const (
 	codeInvalidLimit    = "invalid_limit"
 	codeInvalidCursor   = "invalid_cursor"
 	codeInvalidOrder    = "invalid_order"
+	codeInvalidView     = "invalid_view"
 	codeInvalidScope    = "invalid_scope"
 	codeInvalidKind     = "invalid_kind"
 	codeInvalidResult   = "invalid_result"
@@ -164,6 +167,9 @@ type AuthorMetadataReviewListQuery struct {
 	Status string
 	// Order is reviewOrderCreated (the default) or reviewOrderCredits.
 	Order string
+	// View is reviewViewAll (the default), reviewViewImportant or
+	// reviewViewSingles.
+	View  string
 	Limit int
 	After *AuthorMetadataReviewCursor
 }
@@ -172,7 +178,9 @@ type AuthorMetadataReviewListQuery struct {
 // belongs to the order that issued it: CreatedAt for the created order,
 // Credits for the credits order; ID breaks ties in both.
 type AuthorMetadataReviewCursor struct {
-	Order     string
+	Order string
+	// View is the view that issued the cursor; "" reads as reviewViewAll.
+	View      string
 	CreatedAt time.Time
 	Credits   int64
 	ID        int64
@@ -184,11 +192,18 @@ type AuthorMetadataReviewListPage struct {
 	Next  *AuthorMetadataReviewCursor
 }
 
+// AuthorMetadataReviewCounts is the open queue split by view.
+type AuthorMetadataReviewCounts struct {
+	Important int64 `json:"important"`
+	Singles   int64 `json:"singles"`
+}
+
 // AuthorMetadataReviewService is what the handlers need from the review
 // side. Actions return only their error: the handler answers with the detail
 // of the item they decided, through the same shaping as GET /review/:id.
 type AuthorMetadataReviewService interface {
 	List(ctx context.Context, q AuthorMetadataReviewListQuery) (AuthorMetadataReviewListPage, error)
+	Counts(ctx context.Context) (AuthorMetadataReviewCounts, error)
 	Detail(ctx context.Context, itemID int64) (AuthorMetadataReviewDetail, error)
 	Accept(ctx context.Context, itemID, admin int64, scope string) error
 	Edit(ctx context.Context, itemID, admin int64, scope string, result AuthorMetadataReviewEditResult) error
@@ -218,6 +233,10 @@ type unavailableAuthorMetadataReviews struct{}
 
 func (unavailableAuthorMetadataReviews) List(context.Context, AuthorMetadataReviewListQuery) (AuthorMetadataReviewListPage, error) {
 	return AuthorMetadataReviewListPage{}, ErrAuthorMetadataReviewUnavailable
+}
+
+func (unavailableAuthorMetadataReviews) Counts(context.Context) (AuthorMetadataReviewCounts, error) {
+	return AuthorMetadataReviewCounts{}, ErrAuthorMetadataReviewUnavailable
 }
 
 func (unavailableAuthorMetadataReviews) Detail(context.Context, int64) (AuthorMetadataReviewDetail, error) {
@@ -292,8 +311,9 @@ type reviewListRow struct {
 	CreatedAt         time.Time
 }
 
-// reviewListRowsSQL is every enriched queue row of one status (?0); the two
-// orders below page over it.
+// reviewListRowsSQL is every enriched queue row of one status (?0) and one
+// view: ?4/?5 bound the name's current author credits from below and above,
+// NULL for no bound. The two orders below page over it.
 const reviewListRowsSQL = `SELECT i.id, i.scope_credit_id, i.source_fingerprint, i.reason, i.decision_class,
 		coalesce(p.display_name, src.display_name, '') AS display_name,
 		coalesce(src.display_name, '') AS source_display_name,
@@ -314,7 +334,9 @@ const reviewListRowsSQL = `SELECT i.id, i.scope_credit_id, i.source_fingerprint,
 		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id
 		WHERE c.source_fingerprint = i.source_fingerprint AND s.is_current AND c.role = 'author'
 	) cc ON true
-	WHERE i.status = ?0`
+	WHERE i.status = ?0
+		AND (?4::bigint IS NULL OR coalesce(cc.credits, 0) >= ?4)
+		AND (?5::bigint IS NULL OR coalesce(cc.credits, 0) <= ?5)`
 
 // reviewListSQL pages the queue oldest first: ?1/?2 is the (created_at, id)
 // of the previous page's last row, ?3 the page size.
@@ -338,13 +360,14 @@ func (a *authorMetadataReviewAdapter) List(
 ) (AuthorMetadataReviewListPage, error) {
 	var rows []reviewListRow
 	var err error
+	minCredits, maxCredits := reviewViewBounds(q.View)
 	if q.Order == reviewOrderCredits {
 		var after *int64
 		if q.After != nil {
 			after = &q.After.Credits
 		}
 		_, err = a.db.QueryContext(ctx, &rows, reviewListByCreditsSQL,
-			q.Status, after, cursorID(q.After), q.Limit)
+			q.Status, after, cursorID(q.After), q.Limit, minCredits, maxCredits)
 	} else {
 		var after *time.Time
 		if q.After != nil {
@@ -352,7 +375,7 @@ func (a *authorMetadataReviewAdapter) List(
 			after = &u
 		}
 		_, err = a.db.QueryContext(ctx, &rows, reviewListSQL,
-			q.Status, after, cursorID(q.After), q.Limit)
+			q.Status, after, cursorID(q.After), q.Limit, minCredits, maxCredits)
 	}
 	if err != nil {
 		return AuthorMetadataReviewListPage{}, fmt.Errorf("listing review items: %w", err)
@@ -364,12 +387,52 @@ func (a *authorMetadataReviewAdapter) List(
 	if len(rows) == q.Limit {
 		last := &rows[len(rows)-1]
 		if q.Order == reviewOrderCredits {
-			page.Next = &AuthorMetadataReviewCursor{Order: reviewOrderCredits, Credits: last.CreditsCount, ID: last.ID}
+			page.Next = &AuthorMetadataReviewCursor{
+				Order: reviewOrderCredits, View: q.View, Credits: last.CreditsCount, ID: last.ID,
+			}
 		} else {
-			page.Next = &AuthorMetadataReviewCursor{Order: reviewOrderCreated, CreatedAt: last.CreatedAt, ID: last.ID}
+			page.Next = &AuthorMetadataReviewCursor{
+				Order: reviewOrderCreated, View: q.View, CreatedAt: last.CreatedAt, ID: last.ID,
+			}
 		}
 	}
 	return page, nil
+}
+
+// reviewViewBounds is the view's credits range for reviewListRowsSQL; nil
+// is no bound.
+func reviewViewBounds(view string) (minCredits, maxCredits *int64) {
+	important, single := int64(reviewImportantMinCredits), int64(reviewImportantMinCredits-1)
+	switch view {
+	case reviewViewImportant:
+		return &important, nil
+	case reviewViewSingles:
+		return nil, &single
+	}
+	return nil, nil
+}
+
+// reviewCountsSQL splits the open queue by the views' credits bound (?0),
+// counting each name's current author credits as the list does.
+const reviewCountsSQL = `SELECT
+		count(*) FILTER (WHERE coalesce(cc.credits, 0) >= ?0) AS important,
+		count(*) FILTER (WHERE coalesce(cc.credits, 0) < ?0) AS singles
+	FROM contributor_review_item i
+	LEFT JOIN LATERAL (
+		SELECT count(*) AS credits
+		FROM book_contributor_credit c
+		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id
+		WHERE c.source_fingerprint = i.source_fingerprint AND s.is_current AND c.role = 'author'
+	) cc ON true
+	WHERE i.status = 'open'`
+
+// Counts splits the open queue by view.
+func (a *authorMetadataReviewAdapter) Counts(ctx context.Context) (AuthorMetadataReviewCounts, error) {
+	var counts AuthorMetadataReviewCounts
+	if _, err := a.db.QueryOneContext(ctx, &counts, reviewCountsSQL, reviewImportantMinCredits); err != nil {
+		return AuthorMetadataReviewCounts{}, fmt.Errorf("counting the review views: %w", err)
+	}
+	return counts, nil
 }
 
 func cursorID(after *AuthorMetadataReviewCursor) int64 {
@@ -631,6 +694,25 @@ const (
 	reviewOrderCredits = "credits"
 )
 
+// The queue's views by the current author credits of the item's name: the
+// important items carry at least reviewImportantMinCredits, the singles
+// fewer (one, or none once the name left every current snapshot).
+const (
+	reviewViewAll       = "all"
+	reviewViewImportant = "important"
+	reviewViewSingles   = "singles"
+
+	reviewImportantMinCredits = 2
+)
+
+// reviewCursorViewTags tag a cursor with the view that issued it, "<tag>:"
+// before the order's body; a cursor of the plain view carries no tag, so
+// cursors issued before the views still read.
+var reviewCursorViewTags = map[string]string{
+	reviewViewImportant: "i",
+	reviewViewSingles:   "s",
+}
+
 // reviewListLimitDefault and reviewListLimitMax bound the queue pages.
 const (
 	reviewListLimitDefault = 50
@@ -724,35 +806,58 @@ func (r *reviewEditRequest) validate() error {
 const creditsCursorPrefix = "k"
 
 // encodeReviewCursor renders the opaque continuation cursor: "<nanos>.<id>"
-// for the created order, "k<credits>.<id>" for the credits order.
+// for the created order, "k<credits>.<id>" for the credits order, after
+// the view's tag for a filtered view.
 func encodeReviewCursor(c AuthorMetadataReviewCursor) string {
+	var body string
 	if c.Order == reviewOrderCredits {
-		return base64.RawURLEncoding.EncodeToString([]byte(creditsCursorPrefix +
-			strconv.FormatInt(c.Credits, 10) + "." + strconv.FormatInt(c.ID, 10)))
+		body = creditsCursorPrefix + strconv.FormatInt(c.Credits, 10) + "." + strconv.FormatInt(c.ID, 10)
+	} else {
+		body = strconv.FormatInt(c.CreatedAt.UnixNano(), 10) + "." + strconv.FormatInt(c.ID, 10)
 	}
-	return base64.RawURLEncoding.EncodeToString(
-		[]byte(strconv.FormatInt(c.CreatedAt.UnixNano(), 10) + "." + strconv.FormatInt(c.ID, 10)))
+	if tag, tagged := reviewCursorViewTags[c.View]; tagged {
+		body = tag + ":" + body
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(body))
 }
 
-// decodeReviewCursor parses a cursor this API issued for the given order;
-// anything else, a cursor of the other order included, is an
-// invalid_request-shaped 400 with its own code.
-func decodeReviewCursor(raw, order string) (*AuthorMetadataReviewCursor, error) {
+// decodeReviewCursor parses a cursor this API issued for the given order
+// and view; anything else, a cursor of another order or view included, is
+// an invalid_request-shaped 400 with its own code.
+func decodeReviewCursor(raw, order, view string) (*AuthorMetadataReviewCursor, error) {
 	if raw == "" {
 		return nil, nil
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
 		return nil, runRequestError{codeInvalidCursor}
 	}
-	body, isCredits := strings.CutPrefix(string(payload), creditsCursorPrefix)
+	payload := string(decoded)
+	if tag, tagged := reviewCursorViewTags[view]; tagged {
+		var found bool
+		if payload, found = strings.CutPrefix(payload, tag+":"); !found {
+			return nil, runRequestError{codeInvalidCursor}
+		}
+	}
+	cursor, err := decodeOrderCursor(payload, order)
+	if err != nil {
+		return nil, err
+	}
+	cursor.View = view
+	return cursor, nil
+}
+
+// decodeOrderCursor parses the order's body of a cursor, its view tag
+// already taken off.
+func decodeOrderCursor(payload, order string) (*AuthorMetadataReviewCursor, error) {
+	body, isCredits := strings.CutPrefix(payload, creditsCursorPrefix)
 	if isCredits != (order == reviewOrderCredits) {
 		return nil, runRequestError{codeInvalidCursor}
 	}
 	if isCredits {
 		return decodeCreditsCursor(body)
 	}
-	stamp, id, found := strings.Cut(string(payload), ".")
+	stamp, id, found := strings.Cut(payload, ".")
 	if !found {
 		return nil, runRequestError{codeInvalidCursor}
 	}
@@ -809,11 +914,18 @@ func reviewListQuery(c *gin.Context) (AuthorMetadataReviewListQuery, error) {
 		}
 		order = raw
 	}
-	after, err := decodeReviewCursor(c.Query("cursor"), order)
+	view := reviewViewAll
+	if raw, present := c.GetQuery("view"); present {
+		if raw != reviewViewAll && raw != reviewViewImportant && raw != reviewViewSingles {
+			return AuthorMetadataReviewListQuery{}, runRequestError{codeInvalidView}
+		}
+		view = raw
+	}
+	after, err := decodeReviewCursor(c.Query("cursor"), order, view)
 	if err != nil {
 		return AuthorMetadataReviewListQuery{}, err
 	}
-	return AuthorMetadataReviewListQuery{Status: status, Order: order, Limit: limit, After: after}, nil
+	return AuthorMetadataReviewListQuery{Status: status, Order: order, View: view, Limit: limit, After: after}, nil
 }
 
 // --- routes and handlers ---
@@ -824,6 +936,7 @@ func SetupAuthorMetadataReviewRoutes(r *gin.RouterGroup, svc AuthorMetadataRevie
 	h := &authorMetadataReviewsHandler{svc: svc}
 	review := r.Group("/review")
 	review.GET("", h.list)
+	review.GET("/counts", h.counts)
 	review.GET("/:id", h.detail)
 	review.POST("/:id/accept", h.accept)
 	review.POST("/:id/edit", h.edit)
@@ -838,13 +951,15 @@ type authorMetadataReviewsHandler struct {
 
 // list godoc
 // @Summary Author review queue
-// @Description One page of open or closed review items, oldest or most credits first, with a continuation cursor bound to that order.
+// @Description One page of open or closed review items of one view, oldest or most credits first,
+// @Description with a continuation cursor bound to that order and view.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Produce json
 // @Param status query string true "open or closed"
 // @Param order query string false "created (default, oldest first) or credits (most credits first)"
-// @Param cursor query string false "Continuation cursor from a previous page of the same order"
+// @Param view query string false "all (default), important (two or more current author credits) or singles"
+// @Param cursor query string false "Continuation cursor from a previous page of the same order and view"
 // @Param limit query int false "1..100, default 50"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string
@@ -870,6 +985,24 @@ func (h *authorMetadataReviewsHandler) list(c *gin.Context) {
 		response["next_cursor"] = encodeReviewCursor(*page.Next)
 	}
 	c.JSON(http.StatusOK, response)
+}
+
+// counts godoc
+// @Summary Author review queue counts
+// @Description The open queue split by view: the important items (a name on two or more current author credits) and the singles.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 500 {object} map[string]string
+// @Router /api/admin/author-metadata/review/counts [get]
+func (h *authorMetadataReviewsHandler) counts(c *gin.Context) {
+	counts, err := h.svc.Counts(c.Request.Context())
+	if err != nil {
+		abortReviewError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{jsonKeyCounts: counts})
 }
 
 // detail godoc

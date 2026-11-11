@@ -961,10 +961,24 @@ export interface AuthorReviewDetail extends AuthorReviewListItem {
 /** The queue's orders: oldest first (the server's default), or most credits first. */
 export type AuthorReviewOrder = 'created' | 'credits';
 
+/**
+ * The queue's views: names on two or more current author credits, or the
+ * rest. Omitted, the server lists both.
+ */
+export type AuthorReviewView = 'important' | 'singles';
+
+/** The open queue split by view. */
+export interface AuthorReviewCounts {
+    important: number;
+    singles: number;
+}
+
 export interface AuthorReviewListQuery {
     status: 'open' | 'closed';
     /** Omitted means the server's default, created. A cursor belongs to its order. */
     order?: AuthorReviewOrder;
+    /** A cursor belongs to its view too. */
+    view?: AuthorReviewView;
     cursor?: string;
     limit?: number;
 }
@@ -991,11 +1005,15 @@ export const listAuthorReviewItems = (query: AuthorReviewListQuery) =>
             query: {
                 status: query.status,
                 order: query.order,
+                view: query.view,
                 cursor: query.cursor,
                 limit: query.limit,
             },
         },
     );
+
+export const getAuthorReviewCounts = () =>
+    http.get<{ counts: AuthorReviewCounts }>('/admin/author-metadata/review/counts');
 
 export const getAuthorReviewItem = (itemID: number) =>
     http.get<{ item: AuthorReviewDetail }>(`/admin/author-metadata/review/${itemID}`);

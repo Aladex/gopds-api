@@ -259,6 +259,7 @@ describe('queue list', () => {
         expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
             status: 'open',
             order: 'credits',
+            view: 'important',
             limit: 50,
         });
         expect(
@@ -280,6 +281,7 @@ describe('queue list', () => {
             expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
                 status: 'closed',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -297,6 +299,7 @@ describe('queue list', () => {
         expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
             status: 'open',
             order: 'credits',
+            view: 'important',
             cursor: 'cursor-2',
             limit: 50,
         });
@@ -417,6 +420,7 @@ describe('detail on its own route (narrow)', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -425,6 +429,7 @@ describe('detail on its own route (narrow)', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'created',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -436,6 +441,7 @@ describe('detail on its own route (narrow)', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'created',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -455,6 +461,7 @@ describe('detail on its own route (narrow)', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -594,6 +601,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -602,6 +610,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'created',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -614,6 +623,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -632,6 +642,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -643,6 +654,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -661,6 +673,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'created',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -669,6 +682,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -678,6 +692,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'created',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -692,6 +707,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -700,6 +716,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -712,6 +729,7 @@ describe('browser history within the queue', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'credits',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -858,6 +876,7 @@ describe("three decisions, always on the item's own scope", () => {
         expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
             status: 'open',
             order: 'credits',
+            view: 'important',
             cursor: 'cursor-2',
             limit: 50,
         });
@@ -1801,6 +1820,7 @@ describe('triage by keyboard', () => {
         expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
             status: 'open',
             order: 'credits',
+            view: 'important',
             limit: 50,
         });
         expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveTextContent(
@@ -1812,6 +1832,7 @@ describe('triage by keyboard', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'created',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -1824,6 +1845,7 @@ describe('triage by keyboard', () => {
         expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
             status: 'open',
             order: 'created',
+            view: 'important',
             limit: 50,
         });
 
@@ -1838,6 +1860,7 @@ describe('triage by keyboard', () => {
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
                 order: 'created',
+                view: 'important',
                 limit: 50,
             }),
         );
@@ -1918,7 +1941,10 @@ describe('triage by keyboard', () => {
         render(
             <MemoryRouter initialEntries={['/queue']}>
                 <Routes>
-                    <Route path="/queue" element={<AuthorReviewQueue openCount={13023} />} />
+                    <Route
+                        path="/queue"
+                        element={<AuthorReviewQueue counts={{ important: 13023, singles: 9409 }} />}
+                    />
                 </Routes>
             </MemoryRouter>,
         );
@@ -2091,5 +2117,157 @@ describe('triage by keyboard', () => {
             expect(ru[key], `ru ${key}`).toBeTruthy();
             expect(ru[key], `ru ${key} is not the English text`).not.toBe(en[key]);
         }
+    });
+});
+
+describe('the important items first, the singles behind their own filter', () => {
+    it('lists the important items by default and keeps the default out of the address', async () => {
+        const { history } = renderWithHistory('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
+            status: 'open',
+            order: 'credits',
+            view: 'important',
+            limit: 50,
+        });
+        const views = screen.getByRole('group', { name: 'Show' });
+        expect(within(views).getByRole('button', { name: 'Important' })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+        expect(within(views).getByRole('button', { name: 'Singles' })).toHaveAttribute(
+            'aria-pressed',
+            'false',
+        );
+        expect(history.location.search).not.toContain('view=');
+    });
+
+    it('the singles filter re-reads the server, writes the address and Back restores', async () => {
+        const { history } = renderWithHistory('/queue?order=created&stage=human');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Singles' }));
+        await waitFor(() =>
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+                status: 'open',
+                order: 'created',
+                view: 'singles',
+                limit: 50,
+            }),
+        );
+        const params = new URLSearchParams(history.location.search);
+        expect(params.get('view')).toBe('singles');
+        expect(params.get('order')).toBe('created');
+        expect(params.get('stage')).toBe('human');
+        expect(screen.getByRole('button', { name: 'Singles' })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
+
+        act(() => history.go(-1));
+        await waitFor(() =>
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+                status: 'open',
+                order: 'created',
+                view: 'important',
+                limit: 50,
+            }),
+        );
+        expect(history.location.search).not.toContain('view=');
+    });
+
+    it('choosing Important from the singles drops the view from the address', async () => {
+        const { history } = renderWithHistory('/queue?view=singles&stage=human');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        fireEvent.click(screen.getByRole('button', { name: 'Important' }));
+        await waitFor(() =>
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+                status: 'open',
+                order: 'credits',
+                view: 'important',
+                limit: 50,
+            }),
+        );
+        const params = new URLSearchParams(history.location.search);
+        expect(params.getAll('view')).toEqual([]);
+        expect(params.get('stage')).toBe('human');
+    });
+
+    it('a cursor stays with its view: more pages read the same view', async () => {
+        api.listAuthorReviewItems
+            .mockResolvedValueOnce({ items: [listItem()], next_cursor: 'cursor-s2' })
+            .mockResolvedValueOnce({ items: [secondItem], next_cursor: null });
+        renderAt('/queue?view=singles');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
+
+        fireEvent.click(screen.getByRole('button', { name: 'More 50' }));
+        await screen.findByRole('listitem', { name: 'Fixture Display B', hidden: true });
+        expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+            status: 'open',
+            order: 'credits',
+            view: 'singles',
+            cursor: 'cursor-s2',
+            limit: 50,
+        });
+    });
+
+    it('an unknown view in the address reads as the important items', async () => {
+        renderAt('/queue?view=everything');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+            status: 'open',
+            order: 'credits',
+            view: 'important',
+            limit: 50,
+        });
+    });
+
+    it('the view survives the detail route round trip', async () => {
+        const { history } = renderWithHistory('/queue?view=singles');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        await openDetail('Fixture Display A');
+        expect(new URLSearchParams(history.location.search).get('view')).toBe('singles');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Back to the queue' }));
+        await waitFor(() =>
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+                status: 'open',
+                order: 'credits',
+                view: 'singles',
+                limit: 50,
+            }),
+        );
+        expect(new URLSearchParams(history.location.search).get('view')).toBe('singles');
+    });
+
+    it("the footer's total is the count of the view on screen", async () => {
+        render(
+            <MemoryRouter initialEntries={['/queue?view=singles']}>
+                <Routes>
+                    <Route
+                        path="/queue"
+                        element={<AuthorReviewQueue counts={{ important: 13023, singles: 9409 }} />}
+                    />
+                </Routes>
+            </MemoryRouter>,
+        );
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        // The legacy credit item is not shown, so two rows of the singles' total.
+        expect(screen.getByText('2 of 9,409')).toBeInTheDocument();
+        expect(screen.queryByText(/of 13,023/)).toBeNull();
+    });
+
+    it('the locales name both views', () => {
+        const en = enTranslation as Record<string, string>;
+        const ru = ruTranslation as Record<string, string>;
+        expect(ru['authorReview.view.label']).toBe('Показать');
+        expect(ru['authorReview.view.important']).toBe('Важное');
+        expect(ru['authorReview.view.singles']).toBe('Одиночные');
+        expect(en['authorReview.view.label']).toBe('Show');
+        expect(en['authorReview.view.important']).toBe('Important');
+        expect(en['authorReview.view.singles']).toBe('Singles');
     });
 });

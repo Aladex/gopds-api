@@ -8,6 +8,7 @@ import type {
     AuthorMetadataProblemArchive,
     AuthorMetadataReport,
     AuthorMetadataRun,
+    AuthorReviewCounts,
 } from '@/api/admin';
 import { ACTIVE_METADATA, archiveFailures, isUsableRun } from './metadataRun';
 
@@ -21,7 +22,8 @@ import { ACTIVE_METADATA, archiveFailures, isUsableRun } from './metadataRun';
  * The polling rules are the blocks' own, moved here unchanged: the metadata run
  * every 5 s while a pass is followed, an LLM status every 5 s while its run is
  * active, the entity status every 5 s while a pass or a Wikidata fetch runs and
- * every 15 s while the autopilot is on, the merges never. A store reads on its
+ * every 15 s while the autopilot is on, the merges and the review counts never.
+ * A store reads on its
  * first consumer's mount, after every reload, and stops its timer when the
  * last consumer leaves.
  */
@@ -39,6 +41,7 @@ export interface SourceData {
     llmMerge: AuthorLLMStatus;
     entity: AuthorEntityStatus;
     merges: AuthorMerges;
+    reviewCounts: AuthorReviewCounts;
 }
 
 export type SourceKey = keyof SourceData;
@@ -130,6 +133,10 @@ const DEFINITIONS: { [K in SourceKey]: () => Definition<SourceData[K]> } = {
     }),
     merges: () => ({
         load: async () => (await adminApi.getAuthorMerges()).merges,
+        pollMs: () => null,
+    }),
+    reviewCounts: () => ({
+        load: async () => (await adminApi.getAuthorReviewCounts()).counts,
         pollMs: () => null,
     }),
 };

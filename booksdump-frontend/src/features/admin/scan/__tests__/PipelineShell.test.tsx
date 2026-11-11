@@ -36,6 +36,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
         getAuthorEntityStatus: vi.fn(),
         getAuthorMerges: vi.fn(),
         listAuthorReviewItems: vi.fn(),
+        getAuthorReviewCounts: vi.fn(),
         getAuthorLLMEvalReport: vi.fn(),
         getAuthorLLMAdversarial: vi.fn(),
         getAuthorLLMAudit: vi.fn(),
@@ -164,6 +165,25 @@ it('healthy opens the review queue', async () => {
     await waitFor(() => expect(api.listAuthorReviewItems).toHaveBeenCalled());
     expect(await settledNode('human')).toHaveAttribute('aria-current', 'true');
     expect(node('model')).not.toHaveAttribute('aria-current');
+});
+
+it('the review node and badge lead with the important items, the singles second', async () => {
+    serve(healthy(new Date()));
+    api.getAuthorReviewCounts.mockResolvedValue({ counts: { important: 3_650, singles: 9_409 } });
+    renderAt('/admin/book-scanning');
+
+    const digits = (text: string | null) => (text ?? '').replace(/\s/g, '');
+    await waitFor(() => expect(digits(node('human').textContent)).toContain('3650'));
+    // The reason names the singles in full, so a narrow node never cuts the count.
+    expect(node('human').textContent).toMatch(/одиночные отдельно:\s9\s409/);
+    expect(digits(node('human').textContent)).not.toContain('13023');
+
+    const review = await panel('Проверка человеком');
+    const badge = review.querySelector<HTMLElement>('[data-review-badge]');
+    expect(badge).not.toBeNull();
+    expect(digits(badge!.textContent)).toContain('3650');
+    expect(badge!.textContent).toMatch(/одиночных:\s9\s409/);
+    expect(api.getAuthorReviewCounts).toHaveBeenCalledTimes(1);
 });
 
 it('a stuck model opens the model panel with the other problem named', async () => {

@@ -1,4 +1,9 @@
-import type { AuthorEntityStatus, AuthorLLMStatus, AuthorMetadataRun } from '@/api/admin';
+import type {
+    AuthorEntityStatus,
+    AuthorLLMStatus,
+    AuthorMetadataRun,
+    AuthorReviewCounts,
+} from '@/api/admin';
 import { ACTIVE_METADATA, archiveFailures, isUsableRun, runErrors } from './metadataRun';
 
 /*
@@ -60,6 +65,11 @@ export interface PipelineInput {
     llmMerge: AuthorLLMStatus | null;
     entity: AuthorEntityStatus | null;
     mergesUnanchored: boolean | null;
+    /**
+     * The open review queue split by view; null (or absent) until it answers,
+     * when the human review falls back to the run's open count.
+     */
+    reviewCounts?: AuthorReviewCounts | null;
 }
 
 export interface Pipeline {
@@ -327,6 +337,22 @@ function entNode(
     return node('ent', 'ok', figure, 'ent.none');
 }
 
+/**
+ * The human review from the queue's own counts: the important items are the
+ * figure and what waits; the singles, behind their own filter, are named in
+ * the reason and never make the stage wait on their own.
+ */
+function humanNodeFromCounts({ important, singles }: AuthorReviewCounts): StageNode {
+    if (important > 0) {
+        return singles > 0
+            ? node('human', 'waiting', important, 'human.important', { count: important, singles })
+            : node('human', 'waiting', important, 'human.open', { count: important });
+    }
+    return singles > 0
+        ? node('human', 'ok', 0, 'human.singlesOnly', { singles })
+        : node('human', 'ok', 0, 'human.empty');
+}
+
 function humanNode(run: AuthorMetadataRun): StageNode {
     const open = run.stages.review.open;
     return open > 0
@@ -355,7 +381,12 @@ export function derivePipeline(input: PipelineInput, now: Date): Pipeline {
                       run?.credits.pending ?? 0,
                       input.mergesUnanchored === true,
                   ),
-        human: run === null ? loading('human') : humanNode(run),
+        human:
+            input.reviewCounts != null
+                ? humanNodeFromCounts(input.reviewCounts)
+                : run === null
+                  ? loading('human')
+                  : humanNode(run),
     };
     const problems = [
         ...CHAIN.filter((key) => nodes[key].state === 'stuck'),

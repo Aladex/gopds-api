@@ -55,6 +55,8 @@ type fakeReviewService struct {
 	lastEdit AuthorMetadataReviewEditResult
 	// lists holds every list query the service received, in order.
 	lists []AuthorMetadataReviewListQuery
+	// counts is what Counts answers.
+	counts AuthorMetadataReviewCounts
 }
 
 func (f *fakeReviewService) record(call string, id int64) {
@@ -82,6 +84,11 @@ func (f *fakeReviewService) listQueries() []AuthorMetadataReviewListQuery {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]AuthorMetadataReviewListQuery(nil), f.lists...)
+}
+
+func (f *fakeReviewService) Counts(context.Context) (AuthorMetadataReviewCounts, error) {
+	f.record("counts", 0)
+	return f.counts, f.err
 }
 
 func (f *fakeReviewService) Detail(_ context.Context, itemID int64) (AuthorMetadataReviewDetail, error) {
@@ -256,7 +263,7 @@ func TestReviewListOrderValidation(t *testing.T) {
 	assert.Nil(t, got[0].After)
 	assert.Equal(t, reviewOrderCreated, got[1].Order)
 	require.NotNil(t, got[2].After)
-	assert.Equal(t, AuthorMetadataReviewCursor{Order: reviewOrderCredits, Credits: 3, ID: 7}, *got[2].After)
+	assert.Equal(t, AuthorMetadataReviewCursor{Order: reviewOrderCredits, View: reviewViewAll, Credits: 3, ID: 7}, *got[2].After)
 	require.NotNil(t, got[3].After)
 	assert.Equal(t, int64(7), got[3].After.ID)
 	assert.True(t, got[3].After.CreatedAt.Equal(now.Add(-time.Hour)))
@@ -274,7 +281,7 @@ func TestReviewListOrderValidation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	last := f.listQueries()[len(f.listQueries())-1]
 	require.NotNil(t, last.After)
-	assert.Equal(t, AuthorMetadataReviewCursor{Order: reviewOrderCredits, Credits: 0, ID: 9}, *last.After)
+	assert.Equal(t, AuthorMetadataReviewCursor{Order: reviewOrderCredits, View: reviewViewAll, Credits: 0, ID: 9}, *last.After)
 }
 
 func TestReviewListResponseShape(t *testing.T) {

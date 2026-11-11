@@ -10,7 +10,12 @@ import { useMediaQuery } from '@/shared/hooks/useMediaQuery';
 import { ADMIN_TABLE_WIDE_QUERY } from '@/shared/layout/breakpoints';
 import { cn } from '@/shared/lib/utils';
 import * as adminApi from '@/api/admin';
-import type { AuthorReviewListItem, AuthorReviewOrder } from '@/api/admin';
+import type {
+    AuthorReviewCounts,
+    AuthorReviewListItem,
+    AuthorReviewOrder,
+    AuthorReviewView,
+} from '@/api/admin';
 import {
     AuthorReviewDetail,
     KIND_FALLBACKS,
@@ -19,6 +24,7 @@ import {
     REVIEW_HISTORY_PARAM,
     REVIEW_ORDER_PARAM,
     REVIEW_STATUS_PARAM,
+    REVIEW_VIEW_PARAM,
     ReviewConfirmDialog,
     ReviewCorrectionForm,
     ReviewEvidence,
@@ -26,6 +32,7 @@ import {
     orderFromParams,
     queueSearchParams,
     statusFromParams,
+    viewFromParams,
     useReviewErrorDescriber,
     useReviewItem,
     type ReviewItem,
@@ -67,6 +74,15 @@ const ORDER_FALLBACKS: Record<AuthorReviewOrder, string> = {
     credits: 'Most books first',
     created: 'Oldest first',
 };
+const VIEW_FALLBACKS: Record<AuthorReviewView, string> = {
+    important: 'Important',
+    singles: 'Singles',
+};
+
+/** The segmented pair's look, shared by the view and the status pairs. */
+const SEGMENTS = 'inline-flex rounded-md bg-muted p-0.5';
+const segment = (pressed: boolean) =>
+    cn('h-10 px-3 sm:h-8', pressed ? 'bg-card shadow-xs hover:bg-card' : 'text-muted-foreground');
 
 /** A row's decision: the three a person can take from the queue. */
 type Decision = 'accept' | 'edit' | 'unresolved';
@@ -125,16 +141,22 @@ export function useReviewQueueAddress() {
     const [searchParams, setSearchParams] = useSearchParams();
     const status = statusFromParams(searchParams);
     const order = orderFromParams(searchParams);
+    const view = viewFromParams(searchParams);
 
     const write = useCallback(
-        (nextStatus: 'open' | 'closed', nextOrder: AuthorReviewOrder) => {
-            const next = queueSearchParams(nextStatus, undefined, [], nextOrder);
+        (
+            nextStatus: 'open' | 'closed',
+            nextOrder: AuthorReviewOrder,
+            nextView: AuthorReviewView,
+        ) => {
+            const next = queueSearchParams(nextStatus, undefined, [], nextOrder, nextView);
             for (const [key, value] of searchParams.entries()) {
                 if (
                     key !== REVIEW_STATUS_PARAM &&
                     key !== REVIEW_CURSOR_PARAM &&
                     key !== REVIEW_HISTORY_PARAM &&
-                    key !== REVIEW_ORDER_PARAM
+                    key !== REVIEW_ORDER_PARAM &&
+                    key !== REVIEW_VIEW_PARAM
                 ) {
                     next.append(key, value);
                 }
@@ -147,17 +169,39 @@ export function useReviewQueueAddress() {
     return {
         status,
         order,
-        setStatus: (next: 'open' | 'closed') => write(next, order),
-        setOrder: (next: AuthorReviewOrder) => write(status, next),
+        view,
+        setStatus: (next: 'open' | 'closed') => write(next, order, view),
+        setOrder: (next: AuthorReviewOrder) => write(status, next, view),
+        setView: (next: AuthorReviewView) => write(status, order, next),
     };
 }
 
-/** The queue's sort and its open/closed pair; the panel puts them in its header. */
+/**
+ * The queue's view pair, its sort and its open/closed pair; the panel puts
+ * them in its header.
+ */
 export const ReviewQueueTools: React.FC = () => {
     const { t } = useTranslation();
-    const { status, order, setStatus, setOrder } = useReviewQueueAddress();
+    const { status, order, view, setStatus, setOrder, setView } = useReviewQueueAddress();
     return (
         <div className="flex flex-wrap items-center gap-2">
+            <div
+                role="group"
+                aria-label={t('authorReview.view.label', 'Show')}
+                className={SEGMENTS}
+            >
+                {(['important', 'singles'] as const).map((value) => (
+                    <Button
+                        key={value}
+                        variant="ghost"
+                        aria-pressed={view === value}
+                        onClick={() => setView(value)}
+                        className={segment(view === value)}
+                    >
+                        {t(`authorReview.view.${value}`, VIEW_FALLBACKS[value])}
+                    </Button>
+                ))}
+            </div>
             <Select value={order} onValueChange={(value) => setOrder(value as AuthorReviewOrder)}>
                 <SelectTrigger aria-label={t('authorReview.sort.label', 'Sort')}>
                     <SelectValue />
@@ -170,23 +214,14 @@ export const ReviewQueueTools: React.FC = () => {
                     ))}
                 </SelectContent>
             </Select>
-            <div
-                role="group"
-                aria-label={t('authorReview.status', 'Status')}
-                className="inline-flex rounded-md bg-muted p-0.5"
-            >
+            <div role="group" aria-label={t('authorReview.status', 'Status')} className={SEGMENTS}>
                 {(['open', 'closed'] as const).map((value) => (
                     <Button
                         key={value}
                         variant="ghost"
                         aria-pressed={status === value}
                         onClick={() => setStatus(value)}
-                        className={cn(
-                            'h-10 px-3 sm:h-8',
-                            status === value
-                                ? 'bg-card shadow-xs hover:bg-card'
-                                : 'text-muted-foreground',
-                        )}
+                        className={segment(status === value)}
                     >
                         {t(`authorReview.statusValue.${value}`, STATUS_VALUE_FALLBACKS[value])}
                     </Button>
@@ -197,21 +232,19 @@ export const ReviewQueueTools: React.FC = () => {
 };
 
 interface AuthorReviewQueueProps {
-    /** The open count the metadata run reports; the list's pages do not carry it. */
-    openCount?: number | null;
+    /** The open queue split by view; the list's pages do not carry it. */
+    counts?: AuthorReviewCounts | null;
     /** False when the host renders `ReviewQueueTools` itself, as the panel header does. */
     tools?: boolean;
 }
 
-const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
-    openCount = null,
-    tools = true,
-}) => {
+const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({ counts = null, tools = true }) => {
     const { t } = useTranslation();
     const isWide = useMediaQuery(ADMIN_TABLE_WIDE_QUERY);
     const navigate = useNavigate();
-    const { status, order } = useReviewQueueAddress();
+    const { status, order, view } = useReviewQueueAddress();
     const deciding = status === 'open';
+    const openCount = counts === null ? null : counts[view];
 
     const [items, setItems] = useState<AuthorReviewListItem[]>([]);
     const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -253,6 +286,7 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
             let data = await adminApi.listAuthorReviewItems({
                 status,
                 order,
+                view,
                 cursor: pageCursor,
                 limit: PAGE_LIMIT,
             });
@@ -268,6 +302,7 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
                 data = await adminApi.listAuthorReviewItems({
                     status,
                     order,
+                    view,
                     cursor: data.next_cursor,
                     limit: PAGE_LIMIT,
                 });
@@ -275,7 +310,7 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
             }
             return { shown, next: data.next_cursor };
         },
-        [status, order],
+        [status, order, view],
     );
 
     /** Reads the first page of the current filter and order; focus lands on its first row. */
@@ -544,7 +579,7 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
         }
         // Narrow: the detail is a screen of its own, and the queue's filter
         // and order travel in the address so Back returns to this view.
-        const query = queueSearchParams(status, undefined, [], order).toString();
+        const query = queueSearchParams(status, undefined, [], order, view).toString();
         navigate(`${REVIEW_DETAIL_ROUTE}/${itemID}${query === '' ? '' : `?${query}`}`);
     };
 

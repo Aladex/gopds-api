@@ -23,6 +23,7 @@ import type {
     AuthorReviewKind,
     AuthorReviewOrder,
     AuthorReviewProposal,
+    AuthorReviewView,
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
 
@@ -50,16 +51,24 @@ export const REVIEW_HISTORY_PARAM = 'h';
 export const REVIEW_ORDER_PARAM = 'order';
 export const DEFAULT_REVIEW_ORDER: AuthorReviewOrder = 'credits';
 
+/** The queue's view; the default, the important items, stays out of the address. */
+export const REVIEW_VIEW_PARAM = 'view';
+export const DEFAULT_REVIEW_VIEW: AuthorReviewView = 'important';
+
 export const queueSearchParams = (
     status: 'open' | 'closed',
     cursor: string | undefined,
     history: string[],
     order: AuthorReviewOrder = DEFAULT_REVIEW_ORDER,
+    view: AuthorReviewView = DEFAULT_REVIEW_VIEW,
 ): URLSearchParams => {
     const params = new URLSearchParams();
     params.set(REVIEW_STATUS_PARAM, status);
     if (order !== DEFAULT_REVIEW_ORDER) {
         params.set(REVIEW_ORDER_PARAM, order);
+    }
+    if (view !== DEFAULT_REVIEW_VIEW) {
+        params.set(REVIEW_VIEW_PARAM, view);
     }
     if (cursor !== undefined) {
         params.set(REVIEW_CURSOR_PARAM, cursor);
@@ -76,6 +85,10 @@ export const statusFromParams = (params: URLSearchParams): 'open' | 'closed' =>
 /** Anything but an explicit `created` is the default, heaviest-first order. */
 export const orderFromParams = (params: URLSearchParams): AuthorReviewOrder =>
     params.get(REVIEW_ORDER_PARAM) === 'created' ? 'created' : DEFAULT_REVIEW_ORDER;
+
+/** Anything but an explicit `singles` is the default view, the important items. */
+export const viewFromParams = (params: URLSearchParams): AuthorReviewView =>
+    params.get(REVIEW_VIEW_PARAM) === 'singles' ? 'singles' : DEFAULT_REVIEW_VIEW;
 
 /**
  * The closed review error codes, with the English the locales replace. A Map
@@ -954,6 +967,7 @@ const AuthorReviewDetailScreen: React.FC = () => {
             searchParams.get(REVIEW_CURSOR_PARAM) ?? undefined,
             searchParams.getAll(REVIEW_HISTORY_PARAM),
             orderFromParams(searchParams),
+            viewFromParams(searchParams),
         );
         params.set('tab', AUTHORS_TAB);
         navigate(`/admin/book-scanning?${params.toString()}`);
