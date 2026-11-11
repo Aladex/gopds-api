@@ -475,6 +475,8 @@ export interface AuthorLLMParticipant {
     slot: string;
     model: string;
     paused_reason?: string;
+    /** When the pause began (RFC 3339, UTC); absent while not paused. */
+    paused_at?: string;
 }
 
 export interface AuthorLLMStatus {
@@ -486,6 +488,8 @@ export interface AuthorLLMStatus {
     steps: AuthorLLMStep[];
     participants: AuthorLLMParticipant[] | null;
     endpoint_paused_reason?: string;
+    /** When the endpoint's pause began (RFC 3339, UTC); absent while not paused. */
+    endpoint_paused_at?: string;
     budget_tokens: number;
     spent_tokens: number;
     price_unit?: string;
@@ -912,6 +916,10 @@ export interface AuthorReviewListItem {
     reason: string;
     decision_class: string;
     display_name: string;
+    /** The name as the file writes it, from the fingerprint's first credit. */
+    source_display_name: string;
+    /** The proposal's kind; null when the item has no proposal. */
+    proposal_kind: AuthorReviewKind | null;
     credits_count: number;
     created_at: string;
 }
@@ -950,8 +958,13 @@ export interface AuthorReviewDetail extends AuthorReviewListItem {
     linked_books: AuthorReviewLinkedBook[];
 }
 
+/** The queue's orders: oldest first (the server's default), or most credits first. */
+export type AuthorReviewOrder = 'created' | 'credits';
+
 export interface AuthorReviewListQuery {
     status: 'open' | 'closed';
+    /** Omitted means the server's default, created. A cursor belongs to its order. */
+    order?: AuthorReviewOrder;
     cursor?: string;
     limit?: number;
 }
@@ -974,7 +987,14 @@ export interface AuthorReviewClassifyKind {
 export const listAuthorReviewItems = (query: AuthorReviewListQuery) =>
     http.get<{ items: AuthorReviewListItem[]; next_cursor: string | null }>(
         '/admin/author-metadata/review',
-        { query: { status: query.status, cursor: query.cursor, limit: query.limit } },
+        {
+            query: {
+                status: query.status,
+                order: query.order,
+                cursor: query.cursor,
+                limit: query.limit,
+            },
+        },
     );
 
 export const getAuthorReviewItem = (itemID: number) =>

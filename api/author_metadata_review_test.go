@@ -7,6 +7,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,6 +53,8 @@ type fakeReviewService struct {
 	err    error
 
 	lastEdit AuthorMetadataReviewEditResult
+	// lists holds every list query the service received, in order.
+	lists []AuthorMetadataReviewListQuery
 }
 
 func (f *fakeReviewService) record(call string, id int64) {
@@ -68,7 +72,16 @@ func (f *fakeReviewService) callList() []string {
 
 func (f *fakeReviewService) List(_ context.Context, q AuthorMetadataReviewListQuery) (AuthorMetadataReviewListPage, error) {
 	f.record("list:"+q.Status, 0)
+	f.mu.Lock()
+	f.lists = append(f.lists, q)
+	f.mu.Unlock()
 	return f.page, f.err
+}
+
+func (f *fakeReviewService) listQueries() []AuthorMetadataReviewListQuery {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]AuthorMetadataReviewListQuery(nil), f.lists...)
 }
 
 func (f *fakeReviewService) Detail(_ context.Context, itemID int64) (AuthorMetadataReviewDetail, error) {
@@ -147,6 +160,7 @@ func sampleReviewDetail(now time.Time) AuthorMetadataReviewDetail {
 			ID: 31, Scope: "fingerprint", CreditID: nil,
 			SourceFingerprint: strings.Repeat("ab", 32), Reason: "ambiguous_decision",
 			DecisionClass: "initials", DisplayName: "И. Петров", CreditsCount: 3,
+			SourceDisplayName: "Иван Петров", ProposalKind: ptrReview("person"),
 			CreatedAt: now.Add(-time.Hour).In(zone),
 		},
 		Source: AuthorMetadataReviewSource{
@@ -197,6 +211,70 @@ func TestReviewListQueryValidation(t *testing.T) {
 	require.Len(t, f.callList(), 4)
 	assert.Equal(t, "list:open", f.callList()[0])
 	assert.Equal(t, "list:closed", f.callList()[1])
+	assert.Equal(t, reviewOrderCreated, f.listQueries()[0].Order, "without order the queue keeps its created order")
+}
+
+func TestReviewListOrderValidation(t *testing.T) {
+	f := &fakeReviewService{page: AuthorMetadataReviewListPage{Items: []AuthorMetadataReviewListItem{}}}
+	r := reviewRouter(f)
+	now := time.Now().UTC()
+	creditsCursor := encodeReviewCursor(AuthorMetadataReviewCursor{Order: reviewOrderCredits, Credits: 3, ID: 7})
+	createdCursor := encodeReviewCursor(AuthorMetadataReviewCursor{CreatedAt: now.Add(-time.Hour), ID: 7})
+
+	for _, tc := range []struct{ query, code string }{
+		{"?status=open&order=books", codeInvalidOrder},
+		{"?status=open&order=", codeInvalidOrder},
+		{"?status=open&order=CREDITS", codeInvalidOrder},
+		// A cursor belongs to the order that issued it.
+		{"?status=open&order=created&cursor=" + creditsCursor, codeInvalidCursor},
+		{"?status=open&cursor=" + creditsCursor, codeInvalidCursor},
+		{"?status=open&order=credits&cursor=" + createdCursor, codeInvalidCursor},
+		// A credits cursor needs a non-negative count and a positive id.
+		{"?status=open&order=credits&cursor=" + base64.RawURLEncoding.EncodeToString([]byte("k-1.7")), codeInvalidCursor},
+		{"?status=open&order=credits&cursor=" + base64.RawURLEncoding.EncodeToString([]byte("k3.0")), codeInvalidCursor},
+		{"?status=open&order=credits&cursor=" + base64.RawURLEncoding.EncodeToString([]byte("k3")), codeInvalidCursor},
+		{"?status=open&order=credits&cursor=" + base64.RawURLEncoding.EncodeToString([]byte("kx.7")), codeInvalidCursor},
+	} {
+		rec := reviewRequest(t, r, http.MethodGet, reviewBase+tc.query, "")
+		assert.Equal(t, http.StatusBadRequest, rec.Code, tc.query)
+		assert.Equal(t, tc.code, reviewCode(t, rec), tc.query)
+	}
+	assert.Empty(t, f.listQueries(), "no refused query reaches the service")
+
+	for _, query := range []string{
+		"?status=open&order=credits",
+		"?status=open&order=created",
+		"?status=open&order=credits&cursor=" + creditsCursor,
+		"?status=open&order=created&cursor=" + createdCursor,
+	} {
+		rec := reviewRequest(t, r, http.MethodGet, reviewBase+query, "")
+		assert.Equal(t, http.StatusOK, rec.Code, query)
+	}
+	got := f.listQueries()
+	require.Len(t, got, 4)
+	assert.Equal(t, reviewOrderCredits, got[0].Order)
+	assert.Nil(t, got[0].After)
+	assert.Equal(t, reviewOrderCreated, got[1].Order)
+	require.NotNil(t, got[2].After)
+	assert.Equal(t, AuthorMetadataReviewCursor{Order: reviewOrderCredits, Credits: 3, ID: 7}, *got[2].After)
+	require.NotNil(t, got[3].After)
+	assert.Equal(t, int64(7), got[3].After.ID)
+	assert.True(t, got[3].After.CreatedAt.Equal(now.Add(-time.Hour)))
+
+	// A credits page answers with a credits cursor the next request accepts.
+	f.page = AuthorMetadataReviewListPage{
+		Items: []AuthorMetadataReviewListItem{},
+		Next:  &AuthorMetadataReviewCursor{Order: reviewOrderCredits, Credits: 0, ID: 9},
+	}
+	rec := reviewRequest(t, r, http.MethodGet, reviewBase+"?status=open&order=credits", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var next string
+	require.NoError(t, json.Unmarshal(reviewBody(t, rec)["next_cursor"], &next))
+	rec = reviewRequest(t, r, http.MethodGet, reviewBase+"?status=open&order=credits&cursor="+next, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	last := f.listQueries()[len(f.listQueries())-1]
+	require.NotNil(t, last.After)
+	assert.Equal(t, AuthorMetadataReviewCursor{Order: reviewOrderCredits, Credits: 0, ID: 9}, *last.After)
 }
 
 func TestReviewListResponseShape(t *testing.T) {
@@ -225,8 +303,20 @@ func TestReviewListResponseShape(t *testing.T) {
 	// components, nothing of the detail's.
 	assert.ElementsMatch(t, []string{
 		"id", "scope", "credit_id", "source_fingerprint", "reason", "decision_class",
-		"display_name", "credits_count", "created_at",
+		"display_name", "source_display_name", "proposal_kind", "credits_count", "created_at",
 	}, keysOf(item))
+	assert.Equal(t, `"Иван Петров"`, string(item["source_display_name"]))
+	assert.Equal(t, `"person"`, string(item["proposal_kind"]))
+
+	// An item without a proposal answers proposal_kind null, not a kind.
+	bare := sampleReviewDetail(now).AuthorMetadataReviewListItem
+	bare.ProposalKind = nil
+	f = &fakeReviewService{page: AuthorMetadataReviewListPage{Items: []AuthorMetadataReviewListItem{bare}}}
+	rec = reviewRequest(t, reviewRouter(f), http.MethodGet, reviewBase+"?status=open", "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(reviewBody(t, rec)["items"], &items))
+	require.Len(t, items, 1)
+	assert.Equal(t, "null", string(items[0]["proposal_kind"]))
 	assert.Equal(t, `"fingerprint"`, string(item["scope"]))
 	assert.Equal(t, `"open"`, `"open"`)
 
@@ -543,6 +633,10 @@ func TestAuthorMetadataReviewAdapter(t *testing.T) {
 		assert.Equal(t, "И.", *detail.Proposal.GivenName)
 		assert.Equal(t, "structured", detail.Proposal.Method)
 		assert.Equal(t, "person", detail.Proposal.Kind)
+		// The detail's summary carries the list's two extra fields too.
+		assert.Equal(t, "И. Петров", detail.SourceDisplayName)
+		require.NotNil(t, detail.ProposalKind)
+		assert.Equal(t, "person", *detail.ProposalKind)
 		assert.Equal(t, "И.", *detail.Source.First)
 		assert.Equal(t, "Петров", *detail.Source.Last)
 		require.Len(t, detail.LinkedBooks, 1)
@@ -593,24 +687,7 @@ func seedOpenReviewItem(t *testing.T, db *pg.DB, source authornorm.SourceValue, 
 	t.Helper()
 	ctx := context.Background()
 	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
-		book := time.Now().UnixNano() % 2_000_000
-		if _, err := tx.Exec(`INSERT INTO opds_catalog_book
-			(id, filename, path, format, registerdate, docdate, lang, title, annotation, md5)
-			VALUES (?, ?, 'fixture.zip', 'fb2', now(), '', 'ru', ?, '', ?)`,
-			book, "book.fb2", title, fmt.Sprintf("%032x", book)); err != nil {
-			return err
-		}
-		in := &database.ExtractionInput{
-			BookID: book, BookMD5: fmt.Sprintf("%032x", book),
-			ExtractorVersion: "extractor-v1", NormalizerVersion: authornorm.NormalizerVersion,
-			Origin: models.BookMetadataSnapshotLive, Outcome: models.BookMetadataSnapshotExtracted,
-			ArchivePath: "fixture.zip", EntryName: "book.fb2",
-			XMLProvenance: []byte(`{}`), SourceISBNs: []string{}, SourceSequences: []byte(`[]`),
-			QualityFlags: []string{}, Credits: []database.ExtractionCredit{
-				{Role: models.ContributorRoleAuthor, Source: source},
-			},
-		}
-		if _, err := database.PersistExtraction(tx, in); err != nil {
+		if err := insertBookWithAuthor(tx, source, title); err != nil {
 			return err
 		}
 		result, err := authornorm.Normalize(source, "extractor-v1")
@@ -639,6 +716,140 @@ func seedOpenReviewItem(t *testing.T, db *pg.DB, source authornorm.SourceValue, 
 		return err
 	})
 	require.NoError(t, err)
+}
+
+// lastFixtureBook keeps the fixture's book ids distinct within one test
+// binary, however fast the books are seeded.
+var lastFixtureBook atomic.Int64
+
+// insertBookWithAuthor seeds one book whose single, current author credit
+// carries source.
+func insertBookWithAuthor(tx *pg.Tx, source authornorm.SourceValue, title string) error {
+	book := time.Now().UnixNano() % 2_000_000
+	if prev := lastFixtureBook.Load(); book <= prev {
+		book = prev + 1
+	}
+	lastFixtureBook.Store(book)
+	if _, err := tx.Exec(`INSERT INTO opds_catalog_book
+		(id, filename, path, format, registerdate, docdate, lang, title, annotation, md5)
+		VALUES (?, ?, 'fixture.zip', 'fb2', now(), '', 'ru', ?, '', ?)`,
+		book, "book.fb2", title, fmt.Sprintf("%032x", book)); err != nil {
+		return err
+	}
+	in := &database.ExtractionInput{
+		BookID: book, BookMD5: fmt.Sprintf("%032x", book),
+		ExtractorVersion: "extractor-v1", NormalizerVersion: authornorm.NormalizerVersion,
+		Origin: models.BookMetadataSnapshotLive, Outcome: models.BookMetadataSnapshotExtracted,
+		ArchivePath: "fixture.zip", EntryName: "book.fb2",
+		XMLProvenance: []byte(`{}`), SourceISBNs: []string{}, SourceSequences: []byte(`[]`),
+		QualityFlags: []string{}, Credits: []database.ExtractionCredit{
+			{Role: models.ContributorRoleAuthor, Source: source},
+		},
+	}
+	_, err := database.PersistExtraction(tx, in)
+	return err
+}
+
+// addAuthorCredits gives source n more books, so its review item counts n
+// more credits.
+func addAuthorCredits(t *testing.T, db *pg.DB, source authornorm.SourceValue, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		require.NoError(t, db.RunInTransaction(context.Background(), func(tx *pg.Tx) error {
+			return insertBookWithAuthor(tx, source, fmt.Sprintf("Ещё одна книга %d", i))
+		}))
+	}
+}
+
+// The credits order on the real query: heaviest first, ties by id, pages
+// walked by the credits cursor, and the two new list fields.
+func TestReviewListOrderedByCreditsOnTheDatabase(t *testing.T) {
+	db := reviewAPIDB(t)
+	ctx := context.Background()
+	previousWiring := authorMetadataReviewService
+	t.Cleanup(func() { authorMetadataReviewService = previousWiring })
+	serverConfig := config.AuthorMetadataConfig{}
+	serverConfig.LocalNormalization.MaxAttempts = 5
+	require.NoError(t, SetAuthorMetadataReviewService(db, &serverConfig))
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	admin := r.Group("/api/admin", func(c *gin.Context) {
+		c.Set("username", "admin")
+		c.Set("user_id", adminActorID)
+		c.Next()
+	})
+	SetupAuthorMetadataReviewRoutes(admin.Group("/author-metadata"), authorMetadataReviewService())
+	type page struct {
+		Items []AuthorMetadataReviewListItem `json:"items"`
+		Next  *string                        `json:"next_cursor"`
+	}
+	get := func(query string) page {
+		t.Helper()
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, reviewBase+query, http.NoBody)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var p page
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &p))
+		return p
+	}
+
+	// Seeded in this order, so the created order is light, heavy, middle,
+	// tie: the credits order must differ from it at every position.
+	light := nameValueOf(t, "А.", "Сидоров")
+	heavy := nameValueOf(t, "Б.", "Кузнецов")
+	middle := nameValueOf(t, "В.", "Орлов")
+	tie := nameValueOf(t, "Г.", "Зайцев")
+	seedOpenReviewItem(t, db, light, "Первая")
+	seedOpenReviewItem(t, db, heavy, "Вторая")
+	seedOpenReviewItem(t, db, middle, "Третья")
+	seedOpenReviewItem(t, db, tie, "Четвёртая")
+	addAuthorCredits(t, db, heavy, 2)
+	addAuthorCredits(t, db, middle, 1)
+	addAuthorCredits(t, db, tie, 1)
+
+	created := get("?status=open&limit=10")
+	require.Len(t, created.Items, 4)
+	assert.Equal(t, []string{"А. Сидоров", "Б. Кузнецов", "В. Орлов", "Г. Зайцев"}, displayNames(created.Items),
+		"the default order is still the created one")
+
+	first := get("?status=open&order=credits&limit=2")
+	require.Len(t, first.Items, 2)
+	assert.Equal(t, []int64{3, 2}, creditCounts(first.Items))
+	assert.Equal(t, "Б. Кузнецов", first.Items[0].DisplayName)
+	assert.Equal(t, "В. Орлов", first.Items[1].DisplayName, "a tie goes to the lower id")
+	require.NotNil(t, first.Next)
+
+	second := get("?status=open&order=credits&limit=2&cursor=" + *first.Next)
+	require.Len(t, second.Items, 2)
+	assert.Equal(t, []int64{2, 1}, creditCounts(second.Items))
+	assert.Equal(t, []string{"Г. Зайцев", "А. Сидоров"}, displayNames(second.Items))
+	require.NotNil(t, second.Next, "a full page always carries a cursor")
+	third := get("?status=open&order=credits&limit=2&cursor=" + *second.Next)
+	assert.Empty(t, third.Items)
+	assert.Nil(t, third.Next)
+
+	for _, item := range append(first.Items, second.Items...) {
+		assert.Equal(t, item.DisplayName, item.SourceDisplayName, "an initials proposal keeps the source's display")
+		require.NotNil(t, item.ProposalKind, item.DisplayName)
+		assert.Equal(t, "person", *item.ProposalKind)
+	}
+}
+
+func displayNames(items []AuthorMetadataReviewListItem) []string {
+	out := make([]string, 0, len(items))
+	for i := range items {
+		out = append(out, items[i].DisplayName)
+	}
+	return out
+}
+
+func creditCounts(items []AuthorMetadataReviewListItem) []int64 {
+	out := make([]int64, 0, len(items))
+	for i := range items {
+		out = append(out, items[i].CreditsCount)
+	}
+	return out
 }
 
 func readerOrNull(body string) io.Reader {

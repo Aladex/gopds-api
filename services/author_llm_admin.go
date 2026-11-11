@@ -186,6 +186,8 @@ type AuthorLLMParticipantState struct {
 	Slot         string `json:"slot"`
 	Model        string `json:"model"`
 	PausedReason string `json:"paused_reason,omitempty"`
+	// PausedAt is when the pause began, in UTC; nil while not paused.
+	PausedAt *time.Time `json:"paused_at,omitempty"`
 }
 
 // AuthorLLMStatus is the whole LLM block.
@@ -201,6 +203,8 @@ type AuthorLLMStatus struct {
 	Steps                []AuthorLLMStep             `json:"steps"`
 	Participants         []AuthorLLMParticipantState `json:"participants"`
 	EndpointPausedReason string                      `json:"endpoint_paused_reason,omitempty"`
+	// EndpointPausedAt is when the endpoint's pause began, in UTC.
+	EndpointPausedAt *time.Time `json:"endpoint_paused_at,omitempty"`
 	// The one-off budget every run shares, and what all runs spent.
 	BudgetTokens int64  `json:"budget_tokens"`
 	SpentTokens  int64  `json:"spent_tokens"`
@@ -493,13 +497,18 @@ func (a *AuthorLLMAdmin) participants(ctx context.Context, st *AuthorLLMStatus) 
 	if err != nil {
 		return err
 	}
-	paused := map[string]string{}
+	bySlot := map[string]*models.AuthorLLMProviderState{}
 	for i := range states {
-		paused[states[i].Slot] = deref(states[i].PausedReason)
+		bySlot[states[i].Slot] = &states[i]
 	}
 	for _, p := range authorLLMParticipants(&a.settings) {
-		st.Participants = append(st.Participants, AuthorLLMParticipantState{
-			Slot: string(p.Slot), Model: p.Model, PausedReason: paused[string(p.Slot)]})
+		state := AuthorLLMParticipantState{Slot: string(p.Slot), Model: p.Model}
+		if row := bySlot[string(p.Slot)]; row != nil {
+			// The table's pause check keeps the time and the reason together.
+			state.PausedReason = deref(row.PausedReason)
+			state.PausedAt = utcOrNil(row.PausedAt)
+		}
+		st.Participants = append(st.Participants, state)
 	}
 	endpoint, err := database.GetAuthorLLMEndpointState(ctx, a.db, a.version)
 	if errors.Is(err, pg.ErrNoRows) {
@@ -508,8 +517,19 @@ func (a *AuthorLLMAdmin) participants(ctx context.Context, st *AuthorLLMStatus) 
 	if err != nil {
 		return err
 	}
+	// The table's pause check keeps the time and the reason together.
 	st.EndpointPausedReason = deref(endpoint.PausedReason)
+	st.EndpointPausedAt = utcOrNil(endpoint.PausedAt)
 	return nil
+}
+
+// utcOrNil is t in UTC, or nil for nil.
+func utcOrNil(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 func isActiveLLMRun(status models.AuthorLLMRunStatus) bool {

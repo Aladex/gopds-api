@@ -217,16 +217,26 @@ func TestAuthorLLMAdminCostAndPauses(t *testing.T) {
 
 	// A participant's pause and the endpoint's, each with its reason, each
 	// lifted by its own action.
-	_, err = e.db.Exec(`UPDATE author_llm_provider_state SET paused_reason = 'model_mismatch', paused_at = now()
+	// Each pause is stamped at a different past moment, so the status can
+	// only report them by reading the stored times, not the clock.
+	_, err = e.db.Exec(`UPDATE author_llm_provider_state SET paused_reason = 'model_mismatch',
+		paused_at = now() - interval '2 hours'
 		WHERE config_version = ? AND slot = 'production_b'`, e.version)
 	require.NoError(t, err)
-	_, err = e.db.Exec(`UPDATE author_llm_endpoint_state SET paused_reason = 'quota_exhausted', paused_at = now()`)
+	_, err = e.db.Exec(`UPDATE author_llm_endpoint_state SET paused_reason = 'quota_exhausted',
+		paused_at = now() - interval '9 days'`)
 	require.NoError(t, err)
 	st, err = admin.Status(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "model_mismatch", st.Participants[1].PausedReason)
 	assert.Empty(t, st.Participants[0].PausedReason)
 	assert.Equal(t, "quota_exhausted", st.EndpointPausedReason)
+	require.NotNil(t, st.EndpointPausedAt, "the endpoint's pause carries its time")
+	assert.WithinDuration(t, time.Now().Add(-9*24*time.Hour), *st.EndpointPausedAt, time.Minute)
+	assert.Equal(t, time.UTC, st.EndpointPausedAt.Location(), "pause times are UTC")
+	require.NotNil(t, st.Participants[1].PausedAt, "a paused participant carries its time")
+	assert.WithinDuration(t, time.Now().Add(-2*time.Hour), *st.Participants[1].PausedAt, time.Minute)
+	assert.Nil(t, st.Participants[0].PausedAt, "a running participant has no pause time")
 
 	assert.ErrorIs(t, admin.ResumeParticipant(ctx, "judge_c"), services.ErrAuthorLLMInvalidSlot)
 	require.NoError(t, admin.ResumeParticipant(ctx, "production_b"))
@@ -235,6 +245,8 @@ func TestAuthorLLMAdminCostAndPauses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, st.Participants[1].PausedReason)
 	assert.Empty(t, st.EndpointPausedReason)
+	assert.Nil(t, st.EndpointPausedAt, "a resumed endpoint has no pause time")
+	assert.Nil(t, st.Participants[1].PausedAt, "a resumed participant has no pause time")
 }
 
 // The active run is shown even when it belongs to an older configuration,

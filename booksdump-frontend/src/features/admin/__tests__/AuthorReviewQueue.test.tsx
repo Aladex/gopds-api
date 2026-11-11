@@ -83,6 +83,8 @@ const listItem = (overrides: Partial<AuthorReviewListItem> = {}): AuthorReviewLi
     reason: 'initials',
     decision_class: 'ambiguous_initials',
     display_name: 'Fixture Display A',
+    source_display_name: 'Fixture Source A',
+    proposal_kind: 'person',
     credits_count: 1,
     created_at: minutesBefore(90),
     ...overrides,
