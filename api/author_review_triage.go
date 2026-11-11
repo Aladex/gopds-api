@@ -28,6 +28,8 @@ type AuthorReviewTriageService interface {
 	Batches(ctx context.Context) ([]database.TriageBatch, error)
 	Batch(ctx context.Context, id int64) (*database.TriageBatchView, error)
 	AuditSample(ctx context.Context, id int64) ([]database.TriageAuditRow, error)
+	Apply(ctx context.Context, id, actor int64) error
+	Undo(ctx context.Context, id, actor int64, step int16) (int, error)
 }
 
 // Error codes of the triage routes.
@@ -35,6 +37,8 @@ const (
 	codeTriageServiceUnavailable = "triage_service_unavailable"
 	codeTriageBatchNotFound      = "batch_not_found"
 	codeTriageBatchState         = "batch_state"
+	codeTriageNoAuditedStep      = "no_audited_step"
+	codeTriageRuleVersion        = "rule_version"
 )
 
 var errAuthorReviewTriageUnavailable = errors.New("api: the review triage service is not wired")
@@ -66,6 +70,14 @@ func (unavailableReviewTriage) AuditSample(context.Context, int64) ([]database.T
 	return nil, errAuthorReviewTriageUnavailable
 }
 
+func (unavailableReviewTriage) Apply(context.Context, int64, int64) error {
+	return errAuthorReviewTriageUnavailable
+}
+
+func (unavailableReviewTriage) Undo(context.Context, int64, int64, int16) (int, error) {
+	return 0, errAuthorReviewTriageUnavailable
+}
+
 // reviewTriageHandler serves the triage routes.
 type reviewTriageHandler struct {
 	svc func() AuthorReviewTriageService
@@ -80,6 +92,8 @@ func SetupAuthorReviewTriageRoutes(r *gin.RouterGroup, svc func() AuthorReviewTr
 	r.POST("/batches", middlewares.CSRFMiddleware(), h.start)
 	r.GET("/batches/:id", h.batch)
 	r.GET("/batches/:id/audit-sample", h.auditSample)
+	r.POST("/batches/:id/apply", middlewares.CSRFMiddleware(), h.apply)
+	r.POST("/batches/:id/undo", middlewares.CSRFMiddleware(), h.undo)
 }
 
 // abortTriageError answers an error with its closed code; anything unknown
@@ -97,6 +111,10 @@ func abortTriageError(c *gin.Context, err error) {
 		abortRun(c, http.StatusNotFound, codeTriageBatchNotFound)
 	case errors.Is(err, database.ErrTriageBatchState):
 		abortRun(c, http.StatusConflict, codeTriageBatchState)
+	case errors.Is(err, database.ErrTriageNothingAudited):
+		abortRun(c, http.StatusConflict, codeTriageNoAuditedStep)
+	case errors.Is(err, database.ErrTriageRuleVersion):
+		abortRun(c, http.StatusConflict, codeTriageRuleVersion)
 	default:
 		abortRun(c, http.StatusInternalServerError, codeInternalError)
 	}
@@ -169,6 +187,84 @@ func (h *reviewTriageHandler) batch(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, view)
+}
+
+// apply godoc
+// @Summary Apply a planned batch of the review triage
+// @Description Instant; the worker decides the planned items of the audited steps in the background, one
+// @Description transaction each. 409: active_run_exists, batch_state, no_audited_step or rule_version.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Batch ID"
+// @Produce json
+// @Success 202 {object} map[string]interface{}
+// @Router /api/admin/author-metadata/triage/batches/{id}/apply [post]
+func (h *reviewTriageHandler) apply(c *gin.Context) {
+	id, actor, ok := triageWrite(c)
+	if !ok {
+		return
+	}
+	if err := h.svc().Apply(c.Request.Context(), id, actor); err != nil {
+		abortTriageError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{})
+}
+
+// triageUndoRequest names the step to undo; 0 is every step.
+type triageUndoRequest struct {
+	Step *int `json:"step"`
+}
+
+// jsonKeyMarked is how many items an undo marked.
+const jsonKeyMarked = "marked"
+
+// triageMaxStep is the last step of the rule set.
+const triageMaxStep = 8
+
+// undo godoc
+// @Summary Undo a step, or the whole batch, of an applied triage batch
+// @Description Instant; the worker revokes the batch's overrides in the background and the items reopen.
+// @Description A blocked or failed undo is asked again; a gone one is not. 409 batch_state: nothing to undo.
+// @Tags admin
+// @Param Authorization header string true "Token without 'Bearer' prefix"
+// @Param id path int true "Batch ID"
+// @Param body body triageUndoRequest true "The step, 0 for every step"
+// @Accept json
+// @Produce json
+// @Success 202 {object} map[string]int
+// @Router /api/admin/author-metadata/triage/batches/{id}/undo [post]
+func (h *reviewTriageHandler) undo(c *gin.Context) {
+	id, actor, ok := triageWrite(c)
+	if !ok {
+		return
+	}
+	var req triageUndoRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Step == nil || *req.Step < 0 || *req.Step > triageMaxStep {
+		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
+		return
+	}
+	marked, err := h.svc().Undo(c.Request.Context(), id, actor, int16(*req.Step)) // #nosec G115 -- 0..8
+	if err != nil {
+		abortTriageError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{jsonKeyMarked: marked})
+}
+
+// triageWrite reads the batch ID and the administrator of a write; false
+// when it has answered.
+func triageWrite(c *gin.Context) (id, actor int64, ok bool) {
+	id, err := runID(c)
+	if err != nil {
+		abortTriageError(c, err)
+		return 0, 0, false
+	}
+	if actor, err = actorID(c); err != nil {
+		abortRun(c, http.StatusInternalServerError, codeInternalError)
+		return 0, 0, false
+	}
+	return id, actor, true
 }
 
 // triageAuditHeader is the audit sample's header: the auditors fill verdict

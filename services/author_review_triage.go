@@ -316,6 +316,37 @@ func (a *AuthorReviewTriageAdmin) Batch(ctx context.Context, id int64) (*databas
 	return database.ReadTriageBatch(ctx, a.db, id)
 }
 
+// The audit gate's seams: the audited steps and the audit log an apply is
+// approved under. Tests replace them.
+var (
+	auditedStepsFn = authortriage.AuditedSteps
+	auditLogFn     = authortriage.AuditLog
+)
+
+// Apply hands a planned batch to the worker to apply the steps that passed
+// their audit (database.ErrTriageNothingAudited while none has), recording
+// that audit on the batch.
+func (a *AuthorReviewTriageAdmin) Apply(ctx context.Context, id, actor int64) error {
+	steps := []int16{}
+	for _, s := range auditedStepsFn() {
+		steps = append(steps, int16(s)) // #nosec G115 -- a step is 1..8
+	}
+	audit, err := json.Marshal(auditLogFn())
+	if err != nil {
+		return fmt.Errorf("encoding the audit: %w", err)
+	}
+	return database.RequestTriageApply(ctx, a.db, id, actor, authortriage.RuleVersion, steps, audit)
+}
+
+// Undo hands an applied batch to the worker to undo one step, or every step
+// when step is 0; it returns how many items it marked.
+func (a *AuthorReviewTriageAdmin) Undo(ctx context.Context, id, actor int64, step int16) (int, error) {
+	if step < 0 || step > int16(authortriage.StepParticleOnly) {
+		return 0, database.ErrTriageBatchState
+	}
+	return database.RequestTriageUndo(ctx, a.db, id, actor, step)
+}
+
 // Audit sample pools.
 const (
 	TriagePoolSample  = "sample"

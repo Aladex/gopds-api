@@ -133,7 +133,7 @@ func (e *triageEnv) seedOpen(class authornorm.DecisionClass, pairs ...string) tr
 
 // seedSelected is seed of a person source the admin selected as it is
 // structured: a selected credit the rules read the given names of.
-func (e *triageEnv) seedSelected(pairs ...string) triageSeed {
+func (e *triageEnv) seedSelected(pairs ...string) {
 	e.t.Helper()
 	s := e.seed(pairs...)
 	r, err := authornorm.Normalize(s.source, reviewExtractor)
@@ -145,7 +145,6 @@ func (e *triageEnv) seedSelected(pairs ...string) triageSeed {
 			Kind:   models.NormalizationPerson})
 	require.NoError(e.t, err)
 	require.Equal(e.t, models.CreditSelectionSelected, selectionOf(e.t, e.db, s.credit).State)
-	return s
 }
 
 // personReply is a stored reply that reads the source's words in order as

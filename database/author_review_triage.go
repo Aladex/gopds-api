@@ -486,3 +486,245 @@ func TriageAuditCandidates(ctx context.Context, db pg.DBI, batchID int64) ([]Tri
 	}
 	return rows, nil
 }
+
+// The apply and the undo of a plan (Task 5 of design/review-triage). An
+// apply decides the planned items of the audited steps one transaction each,
+// through the review service; an undo revokes the overrides a batch wrote.
+// Both go on in the background under the batch's lease; every item records
+// its own outcome, so a worker that stops leaves exactly what is left.
+
+var (
+	ErrTriageNothingAudited = errors.New("database: no step of the rule version passed its audit")
+	ErrTriageRuleVersion    = errors.New("database: the plan was made under another rule version")
+	// ErrTriageItemTaken: the item's outcome was written by another worker.
+	ErrTriageItemTaken = errors.New("database: the triage item was already handled")
+)
+
+// lockTriageBatch locks a batch for an administrator's request.
+func lockTriageBatch(ctx context.Context, tx pg.DBI, batchID int64) (*TriageBatch, error) {
+	var batches []TriageBatch
+	if _, err := tx.QueryContext(ctx, &batches, `SELECT `+triageBatchColumns+`
+		FROM public.author_review_triage_batch WHERE id = ? FOR UPDATE`, batchID); err != nil {
+		return nil, fmt.Errorf("locking the triage batch: %w", err)
+	}
+	if len(batches) == 0 {
+		return nil, ErrTriageBatchNotFound
+	}
+	return &batches[0], nil
+}
+
+// RequestTriageApply hands a planned batch to the worker to apply the items
+// of steps, the steps that passed the audit recorded in audit. The planned
+// items of other steps become not_audited. Progress counts what is left to
+// decide; the plan's own totals stay in counts.
+func RequestTriageApply(
+	ctx context.Context, db *pg.DB, batchID, actor int64, ruleVersion string, steps []int16, audit json.RawMessage,
+) error {
+	if actor <= 0 {
+		return ErrTriageBatchState
+	}
+	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		batch, err := lockTriageBatch(ctx, tx, batchID)
+		switch {
+		case err != nil:
+			return err
+		case batch.Status != TriageBatchPlanned:
+			return ErrTriageBatchState
+		case batch.RuleVersion != ruleVersion:
+			return ErrTriageRuleVersion
+		case len(steps) == 0:
+			return ErrTriageNothingAudited
+		}
+		if _, err = tx.ExecContext(ctx, `
+			UPDATE public.author_review_triage_item SET outcome = 'not_audited'
+			WHERE batch_id = ? AND outcome = 'planned' AND NOT (step = ANY (?::smallint[]))`,
+			batchID, pg.Array(steps)); err != nil {
+			return fmt.Errorf("setting aside the steps not audited: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE public.author_review_triage_batch
+			SET status = 'applying', apply_requested_by_user_id = ?1, apply_requested_at = now(),
+				applied_steps = ?2::smallint[], audit = ?3::jsonb, items_done = 0, lease_owner = NULL,
+				lease_until = NULL,
+				items_total = (SELECT count(*) FROM public.author_review_triage_item
+					WHERE batch_id = ?0 AND outcome = 'planned')
+			WHERE id = ?0`, batchID, actor, pg.Array(steps), string(audit))
+		return err
+	})
+	if uniqueViolationOf(err, triageOneActiveIndex) {
+		return ErrTriageActiveBatch
+	}
+	return err
+}
+
+// RequestTriageUndo hands an applied batch to the worker to undo the applied
+// items of step, or of every step when step is 0: those whose override is
+// not revoked yet and that are not gone. A blocked or failed undo is
+// therefore asked again; a gone one never is. It returns how many items it
+// marked; none is ErrTriageBatchState.
+func RequestTriageUndo(ctx context.Context, db *pg.DB, batchID, actor int64, step int16) (int, error) {
+	if actor <= 0 || step < 0 {
+		return 0, ErrTriageBatchState
+	}
+	var marked int
+	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		batch, err := lockTriageBatch(ctx, tx, batchID)
+		switch {
+		case err != nil:
+			return err
+		case batch.Status != TriageBatchApplied:
+			return ErrTriageBatchState
+		}
+		res, err := tx.ExecContext(ctx, `
+			UPDATE public.author_review_triage_item SET undo_requested_at = now(), undo_outcome = NULL
+			WHERE batch_id = ?0 AND outcome = 'applied' AND revoked_at IS NULL
+				AND undo_outcome IS DISTINCT FROM 'gone' AND (?1 = 0 OR step = ?1)`, batchID, step)
+		if err != nil {
+			return fmt.Errorf("marking the items to undo: %w", err)
+		}
+		if marked = res.RowsAffected(); marked == 0 {
+			return ErrTriageBatchState
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE public.author_review_triage_batch
+			SET status = 'undoing', undo_requested_by_user_id = ?, undo_requested_at = now(), items_total = ?,
+				items_done = 0, lease_owner = NULL, lease_until = NULL
+			WHERE id = ?`, actor, marked, batchID)
+		return err
+	})
+	if uniqueViolationOf(err, triageOneActiveIndex) {
+		return 0, ErrTriageActiveBatch
+	}
+	if err != nil {
+		return 0, err
+	}
+	return marked, nil
+}
+
+// TriageWorkItem is one item the worker applies or undoes.
+type TriageWorkItem struct {
+	ID               int64           `pg:"id"`
+	ReviewItemID     int64           `pg:"review_item_id"`
+	Step             int16           `pg:"step"`
+	Action           string          `pg:"action"`
+	Planned          json.RawMessage `pg:"planned,type:jsonb"`
+	ProposalResultID *int64          `pg:"proposal_result_id"`
+	Class            string          `pg:"decision_class"`
+	Fingerprint      []byte          `pg:"source_fingerprint"`
+	OverrideID       *int64          `pg:"override_id"`
+}
+
+const triageWorkColumns = `id, review_item_id, step, action, planned, proposal_result_id, decision_class,
+	source_fingerprint, override_id`
+
+// NextTriageApplyItems lists the next items to decide: planned, by step and
+// row.
+func NextTriageApplyItems(ctx context.Context, db pg.DBI, batchID int64, limit int) ([]TriageWorkItem, error) {
+	var items []TriageWorkItem
+	if _, err := db.QueryContext(ctx, &items, `SELECT `+triageWorkColumns+`
+		FROM public.author_review_triage_item WHERE batch_id = ? AND outcome = 'planned'
+		ORDER BY step, id LIMIT ?`, batchID, limit); err != nil {
+		return nil, fmt.Errorf("reading the items to apply: %w", err)
+	}
+	return items, nil
+}
+
+// NextTriageUndoItems lists the next items to undo: applied, asked to be
+// undone and not undone yet, by step and row.
+func NextTriageUndoItems(ctx context.Context, db pg.DBI, batchID int64, limit int) ([]TriageWorkItem, error) {
+	var items []TriageWorkItem
+	if _, err := db.QueryContext(ctx, &items, `SELECT `+triageWorkColumns+`
+		FROM public.author_review_triage_item
+		WHERE batch_id = ? AND outcome = 'applied' AND undo_requested_at IS NOT NULL AND undo_outcome IS NULL
+		ORDER BY step, id LIMIT ?`, batchID, limit); err != nil {
+		return nil, fmt.Errorf("reading the items to undo: %w", err)
+	}
+	return items, nil
+}
+
+// RecordTriageApplied logs the decision of a planned item inside the
+// decision's own transaction. An item another worker handled is
+// ErrTriageItemTaken, which rolls the decision back.
+func RecordTriageApplied(ctx context.Context, tx pg.DBI, itemID int64, rep ReviewReport) error {
+	res, err := tx.ExecContext(ctx, `
+		UPDATE public.author_review_triage_item
+		SET outcome = 'applied', result_id = ?, override_id = ?, decided_at = now()
+		WHERE id = ? AND outcome = 'planned'`, nullableInt(rep.ResultID), nullableInt(rep.OverrideID), itemID)
+	if err != nil {
+		return fmt.Errorf("logging the applied item: %w", err)
+	}
+	if res.RowsAffected() != 1 {
+		return ErrTriageItemTaken
+	}
+	return nil
+}
+
+// RecordTriageOutcome logs an item that was not applied: skipped_changed,
+// conflict or failed (with its SQLSTATE). An item no longer planned keeps
+// what it has.
+func RecordTriageOutcome(ctx context.Context, db pg.DBI, itemID int64, outcome, sqlstate string) error {
+	if _, err := db.ExecContext(ctx, `
+		UPDATE public.author_review_triage_item SET outcome = ?, sqlstate = ?, decided_at = now()
+		WHERE id = ? AND outcome = 'planned'`, outcome, nullable(sqlstate), itemID); err != nil {
+		return fmt.Errorf("logging the item's outcome: %w", err)
+	}
+	return nil
+}
+
+// RecordTriageUndo logs the undo of an item. Restored and superseded revoked
+// the batch's override: they are written in the revoke's transaction and
+// carry the revoke; an item another worker undid is ErrTriageItemTaken.
+// Blocked, gone and failed revoked nothing and are written on their own.
+func RecordTriageUndo(ctx context.Context, db pg.DBI, itemID, actor int64, undoOutcome string) error {
+	revoked := undoOutcome == TriageUndoRestored || undoOutcome == TriageUndoSuperseded
+	var by interface{}
+	if revoked {
+		by = actor
+	}
+	res, err := db.ExecContext(ctx, `
+		UPDATE public.author_review_triage_item
+		SET undo_outcome = ?0, revoked_by_user_id = ?1,
+			revoked_at = CASE WHEN ?1::bigint IS NOT NULL THEN now() END
+		WHERE id = ?2 AND undo_requested_at IS NOT NULL AND undo_outcome IS NULL`, undoOutcome, by, itemID)
+	if err != nil {
+		return fmt.Errorf("logging the item's undo: %w", err)
+	}
+	if revoked && res.RowsAffected() != 1 {
+		return ErrTriageItemTaken
+	}
+	return nil
+}
+
+// ProgressTriageBatch adds done items to owner's batch and renews the lease.
+func ProgressTriageBatch(
+	ctx context.Context, db pg.DBI, batchID int64, owner uuid.UUID, lease time.Duration, done int,
+) error {
+	res, err := db.ExecContext(ctx, `
+		UPDATE public.author_review_triage_batch
+		SET items_done = least(items_total, items_done + ?), lease_until = now() + ? * interval '1 millisecond'
+		WHERE id = ? AND lease_owner = ? AND status IN ('applying', 'undoing')`,
+		done, lease.Milliseconds(), batchID, owner)
+	if err != nil {
+		return fmt.Errorf("recording the triage progress: %w", err)
+	}
+	if res.RowsAffected() != 1 {
+		return ErrTriageLeaseLost
+	}
+	return nil
+}
+
+// FinishTriageBatch ends owner's apply or undo: the batch is applied.
+func FinishTriageBatch(ctx context.Context, db pg.DBI, batchID int64, owner uuid.UUID) error {
+	res, err := db.ExecContext(ctx, `
+		UPDATE public.author_review_triage_batch
+		SET status = 'applied', items_done = items_total, finished_at = now(), lease_owner = NULL,
+			lease_until = NULL
+		WHERE id = ? AND lease_owner = ? AND status IN ('applying', 'undoing')`, batchID, owner)
+	if err != nil {
+		return fmt.Errorf("finishing the triage batch: %w", err)
+	}
+	if res.RowsAffected() != 1 {
+		return ErrTriageLeaseLost
+	}
+	return nil
+}
