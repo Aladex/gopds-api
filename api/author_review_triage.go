@@ -40,6 +40,7 @@ const (
 	codeTriageBatchState         = "batch_state"
 	codeTriageNoAuditedStep      = "no_audited_step"
 	codeTriageRuleVersion        = "rule_version"
+	codeTriageStopBusy           = "stop_busy"
 )
 
 var errAuthorReviewTriageUnavailable = errors.New("api: the review triage service is not wired")
@@ -121,10 +122,17 @@ func abortTriageError(c *gin.Context, err error) {
 		abortRun(c, http.StatusConflict, codeTriageNoAuditedStep)
 	case errors.Is(err, database.ErrTriageRuleVersion):
 		abortRun(c, http.StatusConflict, codeTriageRuleVersion)
+	case errors.Is(err, database.ErrTriageStopBusy):
+		// Nothing was stopped; the item in flight ends within its lifetime.
+		c.Header("Retry-After", triageStopRetryAfter)
+		abortRun(c, http.StatusServiceUnavailable, codeTriageStopBusy)
 	default:
 		abortRun(c, http.StatusInternalServerError, codeInternalError)
 	}
 }
+
+// triageStopRetryAfter is the Retry-After of a busy stop, in seconds.
+const triageStopRetryAfter = "5"
 
 // jsonKeyBatches and jsonKeyBatch wrap the triage's batches.
 const (
@@ -263,7 +271,9 @@ func (h *reviewTriageHandler) undo(c *gin.Context) {
 // @Summary Stop an applying or undoing triage batch
 // @Description Waits for the item in flight to commit or roll back; once answered, no item starts any more,
 // @Description after a restart neither. What was applied stays and can be undone; the rest stays planned.
-// @Description 409 batch_state: the batch does not apply or undo.
+// @Description 409 batch_state: the batch does not apply or undo. 503 stop_busy (with Retry-After): the item in
+// @Description flight did not end within the stop's wait; nothing was stopped, ask again. An item lives a bounded
+// @Description time, so a stop asked again succeeds.
 // @Tags admin
 // @Param Authorization header string true "Token without 'Bearer' prefix"
 // @Param id path int true "Batch ID"

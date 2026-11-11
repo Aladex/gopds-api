@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"gopds-api/database"
 	"gopds-api/internal/authorentity"
@@ -289,15 +290,22 @@ func AuthorReviewTriageStatuses() []string {
 		database.TriageUndoSuperseded, database.TriageUndoBlocked, database.TriageUndoGone}
 }
 
+// defaultTriageStopWait is how long a stop waits for the item in flight:
+// below the server's write timeout (10 s by default), so the request answers
+// ErrTriageStopBusy instead of losing its connection.
+const defaultTriageStopWait = 5 * time.Second
+
 // AuthorReviewTriageAdmin is the administrator's side of the triage: start a
-// dry run, read the batches and a plan, export the audit sample.
+// dry run, read the batches and a plan, export the audit sample, stop or
+// undo an apply. stopWait bounds a stop's wait for the item in flight.
 type AuthorReviewTriageAdmin struct {
-	db *pg.DB
+	db       *pg.DB
+	stopWait time.Duration
 }
 
 // NewAuthorReviewTriageAdmin builds the admin over db.
 func NewAuthorReviewTriageAdmin(db *pg.DB) *AuthorReviewTriageAdmin {
-	return &AuthorReviewTriageAdmin{db: db}
+	return &AuthorReviewTriageAdmin{db: db, stopWait: defaultTriageStopWait}
 }
 
 // StartDryRun records a dry run of the current rule version; the worker
@@ -348,10 +356,12 @@ func (a *AuthorReviewTriageAdmin) Undo(ctx context.Context, id, actor int64, ste
 }
 
 // Stop stops an applying or undoing batch for good: when it returns, no
-// item starts any more. The item in flight commits or rolls back first.
-// What was applied stays and can be undone; the rest stays planned.
+// item starts any more. The item in flight commits or rolls back first;
+// when it does not within stopWait, database.ErrTriageStopBusy and nothing
+// is stopped (asked again, the stop succeeds once the item's lifetime is
+// over). What was applied stays and can be undone; the rest stays planned.
 func (a *AuthorReviewTriageAdmin) Stop(ctx context.Context, id, actor int64) (*database.TriageBatch, error) {
-	batch, err := database.StopTriageBatch(ctx, a.db, id, actor)
+	batch, err := database.StopTriageBatch(ctx, a.db, id, actor, a.stopWait)
 	if err != nil {
 		return nil, err
 	}

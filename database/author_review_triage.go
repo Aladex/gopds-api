@@ -26,6 +26,9 @@ var (
 	// ErrTriageStopped: the batch no longer applies or undoes: an
 	// administrator stopped it, or it ended.
 	ErrTriageStopped = errors.New("database: the triage batch was stopped")
+	// ErrTriageStopBusy: the item in flight did not end within the stop's
+	// wait. Nothing was recorded; the stop may be asked again.
+	ErrTriageStopBusy = errors.New("database: the triage batch stayed busy past the stop's wait")
 )
 
 // Triage batch statuses.
@@ -743,15 +746,24 @@ func FinishTriageBatch(ctx context.Context, db pg.DBI, batchID int64, owner uuid
 // StopTriageBatch stops an applying or undoing batch for good, as actor: no
 // worker takes it again and no item starts after it returns. It waits for
 // the item in flight, whose transaction holds the batch (CheckTriageBatch),
-// to commit or roll back. What was applied or undone stays; the rest stays
-// as it is, and progress counts what was done. ErrTriageBatchState: the batch
-// does not apply or undo.
-func StopTriageBatch(ctx context.Context, db *pg.DB, batchID, actor int64) (*TriageBatch, error) {
+// to commit or roll back, but no longer than wait: then it records nothing
+// and answers ErrTriageStopBusy, and the stop may be asked again (the item's
+// own lifetime is bounded too). What was applied or undone stays; the rest
+// stays as it is, and progress counts what was done. ErrTriageBatchState:
+// the batch does not apply or undo.
+func StopTriageBatch(ctx context.Context, db *pg.DB, batchID, actor int64, wait time.Duration) (*TriageBatch, error) {
 	if actor <= 0 {
 		return nil, ErrTriageBatchState
 	}
+	if wait.Milliseconds() <= 0 {
+		// A lock_timeout of zero would wait forever.
+		return nil, fmt.Errorf("database: the stop's wait %s is not positive", wait)
+	}
 	var stopped []TriageBatch
 	err := db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = %d`, wait.Milliseconds())); err != nil {
+			return fmt.Errorf("bounding the stop's wait: %w", err)
+		}
 		batch, err := lockTriageBatch(ctx, tx, batchID)
 		switch {
 		case err != nil:
@@ -773,7 +785,10 @@ func StopTriageBatch(ctx context.Context, db *pg.DB, batchID, actor int64) (*Tri
 			RETURNING `+triageBatchColumns, batchID, actor)
 		return err
 	})
-	if err != nil {
+	switch {
+	case sqlState(err) == sqlstateLockNotAvailable:
+		return nil, fmt.Errorf("%w: %w", ErrTriageStopBusy, err)
+	case err != nil:
 		return nil, err
 	}
 	return &stopped[0], nil

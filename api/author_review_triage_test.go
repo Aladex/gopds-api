@@ -290,5 +290,14 @@ func TestTriageStopAnswers(t *testing.T) {
 		rec = csrfRequest(t, r, http.MethodPost, triageBase+"/batches/3/stop", "")
 		assert.Equal(t, c.status, rec.Code, c.code)
 		assert.JSONEq(t, fmt.Sprintf(`{"error":%q}`, c.code), rec.Body.String())
+		assert.Empty(t, rec.Header().Get("Retry-After"), c.code)
 	}
+
+	// A stop that ran out of its wait stopped nothing: a retryable 503, never
+	// a success.
+	svc.err = fmt.Errorf("%w: lock timeout", database.ErrTriageStopBusy)
+	rec = csrfRequest(t, r, http.MethodPost, triageBase+"/batches/3/stop", "")
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.JSONEq(t, `{"error":"stop_busy"}`, rec.Body.String())
+	assert.Equal(t, "5", rec.Header().Get("Retry-After"))
 }

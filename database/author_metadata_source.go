@@ -43,6 +43,8 @@ const (
 	// sqlstateUniqueViolation is the PostgreSQL unique-violation code; the
 	// named constraint tells the two snapshot indexes apart.
 	sqlstateUniqueViolation = "23505"
+	// sqlstateLockNotAvailable: a lock wait ran out of its lock_timeout.
+	sqlstateLockNotAvailable = "55P03"
 	// oneCurrentSnapshotIndex is the partial unique index that keeps one
 	// current snapshot per book.
 	oneCurrentSnapshotIndex = "book_metadata_snapshot_one_current"
