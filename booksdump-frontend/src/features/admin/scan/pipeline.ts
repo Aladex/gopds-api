@@ -197,13 +197,13 @@ function namesNode(run: AuthorMetadataRun, modelStuck: boolean): StageNode {
     if (credits.pending > 0 && modelStuck) {
         return node('names', 'waiting', figure, 'names.waitModel', { pending: credits.pending });
     }
+    if (credits.pending > 0) {
+        return node('names', 'ok', figure, 'names.pending', { pending: credits.pending });
+    }
     if (run.stages.local.failed > 0) {
         return node('names', 'warning', figure, 'names.localFailed', {
             count: run.stages.local.failed,
         });
-    }
-    if (credits.pending > 0) {
-        return node('names', 'ok', figure, 'names.pending', { pending: credits.pending });
     }
     return node('names', 'ok', figure, 'names.selected', { invalid: credits.invalid });
 }

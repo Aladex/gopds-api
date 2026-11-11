@@ -194,12 +194,12 @@ describe('derivePipeline', () => {
                 ...healthy(now),
                 metadataRun: metadataRun(now, {
                     status: 'paused',
-                    last_error_class: 'volume_unreadable',
+                    last_error_class: 'archive_unreadable',
                 }),
             }),
             state: 'stuck',
             key: 'books.paused',
-            values: { class: 'volume_unreadable' },
+            values: { class: 'archive_unreadable' },
         },
         {
             name: 'missing archives warn with their books',
@@ -417,17 +417,64 @@ describe('derivePipeline', () => {
             key: 'ent.unanchored',
         },
         {
-            name: 'census failures warn',
+            // The census streak counts only the newest passes, so a settled
+            // census failure always comes with a failed latest run, and that
+            // rule matches first (Task 3 decides whether census gets its own).
+            name: 'a settled census failure reads as a failed pass',
             stage: 'ent',
-            input: (now) => ({
-                ...healthy(now),
-                entity: entityStatus(now, {
-                    autopilot: autopilot(now, {
-                        census_failures: 1,
-                        census_retry_at: ago(now, -DAY_MS),
-                    }),
-                }),
-            }),
+            input: (now) => {
+                const base = entityStatus(now);
+                return {
+                    ...healthy(now),
+                    entity: {
+                        ...base,
+                        run: {
+                            ...base.run!,
+                            id: 101,
+                            status: 'failed',
+                            last_error_class: 'census_failed',
+                            created_at: ago(now, 2 * 60 * 60 * 1000),
+                            finished_at: ago(now, 60 * 60 * 1000),
+                        },
+                        autopilot: autopilot(now, {
+                            state: 'build_backoff',
+                            census_failures: 1,
+                            census_retry_at: ago(now, -DAY_MS),
+                        }),
+                    },
+                };
+            },
+            state: 'stuck',
+            key: 'ent.passFailed',
+            values: { id: 101 },
+        },
+        {
+            // The only payload that reaches ent.census: the status reads the
+            // latest run before the census streak, so a pass that fails its
+            // census between the two reads is still running in the answer.
+            name: 'census failures warn when the failed pass races the status read',
+            stage: 'ent',
+            input: (now) => {
+                const base = entityStatus(now);
+                return {
+                    ...healthy(now),
+                    entity: {
+                        ...base,
+                        run: {
+                            ...base.run!,
+                            id: 101,
+                            status: 'running',
+                            units_done: 0,
+                            created_at: ago(now, 60 * 1000),
+                            finished_at: undefined,
+                        },
+                        autopilot: autopilot(now, {
+                            census_failures: 1,
+                            census_retry_at: ago(now, -DAY_MS),
+                        }),
+                    },
+                };
+            },
             state: 'warning',
             key: 'ent.census',
             values: (now) => ({ count: 1, retry: ago(now, -DAY_MS) }),
@@ -496,6 +543,18 @@ describe('derivePipeline', () => {
         );
         expect(p.nodes.ent.state).toBe('ok');
         expect(p.nodes.ent.reason.key).toBe('ent.last');
+    });
+
+    it('pending names win over local failures while the model works', () => {
+        const NOW = new Date();
+        const run = metadataRun(NOW);
+        run.credits.pending = 12;
+        run.stages.local.failed = 3;
+        const p = derivePipeline({ ...healthy(NOW), metadataRun: run }, NOW);
+        expect(p.nodes.names.state).toBe('ok');
+        expect(p.nodes.names.reason).toEqual({ key: 'names.pending', values: { pending: 12 } });
+        expect(p.problems).toEqual([]);
+        expect(p.defaultStage).toBe('human');
     });
 
     it('an unusable metadata run is not read', () => {
