@@ -1,0 +1,516 @@
+# triage-v1 audit, batch 1: the labeled rows of steps 1, 2, 5, 6 and 7 (design/review-triage/audit).
+# verdict: same, different or unclear by either labeler; pair is a named pair read as one collective, by design (DECISION §4).
+item_id	step	class	credits	form	verdict	before	after
+309	1	mixed_script	1	person	same	given=Владислав; family=Семеренко; nickname=Wolf; display=Владислав Семеренко Wolf; sort=Семеренко, Владислав; kind=person	given=Владислав; family=Семеренко; nickname=Wolf; display=Владислав Семеренко; sort=Семеренко, Владислав; kind=person
+1322	1	unusual_characters	209	collective	same	display=Газета "Своими Именами" (запрещенная Дуэль); kind=person	display=Газета "Своими Именами" (запрещенная Дуэль); kind=collective
+1429	1	case_defect	1484	placeholder	same	given=неизвестен; family=Автор; display=неизвестен Автор; sort=Автор, неизвестен; kind=person	display=неизвестен Автор; kind=unknown
+1575	1	unusual_characters	1	person	same	given=Peake,; family=Mervyn; display=Peake, Mervyn; sort=Mervyn, Peake,; kind=person	given=Mervyn; family=Peake; display=Mervyn Peake; sort=Peake, Mervyn; kind=person
+2417	1	mononym	1	person	same	display=Resshen; kind=person	display=Resshen; sort=Resshen; kind=person
+2456	1	unusual_characters	43	placeholder	same	display=Неизв.; kind=person	display=Неизв.; kind=unknown
+2572	1	case_defect	1	person	same	given=ДМИТРИЙ; family=МОРДАС; display=ДМИТРИЙ МОРДАС; sort=МОРДАС, ДМИТРИЙ; kind=person	given=Дмитрий; family=Мордас; display=Дмитрий Мордас; sort=Мордас, Дмитрий; kind=person
+2691	1	unusual_characters	163	collective	same	display=Журнал «Юный техник»; kind=person	display=Журнал «Юный техник»; kind=collective
+2873	1	partial_structure	1	person	same	given=Роберт; additional=Грин; display=Роберт Грин; kind=person	given=Роберт; family=Грин; display=Роберт Грин; sort=Грин, Роберт; kind=person
+2977	1	single_field	1	person	same	display=Галина Фёдорова; kind=person	given=Галина; family=Фёдорова; display=Галина Фёдорова; sort=Фёдорова, Галина; kind=person
+5890	1	mixed_script	11	person	same	given=Илья; family=Стогоff; display=Илья Стогоff; sort=Стогоff, Илья; kind=person	given=Илья; family=Стогоff; display=Илья Стогоff; sort=Стогоff, Илья; kind=person
+6367	1	case_defect	3	collective	same	given='Темная; additional=лошадка'; family=Журнал; display='Темная Журнал лошадка'; sort=Журнал, 'Темная лошадка'; kind=person	display='Темная лошадка' Журнал; kind=collective
+6521	1	case_defect	1	person	same	given=Аннет; family=БРОДЕРИК; display=Аннет БРОДЕРИК; sort=БРОДЕРИК, Аннет; kind=person	given=Аннет; family=Бродерик; display=Аннет Бродерик; sort=Бродерик, Аннет; kind=person
+6524	1	case_defect	2	person	same	given=Джоанна; family=БРЕНДОН; display=Джоанна БРЕНДОН; sort=БРЕНДОН, Джоанна; kind=person	given=Джоанна; family=Брендон; display=Джоанна Брендон; sort=Брендон, Джоанна; kind=person
+6551	1	case_defect	1	person	same	given=Борис; family=ПОДОПРИГОРА; display=Борис ПОДОПРИГОРА; sort=ПОДОПРИГОРА, Борис; kind=person	given=Борис; family=Подопригора; display=Борис Подопригора; sort=Подопригора, Борис; kind=person
+6779	1	mixed_script	1	person	same	given=Андрe; family=Лори; display=Андрe Лори; sort=Лори, Андрe; kind=person	given=Андре; family=Лори; display=Андре Лори; sort=Лори, Андре; kind=person
+8667	1	single_field	1	person	same	display=Бет Фантаски; kind=person	given=Бет; family=Фантаски; display=Бет Фантаски; sort=Фантаски, Бет; kind=person
+8839	1	mononym	1	person	same	display=Дживани; kind=person	display=Дживани; sort=Дживани; kind=person
+9065	1	mixed_script	1	person	same	given=Cергей; family=Чилингарян; display=Cергей Чилингарян; sort=Чилингарян, Cергей; kind=person	given=Сергей; family=Чилингарян; display=Сергей Чилингарян; sort=Чилингарян, Сергей; kind=person
+9310	1	mononym	1	person	same	display=Калидаса; kind=person	display=Калидаса; sort=Калидаса; kind=person
+9328	1	mixed_script	1	person	same	given=Ганс; family=Бандильерос; nickname=Bandileros; display=Ганс Бандильерос Bandileros; sort=Бандильерос, Ганс; kind=person	given=Ганс; family=Бандильерос; nickname=Bandileros; display=Ганс Бандильерос; sort=Бандильерос, Ганс; kind=person
+9535	1	mixed_script	1	person	same	given=Александр; additional=Владимирович; family=Афанасьев; nickname=Werewolf; display=Александр Владимирович Афанасьев Werewolf; sort=Афанасьев, Александр Владимирович; kind=person	given=Александр; additional=Владимирович; family=Афанасьев; nickname=Werewolf; display=Александр Владимирович Афанасьев; sort=Афанасьев, Александр Владимирович; kind=person
+10098	1	mononym	1	person	same	display=Дхиравамса; kind=person	display=Дхиравамса; sort=Дхиравамса; kind=person
+10379	1	mononym	1	person	same	display=Асура; kind=person	display=Асура; sort=Асура; kind=person
+10609	1	case_defect	1	person	same	given=боярсков; family=михаил; display=боярсков михаил; sort=михаил, боярсков; kind=person	given=Михаил; family=Боярсков; display=Боярсков Михаил; sort=Боярсков, Михаил; kind=person
+10898	1	unusual_characters	1	collective	same	display=Журнал «Вокруг света»; kind=person	display=Журнал «Вокруг света»; kind=collective
+11298	1	mononym	1	person	same	display=Yuriy; kind=person	display=Yuriy; sort=Yuriy; kind=person
+11596	1	unusual_characters	1	person	same	given=Pessoa,; family=Fernando; display=Pessoa, Fernando; sort=Fernando, Pessoa,; kind=person	given=Fernando; family=Pessoa; display=Fernando Pessoa; sort=Pessoa, Fernando; kind=person
+12207	1	unusual_characters	1	person	same	given=Г.; additional=А.; family=Тюньдешев (Харамоос); display=Г. А. Тюньдешев (Харамоос); sort=Тюньдешев (Харамоос), Г. А.; kind=person	given=Г.; additional=А.; family=Тюньдешев; nickname=Харамоос; display=Г. А. Тюньдешев; sort=Тюньдешев, Г. А.; kind=person
+12764	1	unusual_characters	4	person	same	given=James; additional=Wesley,; family=Rawles; display=James Wesley, Rawles; sort=Rawles, James Wesley,; kind=person	given=James; additional=Wesley; family=Rawles; display=James Wesley, Rawles; sort=Rawles, James Wesley; kind=person
+12922	1	mononym	1	person	same	display=Алкуїн; kind=person	display=Алкуїн; sort=Алкуїн; kind=person
+12932	1	mononym	1	person	same	display=Клеобул; kind=person	display=Клеобул; sort=Клеобул; kind=person
+12936	1	mononym	1	person	same	display=Анахарсис; kind=person	display=Анахарсис; sort=Анахарсис; kind=person
+13290	1	case_defect	3	collective	same	given=журнал; family=Юность; display=журнал Юность; sort=Юность, журнал; kind=person	display=журнал Юность; kind=collective
+13459	1	mononym	6	person	same	display=Фукидид; kind=person	display=Фукидид; sort=Фукидид; kind=person
+13906	1	mixed_script	2	person	same	given=Александр; family=Маркьянов; nickname=Werewolf; display=Александр Маркьянов Werewolf; sort=Маркьянов, Александр; kind=person	given=Александр; family=Маркьянов; nickname=Werewolf; display=Александр Маркьянов; sort=Маркьянов, Александр; kind=person
+16308	1	particle	1	person	same	given=Марі; additional=Катрін; family=Д’Онуа; display=Марі Катрін Д’Онуа; sort=Д’Онуа, Марі Катрін; kind=person	given=Марі; additional=Катрін; family=Д’Онуа; display=Марі Катрін Д’Онуа; sort=Д’Онуа, Марі Катрін; kind=person
+16940	1	mononym	3	person	same	display=Astrollet; kind=person	display=Astrollet; sort=Astrollet; kind=person
+17691	1	case_defect	1	person	same	given=Зигмунд; family=ФРЕЙД; display=Зигмунд ФРЕЙД; sort=ФРЕЙД, Зигмунд; kind=person	given=Зигмунд; family=Фрейд; display=Зигмунд Фрейд; sort=Фрейд, Зигмунд; kind=person
+17701	1	case_defect	1	person	same	given=Кейт; family=ХАРАРИ; display=Кейт ХАРАРИ; sort=ХАРАРИ, Кейт; kind=person	given=Кейт; family=Харари; display=Кейт Харари; sort=Харари, Кейт; kind=person
+17745	1	mononym	1	person	same	nickname=Лешия; display=Лешия; kind=person	nickname=Лешия; display=Лешия; sort=Лешия; kind=person
+17953	1	mononym	4	person	same	display=Юэмэй; kind=person	display=Юэмэй; sort=Юэмэй; kind=person
+18422	1	single_field	1	person	same	display=Падре Пио; kind=person	given=Пио; prefix=Падре; display=Падре Пио; kind=person
+18619	1	mononym	5	person	same	display=Астра; kind=person	display=Астра; sort=Астра; kind=person
+19856	1	mononym	1	person	same	display=Magnum; kind=person	display=Magnum; sort=Magnum; kind=person
+20016	1	case_defect	1	person	same	given=WILLIAM; family=BUCKLEY; display=WILLIAM BUCKLEY; sort=BUCKLEY, WILLIAM; kind=person	given=William; family=Buckley; display=William Buckley; sort=Buckley, William; kind=person
+21985	1	mixed_script	1	person	same	given=Абpахам; family=Маслоу; display=Абpахам Маслоу; sort=Маслоу, Абpахам; kind=person	given=Абрахам; family=Маслоу; display=Абрахам Маслоу; sort=Маслоу, Абрахам; kind=person
+24176	1	mononym	9	person	same	display=tikhanovskaya; kind=person	family=Tikhanovskaya; display=Tikhanovskaya; sort=Tikhanovskaya; kind=person
+25138	1	mixed_script	1	person	different	given=Ричард; additional=C.; family=Хогланд; display=Ричард C. Хогланд; sort=Хогланд, Ричард C.; kind=person	given=Ричард; additional=C.; family=Хогланд; display=Ричард C. Хогланд; sort=Хогланд, Ричард C.; kind=person
+27884	1	mononym	2	person	same	nickname=Strelok; display=Strelok; kind=person	nickname=Strelok; display=Strelok; sort=Strelok; kind=person
+29235	1	case_defect	1	person	same	given=Марта; family=РЭНДОЛЛ; display=Марта РЭНДОЛЛ; sort=РЭНДОЛЛ, Марта; kind=person	given=Марта; family=Рэндолл; display=Марта Рэндолл; sort=Рэндолл, Марта; kind=person
+29557	1	case_defect	1	person	same	given=КИМ; additional=СТЭНЛИ; family=РОБИНСОН; display=КИМ СТЭНЛИ РОБИНСОН; sort=РОБИНСОН, КИМ СТЭНЛИ; kind=person	given=Ким; additional=Стэнли; family=Робинсон; display=Ким Стэнли Робинсон; sort=Робинсон, Ким Стэнли; kind=person
+29616	1	case_defect	2	person	same	given=АЛИСТЕР; family=КРОУЛИ; display=АЛИСТЕР КРОУЛИ; sort=КРОУЛИ, АЛИСТЕР; kind=person	given=Алистер; family=Кроули; display=Алистер Кроули; sort=Кроули, Алистер; kind=person
+29717	1	particle	1	not_a_name	same	given=La; additional=Majstro kaj; family=Margarita; display=La Majstro kaj Margarita; sort=Margarita, La Majstro kaj; kind=person	display=La Majstro kaj Margarita; kind=unknown
+29986	1	unusual_characters	1	person	same	display=Demosfen™; kind=person	display=Demosfen™; sort=Demosfen™; kind=person
+31321	1	mixed_script	1	person	same	given=Руслан; family=Балабеков; nickname=Lorgar666; display=Руслан Балабеков Lorgar666; sort=Балабеков, Руслан; kind=person	given=Руслан; family=Балабеков; nickname=Lorgar666; display=Руслан Балабеков; sort=Балабеков, Руслан; kind=person
+32198	1	single_field	1	person	same	display=Дорохов Михаил; kind=person	given=Михаил; family=Дорохов; display=Дорохов Михаил; sort=Дорохов Михаил; kind=person
+33045	1	mononym	1	person	same	nickname=Klavinia; display=Klavinia; kind=person	nickname=Klavinia; display=Klavinia; sort=Klavinia; kind=person
+33217	1	single_field	1	person	same	display=Fovire Deriter; kind=person	given=Fovire; family=Deriter; display=Fovire Deriter; sort=Deriter, Fovire; kind=person
+33788	1	mononym	45	person	same	display=Тайниковский; kind=person	display=Тайниковский; sort=Тайниковский; kind=person
+35392	1	particle	5	person	same	display=Омар ибн Аби Рабия; kind=person	given=Омар; family=ибн Аби Рабия; display=Омар ибн Аби Рабия; sort=Аби Рабия, Омар ибн; kind=person
+36720	1	particle	2	person	same	given=Ben; family=Pastor; display=Ben Pastor; sort=Pastor, Ben; kind=person	given=Ben; family=Pastor; display=Ben Pastor; sort=Pastor, Ben; kind=person
+37767	1	mixed_script	1	person	same	given=С.; additional=А.; family=Ekshut; display=С. А. Ekshut; sort=Ekshut, С. А.; kind=person	given=С.; additional=А.; family=Ekshut; display=С. А. Ekshut; sort=Ekshut, С. А.; kind=person
+38130	1	case_defect	2	person	same	given=ANNA; family=SAKSE; display=ANNA SAKSE; sort=SAKSE, ANNA; kind=person	given=Anna; family=Sakse; display=Anna Sakse; sort=Sakse, Anna; kind=person
+38732	1	unusual_characters	1	person	same	given=Andersen,; additional=Hans; family=Christian; display=Andersen, Hans Christian; sort=Christian, Andersen, Hans; kind=person	given=Hans; additional=Christian; family=Andersen; display=Hans Christian Andersen; sort=Andersen, Hans Christian; kind=person
+39032	1	mononym	1	person	same	display=Таина; kind=person	display=Таина; sort=Таина; kind=person
+39797	1	mononym	1	person	same	display=Keya; kind=person	display=Keya; sort=Keya; kind=person
+41864	1	mixed_script	1	person	different	given=Игорь; family=Numus; display=Игорь Numus; sort=Numus, Игорь; kind=person	given=Игорь; nickname=Numus; display=Игорь; kind=person
+41872	1	single_field	1	person	same	display=Сон Хён; kind=person	given=Хён; family=Сон; display=Сон Хён; sort=Сон Хён; kind=person
+43537	1	single_field	2	collective	same	display=Русская православная церковь; kind=person	display=Русская православная церковь; kind=collective
+44873	1	particle	1	person	same	given=Феодор; family=Абу-Курра; display=Феодор Абу-Курра; sort=Абу-Курра, Феодор; kind=person	given=Феодор; family=Абу-Курра; display=Феодор Абу-Курра; sort=Абу-Курра, Феодор; kind=person
+45473	1	unusual_characters	3	collective	same	display=Журнал «Млечный Путь»; kind=person	display=Журнал «Млечный Путь»; kind=collective
+45890	1	mononym	4	person	same	display=Сомадева; kind=person	display=Сомадева; sort=Сомадева; kind=person
+46222	1	single_field	2	person	same	display=Гу Хуа; kind=person	given=Хуа; family=Гу; display=Гу Хуа; sort=Гу Хуа; kind=person
+46730	1	unusual_characters	1	person	same	given=Алексей; additional=Кузьмич; family=Югов.; display=Алексей Кузьмич Югов.; sort=Югов., Алексей Кузьмич; kind=person	given=Алексей; additional=Кузьмич; family=Югов; display=Алексей Кузьмич Югов.; sort=Югов, Алексей Кузьмич; kind=person
+46814	1	particle	1	person	different	given=Жан; family=д’Ормессон; display=Жан д’Ормессон; sort=д’Ормессон, Жан; kind=person	given=Жан; family=д’Ормессон; display=Жан д’Ормессон; kind=person
+46815	1	unusual_characters	1	collective	unclear	additional=Анатольевич; family=Альманах «Подвиг»; display=Анатольевич Альманах «Подвиг»; sort=Альманах «Подвиг»; kind=person	display=Анатольевич Альманах «Подвиг»; kind=collective
+47037	1	particle	1	person	same	display=Ибн Каййим аль-Джаузийя; kind=person	family=Ибн Каййим аль-Джаузийя; display=Ибн Каййим аль-Джаузийя; sort=Ибн Каййим аль-Джаузийя; kind=person
+47629	1	mononym	1	person	same	display=Веспа; kind=person	display=Веспа; sort=Веспа; kind=person
+47904	1	unusual_characters	1	person	different	given=Уильям; family=Онкен-мл.; display=Уильям Онкен-мл.; sort=Онкен-мл., Уильям; kind=person	given=Уильям; family=Онкен-мл; display=Уильям Онкен-мл.; sort=Онкен-мл, Уильям; kind=person
+47956	1	unusual_characters	1	not_a_name	same	given=Бащина; additional=поука — синова; family=сполука; display=Бащина поука — синова сполука; sort=сполука, Бащина поука — синова; kind=person	display=Бащина поука — синова сполука; kind=unknown
+48735	1	case_defect	1	not_a_name	same	given=Откраднатият; family=кон; display=Откраднатият кон; sort=кон, Откраднатият; kind=person	display=Откраднатият кон; kind=unknown
+50569	1	mononym	1	person	same	display=Nik; kind=person	display=Nik; sort=Nik; kind=person
+57332	1	mixed_script	1	person	same	given=Михаил; family=Валерин; nickname=August Flieger; display=Михаил Валерин August Flieger; sort=Валерин, Михаил; kind=person	given=Михаил; family=Валерин; nickname=August Flieger; display=Михаил Валерин; sort=Валерин, Михаил; kind=person
+57895	1	case_defect	1	person	same	given=Амвросий; additional=Оптинский; family=преп; display=Амвросий Оптинский преп; sort=преп, Амвросий Оптинский; kind=person	given=Амвросий; family=Оптинский; suffix=преп; display=Амвросий Оптинский преп; sort=Оптинский, Амвросий; kind=person
+57900	1	single_field	1	person	same	display=Антоний Великий; kind=person	given=Антоний; suffix=Великий; display=Антоний Великий; kind=person
+58235	1	mixed_script	1	person	different	given=Джин; family=Родденбеppи; display=Джин Родденбеppи; sort=Родденбеppи, Джин; kind=person	given=Джин; family=Родденбеppи; display=Джин Родденбеppи; sort=Родденбеppи, Джин; kind=person
+58244	1	mixed_script	1	person	different	given=Аpтуp; family=Хинеман; display=Аpтуp Хинеман; sort=Хинеман, Аpтуp; kind=person	given=Аpтуp; family=Хинеман; display=Аpтуp Хинеман; sort=Хинеман, Аpтуp; kind=person
+58578	1	case_defect	1	person	same	given=РОДНИ; family=КОЛЛИН; display=РОДНИ КОЛЛИН; sort=КОЛЛИН, РОДНИ; kind=person	given=Родни; family=Коллин; display=Родни Коллин; sort=Коллин, Родни; kind=person
+58715	1	mononym	1	person	same	display=Garou; kind=person	display=Garou; sort=Garou; kind=person
+60026	1	case_defect	1	person	same	given=Сергей; family=АБРАМОВ; display=Сергей АБРАМОВ; sort=АБРАМОВ, Сергей; kind=person	given=Сергей; family=Абрамов; display=Сергей Абрамов; sort=Абрамов, Сергей; kind=person
+61993	1	unusual_characters	2	person	different	given=Ирина; additional=Владимировна; family=Головкина (Римская-Корсакова); display=Ирина Владимировна Головкина (Римская-Корсакова); sort=Головкина (Римская-Корсакова), Ирина Владимировна; kind=person	given=Ирина; additional=Владимировна; family=Головкина; nickname=Римская-Корсакова; display=Ирина Владимировна Головкина; sort=Головкина, Ирина Владимировна; kind=person
+62117	1	mixed_script	1	person	same	given=Сергей; family=Баландин; nickname=balandin; display=Сергей Баландин balandin; sort=Баландин, Сергей; kind=person	given=Сергей; family=Баландин; nickname=Balandin; display=Сергей Баландин; sort=Баландин, Сергей; kind=person
+63833	1	unusual_characters	1	person	unclear	given=Антонина; family=Бересклет (Клименкова); display=Антонина Бересклет (Клименкова); sort=Бересклет (Клименкова), Антонина; kind=person	given=Антонина; family=Бересклет; nickname=Клименкова; display=Антонина Бересклет; sort=Бересклет, Антонина; kind=person
+64377	1	case_defect	2	person	same	given=Carole; additional=Nelson; family=douglas; display=Carole Nelson douglas; sort=douglas, Carole Nelson; kind=person	given=Carole; additional=Nelson; family=Douglas; display=Carole Nelson Douglas; sort=Douglas, Carole Nelson; kind=person
+65998	1	affix	1	person	same	given=иерей Александр; family=Пермяков; display=иерей Александр Пермяков; sort=Пермяков, иерей Александр; kind=person	given=Александр; family=Пермяков; prefix=иерей; display=иерей Александр Пермяков; sort=Пермяков, Александр; kind=person
+69601	1	mononym	1	person	same	display=Ириска; kind=person	display=Ириска; sort=Ириска; kind=person
+72579	1	particle	1	person	same	given=Делла; family=Спринг; display=Делла Спринг; sort=Спринг, Делла; kind=person	given=Делла; family=Спринг; display=Делла Спринг; sort=Спринг, Делла; kind=person
+72913	1	mixed_script	2	person	same	given=Елена; family=Филон; nickname=Helena_fi; display=Елена Филон Helena_fi; sort=Филон, Елена; kind=person	given=Елена; family=Филон; nickname=Helena_fi; display=Елена Филон; sort=Филон, Елена; kind=person
+73367	1	case_defect	3	person	same	given=RJ; family=Nolan; display=RJ Nolan; sort=Nolan, RJ; kind=person	given=RJ; family=Nolan; display=RJ Nolan; sort=Nolan, RJ; kind=person
+73567	1	nickname_with_name	7	person	same	given=Doris; additional=May; family=Lessing; nickname=Little Dorrit; display=Doris May Lessing Little Dorrit; sort=Lessing, Doris May; kind=person	given=Doris; additional=May; family=Lessing; nickname=Little Dorrit; display=Doris May Lessing; sort=Lessing, Doris May; kind=person
+77717	1	mixed_script	1	person	same	given=Эдуард; family=Акулiн; display=Эдуард Акулiн; sort=Акулiн, Эдуард; kind=person	given=Эдуард; family=Акулин; display=Эдуард Акулин; sort=Акулин, Эдуард; kind=person
+79489	1	unusual_characters	1	person	same	display=Северная Изольда:; kind=person	given=Изольда; family=Северная; display=Северная Изольда:; sort=Северная Изольда; kind=person
+79773	1	unusual_characters	1	person	same	given=Франсиско; family=Феррер–и-Гуардия; display=Франсиско Феррер–и-Гуардия; sort=Феррер–и-Гуардия, Франсиско; kind=person	given=Франсиско; family=Феррер–и-Гуардия; display=Франсиско Феррер–и-Гуардия; sort=Феррер–и-Гуардия, Франсиско; kind=person
+80549	1	mixed_script	1	person	same	given=Лев; family=Вершинин; nickname=putnik1; display=Лев Вершинин putnik1; sort=Вершинин, Лев; kind=person	given=Лев; family=Вершинин; nickname=putnik1; display=Лев Вершинин; sort=Вершинин, Лев; kind=person
+82292	1	single_field	1	person	same	display=Катри Клинг; kind=person	given=Катри; family=Клинг; display=Катри Клинг; sort=Клинг, Катри; kind=person
+86057	1	case_defect	1	collective	same	given=МВД; family=СССР; display=МВД СССР; sort=СССР, МВД; kind=person	display=МВД СССР; kind=collective
+87918	1	mixed_script	2	person	same	given=Cемён; family=Владимиров; display=Cемён Владимиров; sort=Владимиров, Cемён; kind=person	given=Семён; family=Владимиров; display=Семён Владимиров; sort=Владимиров, Семён; kind=person
+88211	1	unusual_characters	1	person	same	given=Atk.; family=Butterfly; display=Atk. Butterfly; sort=Butterfly, Atk.; kind=person	given=Atk; family=Butterfly; display=Atk. Butterfly; sort=Butterfly, Atk; kind=person
+89899	1	mononym	1	person	same	display=ваня; kind=person	display=Ваня; sort=Ваня; kind=person
+90790	1	case_defect	1	person	same	given=Рини; family=РОССЕЛЬ; display=Рини РОССЕЛЬ; sort=РОССЕЛЬ, Рини; kind=person	given=Рини; family=Россель; display=Рини Россель; sort=Россель, Рини; kind=person
+91767	1	affix	4	person	same	given=протоиерей Иоанн; family=Толмачев; display=протоиерей Иоанн Толмачев; sort=Толмачев, протоиерей Иоанн; kind=person	given=Иоанн; family=Толмачев; prefix=протоиерей; display=протоиерей Иоанн Толмачев; sort=Толмачев, Иоанн; kind=person
+92411	1	mononym	2	person	same	display=Бодхи; kind=person	display=Бодхи; sort=Бодхи; kind=person
+92441	1	unusual_characters	1	person	same	given=Андрей; family=Битов.; display=Андрей Битов.; sort=Битов., Андрей; kind=person	given=Андрей; family=Битов; display=Андрей Битов.; sort=Битов, Андрей; kind=person
+92575	1	mononym	1	person	same	display=Геродиан; kind=person	display=Геродиан; sort=Геродиан; kind=person
+92765	1	mononym	1	person	same	display=Крайон; kind=person	display=Крайон; sort=Крайон; kind=person
+93108	1	mononym	1	person	same	display=Ronekarleone; kind=person	display=Ronekarleone; sort=Ronekarleone; kind=person
+93120	1	mixed_script	1	person	same	given=Игорь; additional=Николаевич; family=Кощиенко; nickname=Tig@r; display=Игорь Николаевич Кощиенко Tig@r; sort=Кощиенко, Игорь Николаевич; kind=person	given=Игорь; additional=Николаевич; family=Кощиенко; nickname=Tig@r; display=Игорь Николаевич Кощиенко; sort=Кощиенко, Игорь Николаевич; kind=person
+93702	1	mixed_script	1	person	same	given=Константин; family=Qwer; display=Константин Qwer; sort=Qwer, Константин; kind=person	given=Константин; family=Qwer; display=Константин Qwer; sort=Qwer, Константин; kind=person
+95003	1	nickname_with_name	1	person	same	given=Robert; family=Forrest-Webb; nickname=Bob; display=Robert Forrest-Webb Bob; sort=Forrest-Webb, Robert; kind=person	given=Robert; family=Forrest-Webb; nickname=Bob; display=Robert Forrest-Webb; sort=Forrest-Webb, Robert; kind=person
+95444	1	mixed_script	3	person	same	given=Николай; additional=Александрович; family=Романов; nickname=Николай II; display=Николай Александрович Романов Николай II; sort=Романов, Николай Александрович; kind=person	given=Николай; additional=Александрович; family=Романов; nickname=Николай II; display=Николай Александрович Романов; sort=Романов, Николай Александрович; kind=person
+95564	1	case_defect	1	person	same	given=Ласло; family=КОНТЛЕР; display=Ласло КОНТЛЕР; sort=КОНТЛЕР, Ласло; kind=person	given=Ласло; family=Контлер; display=Ласло Контлер; sort=Контлер, Ласло; kind=person
+101587	1	mixed_script	1	person	same	given=Отем; family=Грей; nickname=Grey Autumn; display=Отем Грей Grey Autumn; sort=Грей, Отем; kind=person	given=Отем; family=Грей; nickname=Grey Autumn; display=Отем Грей; sort=Грей, Отем; kind=person
+102622	1	unusual_characters	1	person	same	given=Александр; additional=Михайлович; family=Гуков; nickname=Карась 72; display=Александр Михайлович Гуков Карась 72; sort=Гуков, Александр Михайлович; kind=person	given=Александр; additional=Михайлович; family=Гуков; nickname=Карась 72; display=Александр Михайлович Гуков; sort=Гуков, Александр Михайлович; kind=person
+103340	1	mixed_script	1	person	same	given=Чарльз; family=Дыкенс; nickname=9cbka; display=Чарльз Дыкенс 9cbka; sort=Дыкенс, Чарльз; kind=person	given=Чарльз; family=Дыкенс; nickname=9cbka; display=Чарльз Дыкенс; sort=Дыкенс, Чарльз; kind=person
+105563	1	mononym	1	person	same	nickname=hildegart; display=hildegart; kind=person	nickname=hildegart; display=hildegart; sort=hildegart; kind=person
+107479	1	mixed_script	1	person	same	given=Eфим; family=Чеповецкий; display=Eфим Чеповецкий; sort=Чеповецкий, Eфим; kind=person	given=Ефим; family=Чеповецкий; display=Ефим Чеповецкий; sort=Чеповецкий, Ефим; kind=person
+107480	1	unusual_characters	1	person	same	given=Светлана; family=Кайдаш–Лакшина; display=Светлана Кайдаш–Лакшина; sort=Кайдаш–Лакшина, Светлана; kind=person	given=Светлана; family=Кайдаш–Лакшина; display=Светлана Кайдаш–Лакшина; sort=Кайдаш–Лакшина, Светлана; kind=person
+108271	1	mononym	1	person	same	display=ВЬЯСАДЕВА; kind=person	display=Вьясадева; sort=Вьясадева; kind=person
+109443	1	case_defect	1	person	same	given=АНДРЕЙ; family=ЛОМАЧИНСКИЙ; display=АНДРЕЙ ЛОМАЧИНСКИЙ; sort=ЛОМАЧИНСКИЙ, АНДРЕЙ; kind=person	given=Андрей; family=Ломачинский; display=Андрей Ломачинский; sort=Ломачинский, Андрей; kind=person
+109915	1	mononym	11	person	same	display=Greyspid; kind=person	display=Greyspid; sort=Greyspid; kind=person
+110229	1	mononym	3	person	same	display=Papirus; kind=person	display=Papirus; sort=Papirus; kind=person
+113017	1	single_field	1	person	same	nickname=Мелиса Миллер; display=Мелиса Миллер; kind=person	nickname=Мелиса Миллер; display=Мелиса Миллер; sort=Мелиса Миллер; kind=person
+118971	1	mixed_script	1	person	same	given=Чарльз; family=О'Райли III; display=Чарльз О'Райли III; sort=О'Райли III, Чарльз; kind=person	given=Чарльз; family=О'Райли; suffix=III; display=Чарльз О'Райли III; sort=О'Райли, Чарльз; kind=person
+120976	1	mononym	2	person	same	display=Сурат; kind=person	display=Сурат; sort=Сурат; kind=person
+126219	1	affix	2	person	same	given=Иоанн; family=Лествичник; nickname=преподобный; display=Иоанн Лествичник преподобный; sort=Лествичник, Иоанн; kind=person	given=Иоанн; family=Лествичник; nickname=преподобный; display=Иоанн Лествичник; sort=Лествичник, Иоанн; kind=person
+126360	1	unusual_characters	1	collective	same	display=журнал «Космопорт»; kind=person	display=журнал «Космопорт»; kind=collective
+126676	1	unusual_characters	1	not_a_name	same	given=Даўняе,; family=незабыўнае...; display=Даўняе, незабыўнае...; sort=незабыўнае..., Даўняе,; kind=person	display=Даўняе, незабыўнае...; kind=unknown
+128120	1	single_field	1	person	same	nickname=мс юлька; display=мс юлька; kind=person	nickname=мс юлька; display=мс юлька; sort=мс юлька; kind=person
+128344	1	affix	2	person	same	given=архимандрит Иоанн; family=Крестьянкин; display=архимандрит Иоанн Крестьянкин; sort=Крестьянкин, архимандрит Иоанн; kind=person	given=Иоанн; family=Крестьянкин; prefix=архимандрит; display=архимандрит Иоанн Крестьянкин; sort=Крестьянкин, Иоанн; kind=person
+128527	1	mononym	1	person	same	display=Агриппа; kind=person	display=Агриппа; sort=Агриппа; kind=person
+128530	1	mononym	1	person	same	display=Айзман; kind=person	family=Айзман; display=Айзман; sort=Айзман; kind=person
+128655	1	mononym	1	person	same	display=Аркадьев; kind=person	family=Аркадьев; display=Аркадьев; sort=Аркадьев; kind=person
+128729	1	mixed_script	1	person	different	given=И; family=Мантель-Heчко; display=И Мантель-Heчко; sort=Мантель-Heчко, И; kind=person	given=И; family=Мантель-Heчко; display=И Мантель-Heчко; sort=Мантель-Heчко, И; kind=person
+139329	1	unusual_characters	1	person	same	given=Faulkner,; family=William; display=Faulkner, William; sort=William, Faulkner,; kind=person	given=William; family=Faulkner; display=William Faulkner; sort=Faulkner, William; kind=person
+145590	1	case_defect	1	person	same	given=Джуд; family=ДЕВЕРО; display=Джуд ДЕВЕРО; sort=ДЕВЕРО, Джуд; kind=person	given=Джуд; family=Деверо; display=Джуд Деверо; sort=Деверо, Джуд; kind=person
+145611	1	single_field	3	person	same	display=Алексей КАЛУГИН; kind=person	given=Алексей; family=Калугин; display=Алексей Калугин; sort=Калугин, Алексей; kind=person
+148100	1	case_defect	1	person	same	given=протодиакон Андрей; family=Кураев; display=протодиакон Андрей Кураев; sort=Кураев, протодиакон Андрей; kind=person	given=Андрей; family=Кураев; prefix=протодиакон; display=протодиакон Андрей Кураев; sort=Кураев, Андрей; kind=person
+148491	1	unusual_characters	1	person	same	given=ANDERSON,; family=TAYLOR; display=ANDERSON, TAYLOR; sort=TAYLOR, ANDERSON,; kind=person	given=Taylor; family=Anderson; display=Taylor Anderson; sort=Anderson, Taylor; kind=person
+150044	1	unusual_characters	1	person	same	given=Dare,; family=Lydia; display=Dare, Lydia; sort=Lydia, Dare,; kind=person	given=Lydia; family=Dare; display=Lydia Dare; sort=Dare, Lydia; kind=person
+150732	1	mixed_script	1	person	same	given=Hиколай; family=Непомнящий; display=Hиколай Непомнящий; sort=Непомнящий, Hиколай; kind=person	given=Николай; family=Непомнящий; display=Николай Непомнящий; sort=Непомнящий, Николай; kind=person
+152603	1	mixed_script	1	person	same	given=Павел; additional=Михайлович; family=Ершов; nickname=Oldschoolman; display=Павел Михайлович Ершов Oldschoolman; sort=Ершов, Павел Михайлович; kind=person	given=Павел; additional=Михайлович; family=Ершов; nickname=Oldschoolman; display=Павел Михайлович Ершов; sort=Ершов, Павел Михайлович; kind=person
+153334	1	case_defect	1	person	same	given=НИКОЛАЙ; family=ФЕВР; display=НИКОЛАЙ ФЕВР; sort=ФЕВР, НИКОЛАЙ; kind=person	given=Николай; family=Февр; display=Николай Февр; sort=Февр, Николай; kind=person
+154255	1	case_defect	1	person	same	given=ИЛЬЯ; family=СЕМЕНОВ; display=ИЛЬЯ СЕМЕНОВ; sort=СЕМЕНОВ, ИЛЬЯ; kind=person	given=Илья; family=Семенов; display=Илья Семенов; sort=Семенов, Илья; kind=person
+155002	1	mixed_script	1	person	same	given=Г; family=Тиxов; display=Г Тиxов; sort=Тиxов, Г; kind=person	given=Г; family=Тихов; display=Г Тихов; sort=Тихов, Г; kind=person
+158849	1	affix	1	person	same	given=Лев; additional=Протоиерей; family=Липеровский; display=Лев Протоиерей Липеровский; sort=Липеровский, Лев Протоиерей; kind=person	given=Лев; family=Липеровский; suffix=Протоиерей; display=Лев Протоиерей Липеровский; sort=Липеровский, Лев; kind=person
+159170	1	affix	1	person	same	given=Рафаил; family=Нойка; nickname=иеромонах; display=Рафаил Нойка иеромонах; sort=Нойка, Рафаил; kind=person	given=Рафаил; family=Нойка; nickname=иеромонах; display=Рафаил Нойка; sort=Нойка, Рафаил; kind=person
+161480	1	particle	3	person	different	given=Мохаммед; family=аль-Ид аль-Халифа; display=Мохаммед аль-Ид аль-Халифа; sort=аль-Ид аль-Халифа, Мохаммед; kind=person	given=Мохаммед; family=аль-Ид аль-Халифа; display=Мохаммед аль-Ид аль-Халифа; kind=person
+173576	1	single_field	7	person	same	display=Ли Юй; kind=person	given=Юй; family=Ли; display=Ли Юй; sort=Ли Юй; kind=person
+175207	1	partial_structure	1	person	same	given=Kuttner; additional=Henry; display=Kuttner Henry; kind=person	given=Henry; family=Kuttner; display=Kuttner Henry; sort=Kuttner, Henry; kind=person
+175236	1	mixed_script	1	person	same	given=Латифа; family=Aз-Зайят; display=Латифа Aз-Зайят; sort=Aз-Зайят, Латифа; kind=person	given=Латифа; family=Аз-Зайят; display=Латифа Аз-Зайят; sort=Аз-Зайят, Латифа; kind=person
+176630	1	partial_structure	1	person	different	nickname=Silentsigh; display=Xxcoy Silentsigh; kind=person	given=Xxcoy; nickname=Silentsigh; display=Xxcoy; kind=person
+177360	1	case_defect	1	person	same	given=Анна; family=БАРИНОВА; display=Анна БАРИНОВА; sort=БАРИНОВА, Анна; kind=person	given=Анна; family=Баринова; display=Анна Баринова; sort=Баринова, Анна; kind=person
+179180	1	mononym	1	person	same	display=Бром; kind=person	display=Бром; sort=Бром; kind=person
+179352	1	mononym	10	person	same	display=Lutea; kind=person	display=Lutea; sort=Lutea; kind=person
+179486	1	case_defect	1	person	same	given=BJ; family=Knights; display=BJ Knights; sort=Knights, BJ; kind=person	given=BJ; family=Knights; display=BJ Knights; sort=Knights, BJ; kind=person
+182866	1	mixed_script	2	person	same	given=Георгий; additional=Pюрикович; family=Колоколов; display=Георгий Pюрикович Колоколов; sort=Колоколов, Георгий Pюрикович; kind=person	given=Георгий; additional=Рюрикович; family=Колоколов; display=Георгий Рюрикович Колоколов; sort=Колоколов, Георгий Рюрикович; kind=person
+184359	1	partial_structure	4	person	same	given=Иван; additional=Мак; display=Иван Мак; kind=person	given=Иван; family=Мак; display=Иван Мак; sort=Мак, Иван; kind=person
+185519	1	mononym	1	person	same	display=Рамачарака; kind=person	display=Рамачарака; sort=Рамачарака; kind=person
+189511	1	unusual_characters	1	person	same	given=Денис; family=Гуцко.; display=Денис Гуцко.; sort=Гуцко., Денис; kind=person	given=Денис; family=Гуцко; display=Денис Гуцко.; sort=Гуцко, Денис; kind=person
+191020	1	mononym	1	person	same	display=Езоп; kind=person	display=Езоп; sort=Езоп; kind=person
+199501	1	single_field	1	person	same	nickname=Джулия Кей; display=Джулия Кей; kind=person	nickname=Джулия Кей; display=Джулия Кей; sort=Джулия Кей; kind=person
+201254	1	single_field	1	person	same	display=Jack Vance; kind=person	given=Jack; family=Vance; display=Jack Vance; sort=Vance, Jack; kind=person
+205775	1	mononym	1	person	same	nickname=MargoLay; display=MargoLay; kind=person	nickname=MargoLay; display=MargoLay; sort=MargoLay; kind=person
+205793	1	single_field	1	person	same	nickname=Вениамин Добрый; display=Вениамин Добрый; kind=person	nickname=Вениамин Добрый; display=Вениамин Добрый; sort=Вениамин Добрый; kind=person
+207375	1	mononym	1	person	same	nickname=РавиШанкаР; display=РавиШанкаР; kind=person	nickname=РавиШанкаР; display=РавиШанкаР; sort=РавиШанкаР; kind=person
+207439	1	mixed_script	6	person	same	given=Наталья; additional=Эдуардовна; family=Манусаджян; nickname=manila; display=Наталья Эдуардовна Манусаджян manila; sort=Манусаджян, Наталья Эдуардовна; kind=person	given=Наталья; additional=Эдуардовна; family=Манусаджян; nickname=Manila; display=Наталья Эдуардовна Манусаджян; sort=Манусаджян, Наталья Эдуардовна; kind=person
+207453	1	mononym	6	person	same	nickname=Леха; display=Леха; kind=person	nickname=Леха; display=Леха; sort=Леха; kind=person
+208603	1	unusual_characters	2	person	same	given=Вильям (Уильям); family=Виллис (Уиллис); display=Вильям (Уильям) Виллис (Уиллис); sort=Виллис (Уиллис), Вильям (Уильям); kind=person	given=Вильям; family=Виллис; nickname=Уильям Уиллис; display=Вильям Виллис; sort=Виллис, Вильям; kind=person
+210326	1	mixed_script	2	person	same	given=Джек; family=Холдеман II; display=Джек Холдеман II; sort=Холдеман II, Джек; kind=person	given=Джек; family=Холдеман; suffix=II; display=Джек Холдеман II; sort=Холдеман, Джек; kind=person
+212013	1	single_field	1	person	same	display=Алексей Редозубов; kind=person	given=Алексей; family=Редозубов; display=Алексей Редозубов; sort=Редозубов, Алексей; kind=person
+212024	1	mononym	1	person	same	display=Захар; kind=person	given=Захар; display=Захар; kind=person
+213280	1	single_field	4	person	same	nickname=Ольга Сог; display=Ольга Сог; kind=person	nickname=Ольга Сог; display=Ольга Сог; sort=Ольга Сог; kind=person
+218211	1	mononym	1	person	same	display=Vladimir; kind=person	display=Vladimir; sort=Vladimir; kind=person
+220365	1	unusual_characters	2	person	same	given=Ibbotson,; family=Eva; display=Ibbotson, Eva; sort=Eva, Ibbotson,; kind=person	given=Eva; family=Ibbotson; display=Eva Ibbotson; sort=Ibbotson, Eva; kind=person
+225052	1	single_field	1	person	same	nickname=Тмина Лара; display=Тмина Лара; kind=person	nickname=Тмина Лара; display=Тмина Лара; sort=Тмина Лара; kind=person
+229078	1	case_defect	1	person	same	given=JENNIFER; family=CLOSE; display=JENNIFER CLOSE; sort=CLOSE, JENNIFER; kind=person	given=Jennifer; family=Close; display=Jennifer Close; sort=Close, Jennifer; kind=person
+230019	1	mononym	2	person	same	display=Посидипп; kind=person	display=Посидипп; sort=Посидипп; kind=person
+230043	1	mononym	2	person	same	display=Региан; kind=person	display=Региан; sort=Региан; kind=person
+231970	1	case_defect	19	person	same	given=MIHAILS; family=BULGAKOVS; display=MIHAILS BULGAKOVS; sort=BULGAKOVS, MIHAILS; kind=person	given=Mihails; family=Bulgakovs; display=Mihails Bulgakovs; sort=Bulgakovs, Mihails; kind=person
+232046	1	case_defect	3	person	same	given=REJS; family=BREDBERIJS; display=REJS BREDBERIJS; sort=BREDBERIJS, REJS; kind=person	given=Rejs; family=Bredberijs; display=Rejs Bredberijs; sort=Bredberijs, Rejs; kind=person
+232058	1	case_defect	3	person	same	given=Aleksandrs; family=ŠAĻIMOVS; display=Aleksandrs ŠAĻIMOVS; sort=ŠAĻIMOVS, Aleksandrs; kind=person	given=Aleksandrs; family=Šaļimovs; display=Aleksandrs Šaļimovs; sort=Šaļimovs, Aleksandrs; kind=person
+232226	1	case_defect	1	person	same	given=Martins; family=GARDNERS; display=Martins GARDNERS; sort=GARDNERS, Martins; kind=person	given=Martins; family=Gardners; display=Martins Gardners; sort=Gardners, Martins; kind=person
+232425	1	case_defect	1	person	same	given=BOGOMILS; family=RAINOVS; display=BOGOMILS RAINOVS; sort=RAINOVS, BOGOMILS; kind=person	given=Bogomils; family=Rainovs; display=Bogomils Rainovs; sort=Rainovs, Bogomils; kind=person
+232523	1	case_defect	1	person	same	given=VILJAMS; family=PLOUMERS; display=VILJAMS PLOUMERS; sort=PLOUMERS, VILJAMS; kind=person	given=Viljams; family=Ploumers; display=Viljams Ploumers; sort=Ploumers, Viljams; kind=person
+235434	1	mixed_script	1	person	same	given=Евгений; additional=Борисович; family=Коваленко; nickname=Coma; display=Евгений Борисович Коваленко Coma; sort=Коваленко, Евгений Борисович; kind=person	given=Евгений; additional=Борисович; family=Коваленко; nickname=Coma; display=Евгений Борисович Коваленко; sort=Коваленко, Евгений Борисович; kind=person
+236611	1	case_defect	1	person	same	given=Сергей; family=ХОРТИН; display=Сергей ХОРТИН; sort=ХОРТИН, Сергей; kind=person	given=Сергей; family=Хортин; display=Сергей Хортин; sort=Хортин, Сергей; kind=person
+237534	1	single_field	5	person	same	display=Радзивилл Ежи; kind=person	given=Ежи; family=Радзивилл; display=Радзивилл Ежи; sort=Радзивилл Ежи; kind=person
+237641	1	mixed_script	1	person	same	given=Надежда; additional=Марковна; family=Борзакова; nickname=elpise269; display=Надежда Марковна Борзакова elpise269; sort=Борзакова, Надежда Марковна; kind=person	given=Надежда; additional=Марковна; family=Борзакова; nickname=elpise269; display=Надежда Марковна Борзакова; sort=Борзакова, Надежда Марковна; kind=person
+240385	1	affix	1	person	same	given=Протоиерей Владимир; family=Воробьев; display=Протоиерей Владимир Воробьев; sort=Воробьев, Протоиерей Владимир; kind=person	given=Владимир; family=Воробьев; prefix=Протоиерей; display=Протоиерей Владимир Воробьев; sort=Воробьев, Владимир; kind=person
+241674	1	unusual_characters	1	person	same	given=Анна; family=Мудрова (сост.); display=Анна Мудрова (сост.); sort=Мудрова (сост.), Анна; kind=person	given=Анна; family=Мудрова; display=Анна Мудрова; sort=Мудрова, Анна; kind=person
+241808	1	unusual_characters	1	person	same	display=Хардин Джесси «Волк»; kind=person	given=Джесси; family=Хардин; nickname=Волк; display=Хардин Джесси; sort=Хардин Джесси; kind=person
+241956	1	case_defect	1	person	same	given=Светлана; additional=ивановна; family=Кочкуркина; display=Светлана ивановна Кочкуркина; sort=Кочкуркина, Светлана ивановна; kind=person	given=Светлана; additional=Ивановна; family=Кочкуркина; display=Светлана Ивановна Кочкуркина; sort=Кочкуркина, Светлана Ивановна; kind=person
+242016	1	case_defect	1	not_a_name	same	given=Триптих; additional=за; family=лампата; display=Триптих за лампата; sort=лампата, Триптих за; kind=person	display=Триптих за лампата; kind=unknown
+242078	1	mononym	1	person	same	display=Kotoleg; kind=person	display=Kotoleg; sort=Kotoleg; kind=person
+242458	1	affix	1	person	same	given=Протоиерей Александр; family=Шмеман; display=Протоиерей Александр Шмеман; sort=Шмеман, Протоиерей Александр; kind=person	given=Александр; family=Шмеман; prefix=Протоиерей; display=Протоиерей Александр Шмеман; sort=Шмеман, Александр; kind=person
+242502	1	single_field	1	person	same	nickname=Свами Шивананда; display=Свами Шивананда; kind=person	nickname=Свами Шивананда; display=Свами Шивананда; sort=Свами Шивананда; kind=person
+244411	1	unusual_characters	1	person	different	given=ДЭЙВИД; additional=.; family=ИСБИ; display=ДЭЙВИД . ИСБИ; sort=ИСБИ, ДЭЙВИД .; kind=person	given=Дэйвид; family=Исби; display=Дэйвид. Исби; sort=Исби, Дэйвид; kind=person
+244412	1	unusual_characters	1	person	different	given=ЧАРЛЗ; additional=.; family=МЕССЕНДЖЕР; display=ЧАРЛЗ . МЕССЕНДЖЕР; sort=МЕССЕНДЖЕР, ЧАРЛЗ .; kind=person	given=Чарлз; family=Мессенджер; display=Чарлз. Мессенджер; sort=Мессенджер, Чарлз; kind=person
+244413	1	unusual_characters	1	person	different	given=ДЖИЛЬБЕРТО; additional=.; family=ВИЛЛАЭРМОЗА; display=ДЖИЛЬБЕРТО . ВИЛЛАЭРМОЗА; sort=ВИЛЛАЭРМОЗА, ДЖИЛЬБЕРТО .; kind=person	given=Джильберто; family=Виллаэрмоза; display=Джильберто. Виллаэрмоза; sort=Виллаэрмоза, Джильберто; kind=person
+244700	1	mononym	1	person	same	display=Квестор; kind=person	display=Квестор; sort=Квестор; kind=person
+244701	1	mixed_script	1	person	same	given=Александра; family=Лосева; nickname=iefa; display=Александра Лосева iefa; sort=Лосева, Александра; kind=person	given=Александра; family=Лосева; nickname=Iefa; display=Александра Лосева; sort=Лосева, Александра; kind=person
+244758	1	case_defect	1	person	same	given=CJ; family=Lyons; display=CJ Lyons; sort=Lyons, CJ; kind=person	given=CJ; family=Lyons; display=CJ Lyons; sort=Lyons, CJ; kind=person
+244797	1	single_field	1	person	same	display=Глеб Снегирев; kind=person	given=Глеб; family=Снегирев; display=Глеб Снегирев; sort=Снегирев, Глеб; kind=person
+266271	1	mixed_script	1	person	different	given=Capa; family=Сил; display=Capa Сил; sort=Сил, Capa; kind=person	given=Capa; family=Сил; display=Capa Сил; sort=Сил, Capa; kind=person
+266566	1	partial_structure	1	person	same	given=Фудель; additional=Сергей Иосифович; display=Фудель Сергей Иосифович; kind=person	given=Сергей; additional=Иосифович; family=Фудель; display=Фудель Сергей Иосифович; sort=Фудель, Сергей Иосифович; kind=person
+268201	1	mononym	1	person	same	display=О'Рейн; kind=person	family=О'Рейн; display=О'Рейн; sort=О'Рейн; kind=person
+270326	1	single_field	1	person	same	display=Алексей МОЛОКИН; kind=person	given=Алексей; family=Молокин; display=Алексей Молокин; sort=Молокин, Алексей; kind=person
+271018	1	affix	1	person	same	given=Августин; family=Блаженный.; display=Августин Блаженный.; sort=Блаженный., Августин; kind=person	given=Августин; suffix=Блаженный; display=Августин Блаженный.; kind=person
+272002	1	case_defect	1	person	same	given=Элизабет; family=МАКНЕЙЛ; display=Элизабет МАКНЕЙЛ; sort=МАКНЕЙЛ, Элизабет; kind=person	given=Элизабет; family=Макнейл; display=Элизабет Макнейл; sort=Макнейл, Элизабет; kind=person
+275430	1	case_defect	1	person	same	given=алексей; family=Молокин; display=алексей Молокин; sort=Молокин, алексей; kind=person	given=Алексей; family=Молокин; display=Алексей Молокин; sort=Молокин, Алексей; kind=person
+277639	1	unusual_characters	1	person	same	given=Николай; additional=Павлович; family=Смирнов—Сокольский; display=Николай Павлович Смирнов—Сокольский; sort=Смирнов—Сокольский, Николай Павлович; kind=person	given=Николай; additional=Павлович; family=Смирнов—Сокольский; display=Николай Павлович Смирнов—Сокольский; sort=Смирнов—Сокольский, Николай Павлович; kind=person
+282187	1	case_defect	1	person	same	given=Михаил; additional=Григорьевич; family=ОРЕШЕТА; display=Михаил Григорьевич ОРЕШЕТА; sort=ОРЕШЕТА, Михаил Григорьевич; kind=person	given=Михаил; additional=Григорьевич; family=Орешета; display=Михаил Григорьевич Орешета; sort=Орешета, Михаил Григорьевич; kind=person
+295526	1	mononym	1	person	same	display=Helen; kind=person	display=Helen; sort=Helen; kind=person
+295542	1	particle	1	person	same	given=Del; additional=Stone; family=Jr.; display=Del Stone Jr.; sort=Jr., Del Stone; kind=person	given=Del; family=Stone; suffix=Jr.; display=Del Stone Jr.; sort=Stone, Del; kind=person
+295546	1	case_defect	1	person	same	given=МИХАИЛ; family=БЕРГ; display=МИХАИЛ БЕРГ; sort=БЕРГ, МИХАИЛ; kind=person	given=Михаил; family=Берг; display=Михаил Берг; sort=Берг, Михаил; kind=person
+295993	1	mixed_script	1	person	same	given=Алексей; additional=Вадимович; family=Гавриленко; nickname=Myqualia; display=Алексей Вадимович Гавриленко Myqualia; sort=Гавриленко, Алексей Вадимович; kind=person	given=Алексей; additional=Вадимович; family=Гавриленко; nickname=Myqualia; display=Алексей Вадимович Гавриленко; sort=Гавриленко, Алексей Вадимович; kind=person
+296092	1	unusual_characters	1	not_a_name	same	given=Профессор,; additional=доктор; family=технических наук, член-корр; display=Профессор, доктор технических наук, член-корр; sort=технических наук, член-корр, Профессор, доктор; kind=person	display=Профессор, доктор технических наук, член-корр; kind=unknown
+296165	1	affix	1	person	same	display=преподобный СЕРАФИМ САРОВСКИЙ; kind=person	given=Серафим; family=Саровский; prefix=преподобный; display=преподобный Серафим Саровский; sort=Саровский, Серафим; kind=person
+296409	1	case_defect	1	person	same	given=Андрей; additional=Борисович; family=ЗУБОВ; display=Андрей Борисович ЗУБОВ; sort=ЗУБОВ, Андрей Борисович; kind=person	given=Андрей; additional=Борисович; family=Зубов; display=Андрей Борисович Зубов; sort=Зубов, Андрей Борисович; kind=person
+297388	1	single_field	1	collective	same	display=Агентство РиФ; kind=person	display=Агентство РиФ; kind=collective
+297393	1	mononym	1	person	same	display=Варсонофий; kind=person	display=Варсонофий; sort=Варсонофий; kind=person
+297402	1	affix	1	person	different	given=Kelley; additional=St.; family=John; display=Kelley St. John; sort=John, Kelley St.; kind=person	given=Kelley; family=John; display=Kelley St. John; sort=St. John, Kelley; kind=person
+297493	1	mixed_script	1	person	same	given=Марк; family=Твен; nickname=Twain; display=Марк Твен Twain; sort=Твен, Марк; kind=person	given=Марк; family=Твен; nickname=Twain; display=Марк Твен; sort=Твен, Марк; kind=person
+298382	1	mixed_script	3	person	same	given=Генрi Лайон; family=Олдi; display=Генрi Лайон Олдi; sort=Олдi, Генрi Лайон; kind=person	given=Генри; additional=Лайон; family=Олди; display=Генри Лайон Олди; sort=Олди, Генри Лайон; kind=person
+298949	1	mononym	1	person	same	display=Стипа; kind=person	display=Стипа; sort=Стипа; kind=person
+300130	1	affix	1	person	same	given=Василий; family=Ермаков; nickname=протоиерей; display=Василий Ермаков протоиерей; sort=Ермаков, Василий; kind=person	given=Василий; family=Ермаков; nickname=протоиерей; display=Василий Ермаков; sort=Ермаков, Василий; kind=person
+301867	1	single_field	1	person	same	display=Тао Лицюнь; kind=person	given=Лицюнь; family=Тао; display=Тао Лицюнь; sort=Тао Лицюнь; kind=person
+301957	1	single_field	1	person	same	display=Чжоу Тункуань; kind=person	given=Тункуань; family=Чжоу; display=Чжоу Тункуань; sort=Чжоу Тункуань; kind=person
+301982	1	single_field	1	person	same	display=Сюй Сюэпин; kind=person	given=Сюэпин; family=Сюй; display=Сюй Сюэпин; sort=Сюй Сюэпин; kind=person
+302147	1	single_field	1	person	unclear	display=Хуан Тулу; kind=person	given=Тулу; family=Хуан; display=Хуан Тулу; sort=Хуан Тулу; kind=person
+302785	1	single_field	1	person	same	display=Шао Хуа; kind=person	given=Хуа; family=Шао; display=Шао Хуа; sort=Шао Хуа; kind=person
+302786	1	single_field	1	person	same	display=Хань Шаогун; kind=person	given=Шаогун; family=Хань; display=Хань Шаогун; sort=Хань Шаогун; kind=person
+303313	1	affix	1	person	same	given=Francy; additional=Gary; family=Powers Jr.; display=Francy Gary Powers Jr.; sort=Powers Jr., Francy Gary; kind=person	given=Francy; additional=Gary; family=Powers; suffix=Jr.; display=Francy Gary Powers Jr.; sort=Powers, Francy Gary; kind=person
+303542	1	partial_structure	1	person	different	nickname=СИшный; display=Константин СИшный; kind=person	given=Константин; nickname=СИшный; display=Константин; kind=person
+303707	1	single_field	1	person	same	display=Мария Крутень; kind=person	given=Мария; family=Крутень; display=Мария Крутень; sort=Крутень, Мария; kind=person
+303845	1	partial_structure	1	person	same	given=Кэролайн; additional=Кин; display=Кэролайн Кин; kind=person	given=Кэролайн; family=Кин; display=Кэролайн Кин; sort=Кин, Кэролайн; kind=person
+305406	1	mixed_script	1	person	same	given=Линус; family=Ларcсон; display=Линус Ларcсон; sort=Ларcсон, Линус; kind=person	given=Линус; family=Ларссон; display=Линус Ларссон; sort=Ларссон, Линус; kind=person
+305681	1	mononym	1	person	same	display=Новалис; kind=person	display=Новалис; sort=Новалис; kind=person
+307021	1	unusual_characters	5	collective	same	display=Журнал «Приключения, фантастика»; kind=person	display=Журнал «Приключения, фантастика»; kind=collective
+307256	1	particle	1	person	same	given=Ван; family=Аньи; display=Ван Аньи; sort=Аньи, Ван; kind=person	given=Аньи; family=Ван; display=Ван Аньи; sort=Ван, Аньи; kind=person
+307509	1	nickname_with_name	1	person	same	given=Charles; additional=Lincoln; family=Neal; nickname=Link; display=Charles Lincoln Neal Link; sort=Neal, Charles Lincoln; kind=person	given=Charles; additional=Lincoln; family=Neal; nickname=Link; display=Charles Lincoln Neal; sort=Neal, Charles Lincoln; kind=person
+307993	1	mixed_script	1	person	same	given=Hиколай; additional=Семенович; family=Лесков; display=Hиколай Семенович Лесков; sort=Лесков, Hиколай Семенович; kind=person	given=Николай; additional=Семенович; family=Лесков; display=Николай Семенович Лесков; sort=Лесков, Николай Семенович; kind=person
+308075	1	unusual_characters	1	person	same	display=(Март); kind=person	display=(Март); sort=Март; kind=person
+308344	1	affix	1	person	same	given=Harry; additional=Louis; family=Williams II; display=Harry Louis Williams II; sort=Williams II, Harry Louis; kind=person	given=Harry; additional=Louis; family=Williams; suffix=II; display=Harry Louis Williams II; sort=Williams, Harry Louis; kind=person
+308488	1	single_field	1	person	same	display=Чжан Мэн-лян; kind=person	given=Мэн-лян; family=Чжан; display=Чжан Мэн-лян; sort=Чжан Мэн-лян; kind=person
+308624	1	particle	2	person	same	given=Бен; family=Оливер; display=Бен Оливер; sort=Оливер, Бен; kind=person	given=Бен; family=Оливер; display=Бен Оливер; sort=Оливер, Бен; kind=person
+308882	1	affix	1	person	same	given=Протоиерей; additional=Александр; family=Авдюгин; display=Протоиерей Александр Авдюгин; sort=Авдюгин, Протоиерей Александр; kind=person	given=Александр; family=Авдюгин; prefix=Протоиерей; display=Протоиерей Александр Авдюгин; sort=Авдюгин, Александр; kind=person
+309392	1	mononym	1	person	same	display=InCome; kind=person	display=InCome; sort=InCome; kind=person
+309694	1	single_field	6	person	same	display=Сыма Цянь; kind=person	given=Цянь; family=Сыма; display=Сыма Цянь; sort=Сыма Цянь; kind=person
+309883	1	single_field	1	person	same	display=Дана Ви; kind=person	given=Дана; family=Ви; display=Дана Ви; sort=Ви, Дана; kind=person
+310201	1	single_field	2	person	same	display=Валерий Лисицкий; kind=person	given=Валерий; family=Лисицкий; display=Валерий Лисицкий; sort=Лисицкий, Валерий; kind=person
+310208	1	single_field	1	person	same	display=Туманов Влад; kind=person	given=Влад; family=Туманов; display=Туманов Влад; sort=Туманов Влад; kind=person
+310575	1	mixed_script	2	person	same	given=Алексей; family=Акданин; nickname=B0oka; display=Алексей Акданин B0oka; sort=Акданин, Алексей; kind=person	given=Алексей; family=Акданин; nickname=B0oka; display=Алексей Акданин; sort=Акданин, Алексей; kind=person
+310706	1	affix	1	person	same	given=Михаил; additional=Георгиевич; family=Аксенов-Меерсон; nickname=протоиерей; display=Михаил Георгиевич Аксенов-Меерсон протоиерей; sort=Аксенов-Меерсон, Михаил Георгиевич; kind=person	given=Михаил; additional=Георгиевич; family=Аксенов-Меерсон; nickname=протоиерей; display=Михаил Георгиевич Аксенов-Меерсон; sort=Аксенов-Меерсон, Михаил Георгиевич; kind=person
+310755	1	mixed_script	4	person	same	given=Игорь; family=Shiva; display=Игорь Shiva; sort=Shiva, Игорь; kind=person	given=Игорь; family=Shiva; display=Игорь Shiva; sort=Shiva, Игорь; kind=person
+310879	1	partial_structure	1	person	different	nickname=Марин Пенчов Пелов; display=Максим Марин Пенчов Пелов; kind=person	given=Максим; nickname=Марин Пенчов Пелов; display=Максим; kind=person
+311210	1	mixed_script	1	person	same	given=Cилье; family=Ульстайн; display=Cилье Ульстайн; sort=Ульстайн, Cилье; kind=person	given=Силье; family=Ульстайн; display=Силье Ульстайн; sort=Ульстайн, Силье; kind=person
+311236	1	case_defect	1	person	same	given=Софья; additional=Сергеевна; family=маркелова; display=Софья Сергеевна маркелова; sort=маркелова, Софья Сергеевна; kind=person	given=Софья; additional=Сергеевна; family=Маркелова; display=Софья Сергеевна Маркелова; sort=Маркелова, Софья Сергеевна; kind=person
+311556	1	mononym	1	person	same	display=Шанкарачарья; kind=person	display=Шанкарачарья; sort=Шанкарачарья; kind=person
+311558	1	single_field	1	person	different	display=Махант Аведьянатх; kind=person	prefix=Махант; display=Махант Аведьянатх; sort=Аведьянатх; kind=person
+311597	1	mixed_script	1	person	same	given=Александра; family=Питкевич; nickname=Samum; display=Александра Питкевич Samum; sort=Питкевич, Александра; kind=person	given=Александра; family=Питкевич; nickname=Samum; display=Александра Питкевич; sort=Питкевич, Александра; kind=person
+313154	1	mononym	1	person	same	display=Ратмир; kind=person	display=Ратмир; sort=Ратмир; kind=person
+313760	1	particle	1	person	same	given=Эсме; additional=Вэйцзюнь; family=Ван; display=Эсме Вэйцзюнь Ван; sort=Ван, Эсме Вэйцзюнь; kind=person	given=Эсме; additional=Вэйцзюнь; family=Ван; display=Эсме Вэйцзюнь Ван; sort=Ван, Эсме Вэйцзюнь; kind=person
+314083	1	mixed_script	3	person	same	given=Дарья; family=Кей; nickname=Mista; display=Дарья Кей Mista; sort=Кей, Дарья; kind=person	given=Дарья; family=Кей; nickname=Mista; display=Дарья Кей; sort=Кей, Дарья; kind=person
+314096	1	unusual_characters	1	person	different	given=Александр; additional=.; family=Райн; display=Александр . Райн; sort=Райн, Александр .; kind=person	given=Александр; family=Райн; display=Александр. Райн; sort=Райн, Александр; kind=person
+314375	1	single_field	1	person	same	display=Фома Сплитский; kind=person	given=Фома; family=Сплитский; display=Фома Сплитский; sort=Сплитский, Фома; kind=person
+314554	1	particle	1	person	same	given=Жасмин; family=Ван; display=Жасмин Ван; sort=Ван, Жасмин; kind=person	given=Жасмин; family=Ван; display=Жасмин Ван; sort=Ван, Жасмин; kind=person
+314735	1	mixed_script	13	person	same	given=Алексис; family=Опсокополос; nickname=Alexis Opsokopolos; display=Алексис Опсокополос Alexis Opsokopolos; sort=Опсокополос, Алексис; kind=person	given=Алексис; family=Опсокополос; nickname=Alexis Opsokopolos; display=Алексис Опсокополос; sort=Опсокополос, Алексис; kind=person
+315359	1	mixed_script	12	person	same	given=Андрей; additional=Эдуардович; family=Малышев; nickname=Rakot; display=Андрей Эдуардович Малышев Rakot; sort=Малышев, Андрей Эдуардович; kind=person	given=Андрей; additional=Эдуардович; family=Малышев; nickname=Rakot; display=Андрей Эдуардович Малышев; sort=Малышев, Андрей Эдуардович; kind=person
+315878	1	mononym	1	person	same	display=Лицзюнь; kind=person	display=Лицзюнь; sort=Лицзюнь; kind=person
+316073	1	unusual_characters	1	person	same	given=Иван; family=Трушков.; display=Иван Трушков.; sort=Трушков., Иван; kind=person	given=Иван; family=Трушков; display=Иван Трушков.; sort=Трушков, Иван; kind=person
+316268	1	mixed_script	1	person	same	given=Финн; family=O'Донневан; display=Финн O'Донневан; sort=O'Донневан, Финн; kind=person	given=Финн; family=О'Донневан; display=Финн О'Донневан; sort=О'Донневан, Финн; kind=person
+316348	1	unusual_characters	1	person	same	given=Mihails; additional=Tihona d.; family=Jemcevs; display=Mihails Tihona d. Jemcevs; sort=Jemcevs, Mihails Tihona d.; kind=person	given=Mihails; additional=Tihona d; family=Jemcevs; display=Mihails Tihona d. Jemcevs; sort=Jemcevs, Mihails Tihona d; kind=person
+316582	1	single_field	1	collective	unclear	display=Latviešu tautas teikas; kind=person	display=Latviešu tautas teikas; kind=collective
+317181	1	unusual_characters	1	person	different	given=Роберт; additional=,; family=Блох; display=Роберт , Блох; sort=Блох, Роберт ,; kind=person	given=Роберт; family=Блох; display=Роберт, Блох; sort=Блох, Роберт; kind=person
+317316	1	single_field	1	person	same	display=Морошка Сергеева; kind=person	given=Морошка; family=Сергеева; display=Морошка Сергеева; sort=Сергеева, Морошка; kind=person
+317337	1	mononym	1	person	same	display=Clandestinus; kind=person	display=Clandestinus; sort=Clandestinus; kind=person
+317357	1	particle	1	person	same	given=Ван; family=Сяоцян; display=Ван Сяоцян; sort=Сяоцян, Ван; kind=person	given=Сяоцян; family=Ван; display=Ван Сяоцян; sort=Ван, Сяоцян; kind=person
+317670	1	unusual_characters	1	person	same	given=Jāzeps; family=Osmanis.; display=Jāzeps Osmanis.; sort=Osmanis., Jāzeps; kind=person	given=Jāzeps; family=Osmanis; display=Jāzeps Osmanis.; sort=Osmanis, Jāzeps; kind=person
+317731	1	single_field	7	person	same	display=Ежов Константин Владимирович; kind=person	given=Константин; additional=Владимирович; family=Ежов; display=Ежов Константин Владимирович; sort=Ежов Константин Владимирович; kind=person
+317775	1	mononym	1	person	same	display=Танё; kind=person	display=Танё; sort=Танё; kind=person
+317955	1	mononym	1	person	same	nickname=Satine; display=Satine; kind=person	nickname=Satine; display=Satine; sort=Satine; kind=person
+317965	1	single_field	5	person	unclear	display=ИП Москаленко; kind=person	family=Москаленко; prefix=ИП; display=ИП Москаленко; sort=Москаленко; kind=person
+317982	1	unusual_characters	18	collective	same	given=Журнал; family=«Уральский следопыт»; display=Журнал «Уральский следопыт»; sort=«Уральский следопыт», Журнал; kind=person	display=Журнал «Уральский следопыт»; kind=collective
+318202	1	mononym	1	person	same	display=Giena; kind=person	display=Giena; sort=Giena; kind=person
+318360	1	mononym	1	person	same	display=Садхгуру; kind=person	display=Садхгуру; sort=Садхгуру; kind=person
+318502	1	mononym	1	person	same	nickname=Aspazija; display=Aspazija; kind=person	nickname=Aspazija; display=Aspazija; sort=Aspazija; kind=person
+318550	1	mononym	9	person	same	display=Морфиус; kind=person	display=Морфиус; sort=Морфиус; kind=person
+318676	1	unusual_characters	1	person	same	given=Сатеник (Сати); additional=Жоровна; family=Епремян; display=Сатеник (Сати) Жоровна Епремян; sort=Епремян, Сатеник (Сати) Жоровна; kind=person	given=Сатеник; additional=Жоровна; family=Епремян; nickname=Сати; display=Сатеник Жоровна Епремян; sort=Епремян, Сатеник Жоровна; kind=person
+318956	1	mixed_script	1	person	different	given=B.; family=Баландин; display=B. Баландин; sort=Баландин, B.; kind=person	given=B.; family=Баландин; display=B. Баландин; sort=Баландин, B.; kind=person
+319117	1	single_field	1	person	different	display=Папа Римский Франциск; kind=person	prefix=Папа Римский; display=Папа Римский Франциск; sort=Франциск; kind=person
+319156	1	particle	1	person	same	given=Бен; family=Тарнофф; display=Бен Тарнофф; sort=Тарнофф, Бен; kind=person	given=Бен; family=Тарнофф; display=Бен Тарнофф; sort=Тарнофф, Бен; kind=person
+320684	1	placeholder_fragment	1	person	unclear	display=Celeste Unknown; kind=unknown	given=Celeste; display=Celeste; kind=person
+320685	1	collective_candidate	1	person	same	display=Константин Владимирович Ткаченко К. и Т. Енко; kind=collective	given=Константин; additional=Владимирович; family=Ткаченко; nickname=К. и Т. Енко; display=Константин Владимирович Ткаченко; sort=Ткаченко, Константин Владимирович; kind=person
+321030	1	placeholder_fragment	4	placeholder	same	display=Unknown Unknown; kind=unknown	display=Unknown Unknown; kind=unknown
+322188	1	mononym	14	person	same	display=INDIGO; kind=person	display=Indigo; sort=Indigo; kind=person
+225	2	mixed_script	1	person	same	given=Сергей; additional=Юрьевич; family=Трухачев; nickname=SETR; display=Сергей Юрьевич Трухачев SETR; sort=Трухачев, Сергей Юрьевич; kind=person	given=Сергей; additional=Юрьевич; family=Трухачев; nickname=SETR; display=Сергей Юрьевич Трухачев; sort=Трухачев, Сергей Юрьевич; kind=person
+1069	2	mononym	140	not_a_name	same	display=Admin; kind=person	display=Admin; kind=unknown
+1835	2	case_defect	7	not_a_name	same	given=Небесные; family=жители; display=Небесные жители; sort=жители, Небесные; kind=person	display=Небесные жители; kind=unknown
+2075	2	mononym	1	person	same	display=ScrLock; kind=person	display=ScrLock; sort=ScrLock; kind=person
+3139	2	mononym	30	not_a_name	same	display=Admin; kind=person	display=Admin; kind=unknown
+9118	2	mononym	6	collective	unclear	display=ПИОНЕР; kind=person	display=Пионер; kind=collective
+9247	2	single_field	1	person	same	display=The Captain; kind=person	nickname=The Captain; display=The Captain; sort=The Captain; kind=person
+10808	2	mononym	26	person	same	display=Weeldoon; kind=person	display=Weeldoon; sort=Weeldoon; kind=person
+13177	2	unusual_characters	47	collective	same	display=К барьеру! (запрещенная Дуэль); kind=person	display=К барьеру! (запрещенная Дуэль); kind=collective
+14211	2	mononym	2	person	same	display=Bil; kind=person	display=Bil; sort=Bil; kind=person
+15993	2	mixed_script	1	person	same	given=Макс; family=Роуд; nickname=maxroud; display=Макс Роуд maxroud; sort=Роуд, Макс; kind=person	given=Макс; family=Роуд; nickname=maxroud; display=Макс Роуд; sort=Роуд, Макс; kind=person
+25084	2	mononym	1	person	same	display=Дмитрий; kind=person	display=Дмитрий; sort=Дмитрий; kind=person
+31431	2	single_field	1	person	same	display=Маленький Диванный Тигр; kind=person	nickname=Маленький Диванный Тигр; display=Маленький Диванный Тигр; sort=Маленький Диванный Тигр; kind=person
+32244	2	mononym	1	person	same	display=Linzmen; kind=person	display=Linzmen; sort=Linzmen; kind=person
+38311	2	mononym	1	person	same	display=Loner-XP; kind=person	display=Loner-XP; sort=Loner-XP; kind=person
+44881	2	affix	1	person	same	given=Лев; family=Великий; nickname=святитель; display=Лев Великий святитель; sort=Великий, Лев; kind=person	given=Лев; nickname=святитель; suffix=Великий; display=Лев Великий; kind=person
+47631	2	single_field	1	person	same	display=Аполлинарий Сидоний; kind=person	given=Аполлинарий; family=Сидоний; display=Аполлинарий Сидоний; sort=Сидоний, Аполлинарий; kind=person
+51640	2	mononym	1	person	same	display=Slink; kind=person	display=Slink; sort=Slink; kind=person
+73426	2	unusual_characters	1	multiple_persons	pair	display=myriad, SadSonya; kind=person	display=myriad, SadSonya; kind=collective
+82047	2	single_field	1	person	same	display=Rorschach's Blot; kind=person	nickname=Rorschach's Blot; display=Rorschach's Blot; sort=Rorschach's Blot; kind=person
+82067	2	mononym	1	person	same	display=Снарк; kind=person	display=Снарк; sort=Снарк; kind=person
+93523	2	affix	1	person	same	display=Преподобный Никодим Святогорец; kind=person	given=Никодим; family=Святогорец; prefix=Преподобный; display=Преподобный Никодим Святогорец; sort=Святогорец, Никодим; kind=person
+145887	2	mononym	1	person	same	display=TWDragon; kind=person	display=TWDragon; sort=TWDragon; kind=person
+157274	2	unusual_characters	1	person	same	given=Владимир; additional=(поэт); family=Иванов; display=Владимир (поэт) Иванов; sort=Иванов, Владимир (поэт); kind=person	given=Владимир; family=Иванов; suffix=поэт; display=Владимир (поэт) Иванов; sort=Иванов, Владимир; kind=person
+183879	2	mixed_script	1	person	same	given=Виктория; additional=Яковлевна; family=Райхер; nickname=neivid; display=Виктория Яковлевна Райхер neivid; sort=Райхер, Виктория Яковлевна; kind=person	given=Виктория; additional=Яковлевна; family=Райхер; nickname=Neivid; display=Виктория Яковлевна Райхер; sort=Райхер, Виктория Яковлевна; kind=person
+185042	2	nickname_with_name	1	person	same	given=Dario; family=Corno; nickname=rIo; display=Dario Corno rIo; sort=Corno, Dario; kind=person	given=Dario; family=Corno; nickname=rIo; display=Dario Corno; sort=Corno, Dario; kind=person
+210562	2	mononym	1	placeholder	same	display=Uncnown; kind=person	display=Uncnown; kind=unknown
+226204	2	unusual_characters	33	person	same	given=Татьяна; family=100 Рожева; display=Татьяна 100 Рожева; sort=100 Рожева, Татьяна; kind=person	given=Татьяна; family=100 Рожева; display=Татьяна 100 Рожева; sort=100 Рожева, Татьяна; kind=person
+237623	2	single_field	1	person	same	nickname=запах миндаля; display=запах миндаля; kind=person	nickname=запах миндаля; display=запах миндаля; sort=запах миндаля; kind=person
+240645	2	partial_structure	1	person	same	nickname=Аранавир; display=Аранавир Аранавир; kind=person	nickname=Аранавир; display=Аранавир; sort=Аранавир; kind=person
+244319	2	unusual_characters	1	person	different	given=ИЕРОМОНАХ; family=ПАНТЕЛЕИМОН (ЛЕДИН); display=ИЕРОМОНАХ ПАНТЕЛЕИМОН (ЛЕДИН); sort=ПАНТЕЛЕИМОН (ЛЕДИН), ИЕРОМОНАХ; kind=person	given=Пантелеимон; nickname=Ледин; prefix=ИЕРОМОНАХ; display=ИЕРОМОНАХ Пантелеимон; kind=person
+267953	2	mononym	1	collective	same	display=SEMANTICA; kind=person	display=SEMANTICA; kind=collective
+276739	2	case_defect	1	person	same	given=Nancy; additional=SM; family=Waldman; display=Nancy SM Waldman; sort=Waldman, Nancy SM; kind=person	given=Nancy; additional=SM; family=Waldman; display=Nancy SM Waldman; sort=Waldman, Nancy SM; kind=person
+284178	2	mononym	1	person	same	display=XTreme; kind=person	display=XTreme; sort=XTreme; kind=person
+301942	2	unusual_characters	1	person	same	display=MC_XuMuK; kind=person	display=MC_XuMuK; sort=MC_XuMuK; kind=person
+304737	2	mononym	27	person	same	display=shellina; kind=person	display=Shellina; sort=Shellina; kind=person
+306828	2	unusual_characters	1	person	same	display=Alexander_N; kind=person	display=Alexander_N; sort=Alexander_N; kind=person
+307348	2	case_defect	1	collective	unclear	given=Хороший; family=текст; display=Хороший текст; sort=текст, Хороший; kind=person	display=Хороший текст; kind=collective
+309519	2	unusual_characters	1	person	same	display=Lunar Elf2304; kind=person	nickname=Lunar Elf2304; display=Lunar Elf2304; sort=Lunar Elf2304; kind=person
+310767	2	single_field	1	multiple_persons	unclear	display=Live Hope; kind=person	display=Live Hope; kind=collective
+311250	2	partial_structure	2	person	same	nickname=Rayko; display=Rayko Rayko; kind=person	nickname=Rayko; display=Rayko; sort=Rayko; kind=person
+311449	2	unusual_characters	1	person	same	given=Марк; additional=«Всплеск»; family=Астон; display=Марк «Всплеск» Астон; sort=Астон, Марк «Всплеск»; kind=person	given=Марк; family=Астон; nickname=Всплеск; display=Марк Астон; sort=Астон, Марк; kind=person
+311575	2	single_field	1	person	same	display=Мехер Баба; kind=person	given=Мехер; suffix=Баба; display=Мехер Баба; kind=person
+312952	2	mononym	21	person	same	display=Amazerak; kind=person	display=Amazerak; sort=Amazerak; kind=person
+314835	2	unusual_characters	47	person	different	given=Михаил; family=Ежов; nickname=Виктор Глебов; Майк Германов; display=Михаил Ежов Виктор Глебов; Майк Германов; sort=Ежов, Михаил; kind=person	given=Михаил; family=Ежов; nickname=Виктор Глебов Майк Германов; display=Михаил Ежов; sort=Ежов, Михаил; kind=person
+315430	2	mononym	20	person	same	display=Nezloi; kind=person	display=Nezloi; sort=Nezloi; kind=person
+318514	2	unusual_characters	1	person	different	display=doc. K. Kalmikovs,; kind=person	given=K.; family=Kalmikovs; prefix=doc; display=doc. K. Kalmikovs,; sort=Kalmikovs, K.; kind=person
+319813	2	collective_candidate	28	multiple_persons	same	display=Братья Гримм; kind=collective	display=Братья Гримм; kind=collective
+320112	2	collective_candidate	34	collective	same	display=Народное творчество (Фольклор); kind=collective	display=Народное творчество (Фольклор); kind=collective
+320687	2	placeholder_fragment	2	person	unclear	display=Аноним Райкар; kind=unknown	display=Райкар; sort=Райкар; kind=person
+320867	2	collective_candidate	1	collective	same	display=Журнал «Государство, религия, церковь в России и за рубежом»; kind=collective	display=Журнал «Государство, религия, церковь в России и за рубежом»; kind=collective
+321084	2	placeholder_fragment	1	person	unclear	display=Аноним Лера; kind=unknown	display=Лера; sort=Лера; kind=person
+321170	2	particle	1	person	same	given=Элен; family=Каррер д’Анкосс; display=Элен Каррер д’Анкосс; sort=Каррер д’Анкосс, Элен; kind=person	given=Элен; family=Каррер д’Анкосс; nickname=Неизвестный автор; display=Элен Каррер д’Анкосс; sort=Каррер д’Анкосс, Элен; kind=person
+740	5	single_field	51		same	nickname=Unbekannter Autor; display=Unbekannter Autor; kind=person	nickname=Unbekannter Autor; display=Unbekannter Autor; kind=unknown
+1411	5	single_field	1		same	display=УПЦ МП; kind=person	display=УПЦ МП; kind=collective
+2104	5	mononym	32		same	display=User; kind=person	display=User; kind=unknown
+2624	5	single_field	1		same	nickname=МИД РФ; display=МИД РФ; kind=person	nickname=МИД РФ; display=МИД РФ; kind=collective
+16307	5	mixed_script	2		same	display=Журнал «Наш cовременник»; kind=person	display=Журнал «Наш cовременник»; kind=collective
+30138	5	case_defect	14		same	given=Министерство; family=Обороны СССР; display=Министерство Обороны СССР; sort=Обороны СССР, Министерство; kind=person	given=Министерство; family=Обороны СССР; display=Министерство Обороны СССР; sort=Обороны СССР, Министерство; kind=collective
+42713	5	single_field	2		same	display=Академия исторических наук; kind=person	display=Академия исторических наук; kind=collective
+48847	5	single_field	1		same	display=Ассоциация советских юристов; kind=person	display=Ассоциация советских юристов; kind=collective
+49235	5	case_defect	614		same	given=БСЭ; family=БСЭ; display=БСЭ БСЭ; sort=БСЭ, БСЭ; kind=person	given=БСЭ; family=БСЭ; display=БСЭ БСЭ; sort=БСЭ, БСЭ; kind=collective
+52212	5	mixed_script	5		same	given=Журнал; family=«Полдень XXI век»; display=Журнал «Полдень XXI век»; sort=«Полдень XXI век», Журнал; kind=person	given=Журнал; family=«Полдень XXI век»; display=Журнал «Полдень XXI век»; sort=«Полдень XXI век», Журнал; kind=collective
+70382	5	partial_structure	1		same	given=Министерство обороны РФ; additional=Институт военной истории МО РФ; display=Министерство обороны РФ Институт военной истории МО РФ; kind=person	given=Министерство обороны РФ; additional=Институт военной истории МО РФ; display=Министерство обороны РФ Институт военной истории МО РФ; kind=collective
+100951	5	unusual_characters	1		same	display=Альманах «Война в воздухе»; kind=person	display=Альманах «Война в воздухе»; kind=collective
+110962	5	single_field	1		same	display=СЦ ЕХБ; kind=person	display=СЦ ЕХБ; kind=collective
+141621	5	unusual_characters	1		same	display=Газета МРП «Левый поворот» №8, 2002 г.; kind=person	display=Газета МРП «Левый поворот» №8, 2002 г.; kind=collective
+141625	5	unusual_characters	1		same	display=Газета МРП «Левый поворот» №№14-15; kind=person	display=Газета МРП «Левый поворот» №№14-15; kind=collective
+148107	5	mixed_script	5		same	given=Журнал; family=«Полдень, XXI век»; display=Журнал «Полдень, XXI век»; sort=«Полдень, XXI век», Журнал; kind=person	given=Журнал; family=«Полдень, XXI век»; display=Журнал «Полдень, XXI век»; sort=«Полдень, XXI век», Журнал; kind=collective
+164841	5	unusual_characters	7		same	display=«ЕСЛИ»; kind=person	display=«ЕСЛИ»; kind=collective
+165490	5	mononym	1		same	display=Guest; kind=person	display=Guest; kind=unknown
+166486	5	unusual_characters	1		same	given=Журнал; additional=655; family=Компьютерра; display=Журнал 655 Компьютерра; sort=Компьютерра, Журнал 655; kind=person	given=Журнал; additional=655; family=Компьютерра; display=Журнал 655 Компьютерра; sort=Компьютерра, Журнал 655; kind=collective
+166514	5	unusual_characters	1		same	given=Журнал; additional=613; family=Компьютерра; display=Журнал 613 Компьютерра; sort=Компьютерра, Журнал 613; kind=person	given=Журнал; additional=613; family=Компьютерра; display=Журнал 613 Компьютерра; sort=Компьютерра, Журнал 613; kind=collective
+207738	5	mononym	8		same	display=Альманах; kind=person	display=Альманах; kind=collective
+209661	5	unusual_characters	1		different	given=Ursu,a; additional=K.; family=Le Guin; display=Ursu,a K. Le Guin; sort=Le Guin, Ursu,a K.; kind=person	given=Ursu,a; additional=K.; family=Le Guin; display=Ursu,a K. Le Guin; sort=Le Guin, Ursu,a K.; kind=collective
+240641	5	unusual_characters	1		different	given=Shane; additional=McKenzie,; family=ed.; display=Shane McKenzie, ed.; sort=ed., Shane McKenzie,; kind=person	given=Shane; additional=McKenzie,; family=ed.; display=Shane McKenzie, ed.; sort=ed., Shane McKenzie,; kind=collective
+266995	5	mononym	1		same	display=Guest; kind=person	display=Guest; kind=unknown
+291187	5	mononym	1		same	nickname=admin; display=admin; kind=person	nickname=admin; display=admin; kind=unknown
+302541	5	unusual_characters	14		same	display=Альманах «Знак вопроса»; kind=person	display=Альманах «Знак вопроса»; kind=collective
+307549	5	unusual_characters	1		same	display=Альманах «Прометей»; kind=person	display=Альманах «Прометей»; kind=collective
+311686	5	unusual_characters	1		same	display=Журнал «Сделай сам»; kind=person	display=Журнал «Сделай сам»; kind=collective
+316549	5	single_field	16		same	nickname=autoru kolektīvs; display=autoru kolektīvs; kind=person	nickname=autoru kolektīvs; display=autoru kolektīvs; kind=collective
+317093	5	mononym	28		same	nickname=žurnāls; display=žurnāls; kind=person	nickname=žurnāls; display=žurnāls; kind=collective
+318046	5	unusual_characters	2		same	display=Журнал «Иностранная литература»; kind=person	display=Журнал «Иностранная литература»; kind=collective
+318844	5	case_defect	1		same	given=Министерство; additional=Обороны; family=СССР; display=Министерство Обороны СССР; sort=СССР, Министерство Обороны; kind=person	given=Министерство; additional=Обороны; family=СССР; display=Министерство Обороны СССР; sort=СССР, Министерство Обороны; kind=collective
+319751	5	collective_candidate	18		same	display=Журнал "Наука и Техника" (НиТ); kind=collective	display=Журнал "Наука и Техника" (НиТ); kind=collective
+320051	5	collective_candidate	2		same	display=Журнал «Авиация и время»; kind=collective	display=Журнал «Авиация и время»; kind=collective
+320074	5	collective_candidate	30		same	display="На суше и на море"; kind=collective	display="На суше и на море"; kind=collective
+320104	5	collective_candidate	3		same	display=Журнал «Наука и техника» Харьков; kind=collective	display=Журнал «Наука и техника» Харьков; kind=collective
+320154	5	collective_candidate	21		different	display=Автор неизвестен - Эпосы, мифы, легенды и сказания; kind=collective	display=Автор неизвестен - Эпосы, мифы, легенды и сказания; kind=collective
+320183	5	collective_candidate	73		same	display=Издательство «Развлечение»; kind=collective	display=Издательство «Развлечение»; kind=collective
+320714	5	collective_candidate	63		different	display=Эпосы, легенды и сказания; kind=collective	display=Эпосы, легенды и сказания; kind=collective
+320843	5	collective_candidate	1		same	display=Журнал "Сила и красота"; kind=collective	display=Журнал "Сила и красота"; kind=collective
+320908	5	collective_candidate	19		different	display=Автор неизвестен -- Эпосы, мифы, легенды и сказания; kind=collective	display=Автор неизвестен -- Эпосы, мифы, легенды и сказания; kind=collective
+321067	5	collective_candidate	1		same	display=Издательство «Синдбад»; kind=collective	display=Издательство «Синдбад»; kind=collective
+321168	5	collective_candidate	1		different	display=Эпосы, мифы, легенды и сказания; kind=collective	display=Эпосы, мифы, легенды и сказания; kind=collective
+321342	5	collective_candidate	1		different	display=Epic, legends and tales; kind=collective	display=Epic, legends and tales; kind=collective
+321386	5	placeholder_fragment	1		same	display=Неизвестная; kind=unknown	display=Неизвестная; kind=unknown
+321441	5	collective_candidate	1		same	display=Издательство «Росмэн»; kind=collective	display=Издательство «Росмэн»; kind=collective
+321465	5	collective_candidate	5		same	display=Газета "Слова и дела"; kind=collective	display=Газета "Слова и дела"; kind=collective
+321474	5	collective_candidate	17		same	display=Журнал «Фантастика и детективы»; kind=collective	display=Журнал «Фантастика и детективы»; kind=collective
+321701	5	mixed_script	10		same	display=Журнал «Полдень XXI век»; kind=person	display=Журнал «Полдень XXI век»; kind=collective
+321824	5	unusual_characters	59		same	display=Журнал «Искатель»; kind=person	display=Журнал «Искатель»; kind=collective
+319845	6	collective_candidate	8		pair	display=Сергей и Дина Волсини; kind=collective	display=Сергей и Дина Волсини; kind=collective
+319869	6	collective_candidate	1		pair	display=Мэтью и Терсес Энгельгарт; kind=collective	display=Мэтью и Терсес Энгельгарт; kind=collective
+319876	6	collective_candidate	1		pair	display=Херон Э. и Х.; kind=collective	display=Херон Э. и Х.; kind=collective
+319883	6	collective_candidate	3		same	display=Литагент Эксмо (новый каталог ОСНОВНОЙ); kind=collective	display=Литагент Эксмо (новый каталог ОСНОВНОЙ); kind=collective
+319966	6	collective_candidate	1		different	display=Заек и лъв; kind=collective	display=Заек и лъв; kind=collective
+319968	6	collective_candidate	2		pair	display=Анна и Сергей Литвиновы; kind=collective	display=Анна и Сергей Литвиновы; kind=collective
+319970	6	collective_candidate	29		same	display=Коллектив авторов -- Биографии и мемуары; kind=collective	display=Коллектив авторов -- Биографии и мемуары; kind=collective
+320030	6	collective_candidate	1		same	display=Ян МЕЛИН и др.; kind=collective	display=Ян МЕЛИН и др.; kind=collective
+320032	6	collective_candidate	6		different	display=Автор неизвестен -- Эротика и секс; kind=collective	display=Автор неизвестен -- Эротика и секс; kind=collective
+320068	6	collective_candidate	2		pair	display=Виктория и Сергей Журавлевы; kind=collective	display=Виктория и Сергей Журавлевы; kind=collective
+320071	6	collective_candidate	1		pair	display=Ричард и Флоренс Этуотер; kind=collective	display=Ричард и Флоренс Этуотер; kind=collective
+320306	6	collective_candidate	2		pair	display=Э. и Х. Херон; kind=collective	display=Э. и Х. Херон; kind=collective
+320320	6	collective_candidate	2		different	display=вълкът и лисицата; kind=collective	display=вълкът и лисицата; kind=collective
+320341	6	collective_candidate	1		pair	display=Фрай и Лори; kind=collective	display=Фрай и Лори; kind=collective
+320354	6	collective_candidate	1		pair	display=Дарья и Галина Дмитриевы; kind=collective	display=Дарья и Галина Дмитриевы; kind=collective
+320377	6	collective_candidate	1		pair	display=Джудит и Гарфилд Рийвс-Стивънс; kind=collective	display=Джудит и Гарфилд Рийвс-Стивънс; kind=collective
+320424	6	collective_candidate	255		pair	display=Анна и Сергей Литвиновы; kind=collective	display=Анна и Сергей Литвиновы; kind=collective
+320682	6	collective_candidate	1		same	display=Якоб и Вильгельм Гримм братья; kind=collective	display=Якоб и Вильгельм Гримм братья; kind=collective
+320708	6	collective_candidate	1		different	display=Козата и заекът; kind=collective	display=Козата и заекът; kind=collective
+320779	6	collective_candidate	1		same	display=Коллектив Авторов «Харвест»; kind=collective	display=Коллектив Авторов «Харвест»; kind=collective
+320781	6	collective_candidate	1		different	display=Мъдрият Кемине и богатият бай; kind=collective	display=Мъдрият Кемине и богатият бай; kind=collective
+320810	6	collective_candidate	3		same	display=Коллектив Форума 4PDA; kind=collective	display=Коллектив Форума 4PDA; kind=collective
+320826	6	collective_candidate	2		pair	display=Э. и Х. Херон; kind=collective	display=Э. и Х. Херон; kind=collective
+320850	6	collective_candidate	9		pair	display=Кристин и Ник Кроуфорд; kind=collective	display=Кристин и Ник Кроуфорд; kind=collective
+320863	6	collective_candidate	1		different	display=Ум и Щастие; kind=collective	display=Ум и Щастие; kind=collective
+320868	6	collective_candidate	2		same	display=Литагент «Неоглори»; kind=collective	display=Литагент «Неоглори»; kind=collective
+320870	6	collective_candidate	1		same	display=Михал ТЫМОВСКИЙ и др.; kind=collective	display=Михал ТЫМОВСКИЙ и др.; kind=collective
+321055	6	collective_candidate	1		same	display=Материалы православных и светских СМИ; kind=collective	display=Материалы православных и светских СМИ; kind=collective
+321068	6	collective_candidate	1		pair	display=Марк и Элизабет Профет; kind=collective	display=Марк и Элизабет Профет; kind=collective
+321069	6	collective_candidate	1		pair	display=Волкова Дарья и whiterose; kind=collective	display=Волкова Дарья и whiterose; kind=collective
+321091	6	collective_candidate	1		pair	display=Александр и Татьяна Ковальчук; kind=collective	display=Александр и Татьяна Ковальчук; kind=collective
+321098	6	collective_candidate	1		different	display=Андрей-стрелеца и сват Наум; kind=collective	display=Андрей-стрелеца и сват Наум; kind=collective
+321179	6	collective_candidate	1		same	display=Литагент «Яуза»; kind=collective	display=Литагент «Яуза»; kind=collective
+321201	6	collective_candidate	1		pair	display=Марина Дяченко и Сергей; kind=collective	display=Марина Дяченко и Сергей; kind=collective
+321338	6	collective_candidate	1		different	display=Хитър Петър и змеят; kind=collective	display=Хитър Петър и змеят; kind=collective
+321347	6	collective_candidate	1		different	display=[ сборник ]; kind=collective	display=[ сборник ]; kind=collective
+321370	6	collective_candidate	1		same	display=Литагент «1 редакция»; kind=collective	display=Литагент «1 редакция»; kind=collective
+321387	6	collective_candidate	1		pair	display=Марина и Сергей Дяченко-Ширшова; kind=collective	display=Марина и Сергей Дяченко-Ширшова; kind=collective
+321449	6	collective_candidate	1		different	display=сламката и въгленът; kind=collective	display=сламката и въгленът; kind=collective
+321451	6	collective_candidate	1		unclear	display=Александр Берг и АЗК; kind=collective	display=Александр Берг и АЗК; kind=collective
+321453	6	collective_candidate	1		same	display=Коллетив авторов (под редакцией Г. И. Василенко); kind=collective	display=Коллетив авторов (под редакцией Г. И. Василенко); kind=collective
+321456	6	collective_candidate	1		different	display=Христофор Греческий и Датский; kind=collective	display=Христофор Греческий и Датский; kind=collective
+321462	6	collective_candidate	1		same	display=Литагент 2 редакция; kind=collective	display=Литагент 2 редакция; kind=collective
+321463	6	collective_candidate	1		pair	display=Александр и Антонина Бобковы; kind=collective	display=Александр и Антонина Бобковы; kind=collective
+321471	6	collective_candidate	3		pair	display=Э. и Х. Херон; kind=collective	display=Э. и Х. Херон; kind=collective
+321505	6	collective_candidate	3		same	display=Управление главного конструктора АВТОВАЗ (коллектив авторов); kind=collective	display=Управление главного конструктора АВТОВАЗ (коллектив авторов); kind=collective
+321508	6	collective_candidate	1		different	display=Ловецът и неговият син; kind=collective	display=Ловецът и неговият син; kind=collective
+321510	6	collective_candidate	3		different	display=Давид Царь и Пророк; kind=collective	display=Давид Царь и Пророк; kind=collective
+321571	6	collective_candidate	1		same	display=Редакционная коллегия "Метро"; kind=collective	display=Редакционная коллегия "Метро"; kind=collective
+321586	6	collective_candidate	1		pair	display=Шерон и Том Кертис; kind=collective	display=Шерон и Том Кертис; kind=collective
+321587	6	collective_candidate	6		same	display=Коллектив авторов Внутренний Предиктор СССР; kind=collective	display=Коллектив авторов Внутренний Предиктор СССР; kind=collective
+7946	7	mononym	251		different	display=Компьютерра; kind=person	display=Компьютерра; kind=person
+10088	7	mononym	1		same	display=Aklin; kind=person	display=Aklin; kind=person
+10711	7	mononym	30		same	display=Radclyffe; kind=person	display=Radclyffe; kind=person
+18261	7	mononym	32		same	display=Менандр; kind=person	display=Менандр; kind=person
+19579	7	mononym	3		different	display=РПЦ; kind=person	display=РПЦ; kind=person
+22832	7	mononym	3		same	display=Плотин; kind=person	display=Плотин; kind=person
+23262	7	mononym	1		same	display=Шамфор; kind=person	display=Шамфор; kind=person
+23540	7	mononym	1		same	display=Совушка; kind=person	display=Совушка; kind=person
+23792	7	mononym	1		same	display=Таврус; kind=person	display=Таврус; kind=person
+23986	7	mononym	2		same	display=Вакхилид; kind=person	display=Вакхилид; kind=person
+24047	7	mononym	1		same	display=Васубандху; kind=person	display=Васубандху; kind=person
+25836	7	mononym	2		same	display=盛世; kind=person	display=盛世; kind=person
+25840	7	mononym	1		same	display=VS; kind=person	display=VS; kind=person
+47623	7	mononym	1		same	display=Луксорий; kind=person	display=Луксорий; kind=person
+47742	7	mononym	3		same	display=Пиндар; kind=person	display=Пиндар; kind=person
+48231	7	mononym	1		same	display=Златорожко; kind=person	display=Златорожко; kind=person
+60461	7	mononym	1		same	display=Евнапий; kind=person	display=Евнапий; kind=person
+64781	7	mononym	2		same	display=Аиссе; kind=person	display=Аиссе; kind=person
+68321	7	mononym	1		same	display=Терния; kind=person	display=Терния; kind=person
+79349	7	mononym	1		same	display=Альбе; kind=person	display=Альбе; kind=person
+80529	7	mononym	1		same	display=Викта; kind=person	display=Викта; kind=person
+93704	7	mononym	1		same	display=Скрофа; kind=person	display=Скрофа; kind=person
+105542	7	mononym	4		same	display=Штекель; kind=person	display=Штекель; kind=person
+126069	7	mononym	1		same	display=SymphonySamurai; kind=person	display=SymphonySamurai; kind=person
+127112	7	mononym	1		same	display=Primero; kind=person	display=Primero; kind=person
+127894	7	mononym	1		same	display=pskovoroda; kind=person	display=pskovoroda; kind=person
+141225	7	mononym	2		unclear	display=ИГСО; kind=person	display=ИГСО; kind=person
+161410	7	mononym	1		same	display=deep; kind=person	display=deep; kind=person
+163908	7	mononym	2		different	display=пользователь; kind=person	display=пользователь; kind=person
+179475	7	mononym	1		unclear	display=Терра; kind=person	display=Терра; kind=person
+185057	7	mononym	1		same	display=yalloo; kind=person	display=yalloo; kind=person
+185505	7	mononym	1		same	nickname=AndreyShir; display=AndreyShir; kind=person	nickname=AndreyShir; display=AndreyShir; kind=person
+212042	7	mononym	1		same	display=Илиодор; kind=person	display=Илиодор; kind=person
+213304	7	mononym	1		same	display=Манджушри; kind=person	display=Манджушри; kind=person
+231127	7	mononym	2		same	display=Луксорий; kind=person	display=Луксорий; kind=person
+237608	7	mononym	1		same	display=Nyerguds; kind=person	display=Nyerguds; kind=person
+244401	7	mononym	1		same	display=dysphorea; kind=person	display=dysphorea; kind=person
+268195	7	mononym	1		same	display=Semenoff; kind=person	display=Semenoff; kind=person
+268270	7	mononym	1		same	display=Suhoi; kind=person	display=Suhoi; kind=person
+280088	7	mononym	1		same	display=Valley; kind=person	display=Valley; kind=person
+282198	7	mononym	1		same	display=ОХАЙЕЗА; kind=person	display=ОХАЙЕЗА; kind=person
+296410	7	mononym	1		same	display=wasy; kind=person	display=wasy; kind=person
+298554	7	mononym	1		same	display=Премчанд; kind=person	display=Премчанд; kind=person
+300033	7	mononym	1		same	display=Ракета; kind=person	display=Ракета; kind=person
+305303	7	mononym	1		same	display=Resshen; kind=person	display=Resshen; kind=person
+306060	7	mononym	4		same	display=Тиджан; kind=person	display=Тиджан; kind=person
+306720	7	mononym	1		same	display=Николашка; kind=person	display=Николашка; kind=person
+309975	7	mononym	1		same	display=Jenoar; kind=person	display=Jenoar; kind=person
+312824	7	mononym	8		same	display=Чхугон; kind=person	display=Чхугон; kind=person
+316807	7	mononym	52		different	nickname=Bībele; display=Bībele; kind=person	nickname=Bībele; display=Bībele; kind=person
+317767	7	mononym	1		same	display=Какэй; kind=person	display=Какэй; kind=person
+318277	7	mononym	2		same	display=Рашильд; kind=person	display=Рашильд; kind=person

@@ -68,6 +68,28 @@ var cyrillicLookalikes = func() map[rune]rune {
 	return m
 }()
 
+// foldWord writes every letter of word of the other script — Latin when
+// toCyrillic, Cyrillic otherwise — as its look-alike. ok is false when one
+// has none.
+func foldWord(word string, toCyrillic bool) (string, bool) {
+	table, minority := latinLookalikes, unicode.Latin
+	if !toCyrillic {
+		table, minority = cyrillicLookalikes, unicode.Cyrillic
+	}
+	var b strings.Builder
+	for _, r := range word {
+		if unicode.Is(minority, r) {
+			to, has := table[r]
+			if !has {
+				return "", false
+			}
+			r = to
+		}
+		b.WriteRune(r)
+	}
+	return b.String(), true
+}
+
 // sameName is the names an unselected credit is compared by: the build's
 // key, the word sequence and, without an initial, the words in any order.
 type sameName struct {
@@ -115,24 +137,14 @@ func foldLookalikes(fields [3][]string) (out [3][]string, ok bool) {
 	if cyr == 0 || lat == 0 {
 		return fields, true
 	}
-	table, minority := latinLookalikes, unicode.Latin
-	if lat > cyr {
-		table, minority = cyrillicLookalikes, unicode.Cyrillic
-	}
+	toCyrillic := lat <= cyr
 	for i, f := range fields {
 		for _, w := range f {
-			var b strings.Builder
-			for _, r := range w {
-				if unicode.Is(minority, r) {
-					to, has := table[r]
-					if !has {
-						return out, false
-					}
-					r = to
-				}
-				b.WriteRune(r)
+			folded, has := foldWord(w, toCyrillic)
+			if !has {
+				return out, false
 			}
-			out[i] = append(out[i], b.String())
+			out[i] = append(out[i], folded)
 		}
 	}
 	return out, true

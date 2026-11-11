@@ -45,9 +45,9 @@ func TestNothingIsAuditedYet(t *testing.T) {
 }
 
 func TestAuditLogListsEveryStepOfTheAudit(t *testing.T) {
-	saved := auditV1
-	t.Cleanup(func() { auditV1 = saved })
-	auditV1 = map[Step]Audit{
+	saved := audit
+	t.Cleanup(func() { audit = saved })
+	audit = map[Step]Audit{
 		StepParticleOnly: {Labeled: 50, Different: 1},
 		StepFourModel:    {Labeled: 300},
 		StepJudgesOnly:   {Labeled: 50, Different: 3},

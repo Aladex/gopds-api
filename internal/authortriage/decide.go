@@ -32,10 +32,51 @@ var cascade = map[Step]step{
 	StepParticleOnly:      particleOnly,
 }
 
-// Decide decides one item: the exclusions first, in their order, then the
-// first step of the cascade that holds and gives a name of a kind a batch may
-// write with a display. No step: Step 0, the item is left.
-func Decide(c *Candidate, env *Env) Decision {
+// guard is what triage-v2 checks after a step holds: it fixes the name the
+// step gives in place (each fix named in the evidence), or refuses it,
+// which leaves the item.
+type guard func(c *Candidate, after *Name, ev *Evidence) Refusal
+
+// ruleSet is one version of the rules: its steps in cascade order and the
+// guard after each step that has one.
+type ruleSet struct {
+	steps  []Step
+	guards map[Step]guard
+}
+
+// rulesV1 is triage-v1: all eight steps, no guards.
+var rulesV1 = ruleSet{steps: Steps()}
+
+// rulesV2 is triage-v2 (design/review-triage/STEP-V2.md): steps 4 and 8 are
+// dropped, and the stored answers, the collectives and the kept handles pass
+// guards.
+var rulesV2 = ruleSet{
+	steps: []Step{StepFourModel, StepJudgesOnly, StepRules, StepPlaceholderOrg, StepAsNamedCollective,
+		StepKeepHandle},
+	guards: map[Step]guard{
+		StepFourModel:         storedAnswerGuard,
+		StepJudgesOnly:        storedAnswerGuard,
+		StepPlaceholderOrg:    collectiveGuard(false),
+		StepAsNamedCollective: collectiveGuard(true),
+		StepKeepHandle:        keepHandleGuard,
+	},
+}
+
+// Decide decides one item under RuleVersion: the exclusions first, in their
+// order, then the first step of the cascade that holds and gives a name of a
+// kind a batch may write with a display, if its guard lets it. No step, or a
+// refusal: Step 0, the item is left.
+func Decide(c *Candidate, env *Env) Decision { return rulesV2.decide(c, env) }
+
+// DecideV1 decides one item as triage-v1 did, for the history of its
+// batches.
+func DecideV1(c *Candidate, env *Env) Decision { return rulesV1.decide(c, env) }
+
+// ActiveSteps are the steps of RuleVersion in cascade order: the only steps
+// its plans hold.
+func ActiveSteps() []Step { return slices.Clone(rulesV2.steps) }
+
+func (rs *ruleSet) decide(c *Candidate, env *Env) Decision {
 	if ex := exclusion(c); ex != "" {
 		return Decision{Excluded: ex}
 	}
@@ -43,10 +84,16 @@ func Decide(c *Candidate, env *Env) Decision {
 		env = &Env{}
 	}
 	cons := JudgesConsensus(c.Answers)
-	for _, s := range Steps() {
+	for _, s := range rs.steps {
 		after, ev, ok := cascade[s](c, env, &cons)
 		if !ok || after.Display == "" || !decidable(after.Kind) {
 			continue
+		}
+		if g := rs.guards[s]; g != nil {
+			if refusal := g(c, &after, &ev); refusal != "" {
+				ev.RefusedStep, ev.Refusal = s, refusal
+				return Decision{Refusal: refusal, Evidence: ev}
+			}
 		}
 		rule := ev.Rule
 		if rule == "" {

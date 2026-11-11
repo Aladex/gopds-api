@@ -7,9 +7,11 @@ package authortriage
 // verdicts only. Step 1 passes with at least 300 labels and none different;
 // any other step with at least 50 and at most 2 different, or it is dropped.
 //
-// auditV1 holds the recorded labels of triage-v1. It is empty until the audit
-// commit fills it, so no step applies before then.
-var auditV1 = map[Step]Audit{}
+// audit holds the recorded labels of RuleVersion (triage-v2). It is empty
+// until the audit commit fills it, so no step applies before then.
+// triage-v1's audit (design/review-triage/AUDIT-v1-merge.md) passed step 3
+// only and was never recorded: no triage-v1 batch applies.
+var audit = map[Step]Audit{}
 
 // Audit is one step's labels.
 type Audit struct {
@@ -60,7 +62,7 @@ func AuditedSteps() []Step {
 func AuditLog() []AuditEntry {
 	var out []AuditEntry
 	for _, s := range Steps() {
-		a, ok := auditV1[s]
+		a, ok := audit[s]
 		if !ok {
 			continue
 		}

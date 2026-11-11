@@ -2,9 +2,18 @@ package authortriage
 
 import "gopds-api/internal/authorentity"
 
-// RuleVersion names this rule set. A batch is planned under it, and an
-// undone item is remembered per version.
-const RuleVersion = "triage-v1"
+// RuleVersion names the rule set new batches are planned under. A batch is
+// planned, stored and applied under one version, and an undone item is
+// remembered per version.
+const RuleVersion = RuleVersionV2
+
+// The rule versions. triage-v1 stays for the history of the batches planned
+// under it (DecideV1); triage-v2 is triage-v1 without steps 4 and 8, with
+// guards after steps 1, 2, 5, 6 and 7 (guards.go).
+const (
+	RuleVersionV1 = "triage-v1"
+	RuleVersionV2 = "triage-v2"
+)
 
 // Step is one step of the cascade, 1..8 in order.
 type Step int
@@ -76,6 +85,46 @@ const (
 	ExcludedDuplicateComponent Exclusion = "duplicate_component"
 	ExcludedPinned             Exclusion = "pinned"
 	ExcludedUndoneBefore       Exclusion = "undone_before"
+)
+
+// Refusal is why a guard of triage-v2 sent an item a step holds for to the
+// people instead: the item is left, and the plan keeps the reason so that
+// what is left can be grouped by it.
+type Refusal string
+
+const (
+	// RefusedLostToken: a word of the proposal's display is missing from
+	// the answer's display and is not a role prefix.
+	RefusedLostToken Refusal = "lost_token"
+	// RefusedRoleAsName: a role or clerical title kept as a name part, or a
+	// prefix in capitals; a person's role inside a collective's name.
+	RefusedRoleAsName Refusal = "role_as_name"
+	// RefusedGenreList: a list of genres or a kind of book («Эпосы, мифы,
+	// легенды и сказания», «[ сборник ]») is no collective.
+	RefusedGenreList Refusal = "genre_list"
+	// RefusedPlaceholderTitle: a placeholder phrase with more after it
+	// («Автор неизвестен -- Эротика и секс»).
+	RefusedPlaceholderTitle Refusal = "placeholder_with_title"
+	// RefusedOnePersonTitles: one person with titles joined by «и» («Давид
+	// Царь и Пророк»).
+	RefusedOnePersonTitles Refusal = "one_person_titles"
+	// RefusedTitleShape: a pair whose words are not names («Заек и лъв»):
+	// the title of a tale, not two people.
+	RefusedTitleShape Refusal = "title_shape"
+	// RefusedListedName: a handle on the list of organizations, magazines
+	// and titles («Компьютерра», «РПЦ», «Bībele»).
+	RefusedListedName Refusal = "listed_name"
+	// RefusedShortCaps: a handle of at most five capital letters, an
+	// abbreviation more often than a person.
+	RefusedShortCaps Refusal = "short_caps"
+	// RefusedHeavy: a handle on so many credits that a person decides it.
+	RefusedHeavy Refusal = "heavy"
+)
+
+// Fixes a guard makes to a stored answer, named in the evidence.
+const (
+	FixLookalike   = "lookalike"
+	FixPunctuation = "punctuation"
 )
 
 // Name is a decided name; Kind is person, collective or unknown (the
@@ -166,10 +215,18 @@ type Evidence struct {
 	PairRunID     int64  `json:"pair_run_id,omitempty"`
 	PairArm       string `json:"pair_arm,omitempty"`
 	PairBatchSize int    `json:"pair_batch_size,omitempty"`
+	// Fixes are the guards' fixes to the stored answer (triage-v2).
+	Fixes []string `json:"fixes,omitempty"`
+	// RefusedStep and Refusal are the step that held and the guard that
+	// refused it, on a left item (triage-v2).
+	RefusedStep Step    `json:"refused_step,omitempty"`
+	Refusal     Refusal `json:"refusal,omitempty"`
 }
 
 // Decision is what Decide made of an item: a step, its rule, the action and
-// the name after it; or the exclusion; or nothing (Step 0: left).
+// the name after it; or the exclusion; or nothing (Step 0: left). A left
+// item a guard refused carries the refusal, and the refused step's evidence
+// with Evidence.RefusedStep and Evidence.Refusal set.
 type Decision struct {
 	Step     Step
 	Rule     string
@@ -177,4 +234,5 @@ type Decision struct {
 	After    Name
 	Evidence Evidence
 	Excluded Exclusion
+	Refusal  Refusal
 }

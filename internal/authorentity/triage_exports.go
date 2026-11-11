@@ -2,7 +2,7 @@ package authorentity
 
 import "gopds-api/internal/authornorm"
 
-// The review triage (internal/authortriage, rule set triage-v1) decides open
+// The review triage (internal/authortriage) decides open
 // review items with a few of the build's own name tests, so that a triage
 // decision and the build never read one name two ways. These are the entry
 // points; the tests themselves stay where the build uses them.
@@ -52,4 +52,12 @@ func ReadReviewRule(u *Unselected, g GivenNames) (res *Result, rule string, ok b
 // (see organizationName).
 func OrganizationName(display string) bool {
 	return organizationName(display)
+}
+
+// FoldLookalikeWord writes every letter of word of the other script as its
+// look-alike, the build's look-alike read letter by letter: Latin letters
+// as Cyrillic when toCyrillic, Cyrillic as Latin otherwise. ok is false when
+// one has none («Стогоff» to Cyrillic).
+func FoldLookalikeWord(word string, toCyrillic bool) (string, bool) {
+	return foldWord(word, toCyrillic)
 }

@@ -10,7 +10,9 @@
 // decisions.
 //
 // The cascade runs in step order and the first step that decides an item
-// wins:
+// wins. triage-v1 had all eight steps; triage-v2 (RuleVersion) drops steps 4
+// and 8 and runs a guard after steps 1, 2, 5, 6 and 7 (guards.go) that fixes
+// the step's name or refuses it, leaving the item with the reason:
 //
 //  1. four_model: the production pair and both judges gave one answer;
 //  2. judges_only: both judges did, the pair did not;

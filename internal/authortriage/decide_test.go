@@ -105,6 +105,9 @@ func TestDecideCascade(t *testing.T) {
 		action Action
 		rule   string
 		after  Name
+		// v1Only: a step triage-v2 dropped; triage-v1 decides the item,
+		// triage-v2 leaves it.
+		v1Only bool
 	}{
 		"four-model accept": {
 			c: func() *Candidate {
@@ -141,7 +144,7 @@ func TestDecideCascade(t *testing.T) {
 		},
 		"not_a_name with another display is an edit": {
 			c: func() *Candidate {
-				c := candidate("mononym", handle("Админ1"))
+				c := candidate("mononym", handle("Админ."))
 				c.Answers = fourModel(assembled("Админ", "unknown"), "not_a_name")
 				return c
 			}(),
@@ -200,7 +203,7 @@ func TestDecideCascade(t *testing.T) {
 				c.EntityRule, c.SameName = "same_name", []Name{andreev}
 				return c
 			}(),
-			step: StepSameName, action: ActionEdit, rule: "same_name", after: andreev,
+			step: StepSameName, action: ActionEdit, rule: "same_name", after: andreev, v1Only: true,
 		},
 		"two same-name structures": {
 			c: func() *Candidate {
@@ -302,6 +305,7 @@ func TestDecideCascade(t *testing.T) {
 				return c
 			}(),
 			step: StepParticleOnly, action: ActionAccept, rule: "particle_only", after: person("Ги", "де Мопассан"),
+			v1Only: true,
 		},
 		"a family that ends in a particle": {
 			c: func() *Candidate {
@@ -315,6 +319,10 @@ func TestDecideCascade(t *testing.T) {
 	} {
 		t.Run(title, func(t *testing.T) {
 			d := Decide(c.c, testEnv())
+			if c.v1Only {
+				assert.Equal(t, Decision{}, d, "triage-v2 leaves it")
+				d = DecideV1(c.c, testEnv())
+			}
 			assert.Empty(t, d.Excluded)
 			assert.Equal(t, c.step, d.Step)
 			assert.Equal(t, c.action, d.Action)
@@ -517,7 +525,8 @@ func TestStepsAreTheCascadeInOrder(t *testing.T) {
 		"as_named_collective", "keep_handle", "particle_only"}, names)
 	assert.Empty(t, Step(0).Name())
 	assert.Empty(t, Step(9).Name())
-	assert.Equal(t, "triage-v1", RuleVersion)
+	assert.Equal(t, "triage-v2", RuleVersion)
+	assert.Equal(t, "triage-v1", RuleVersionV1)
 }
 
 // An item two steps hold for is decided by the earlier one, with its own
