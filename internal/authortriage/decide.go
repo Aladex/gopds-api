@@ -109,15 +109,19 @@ func ActionFor(proposal, after *Name) Action {
 }
 
 // fromConsensus is step 1 (fourModel) or step 2: the judges agree on one
-// answer that still assembles.
+// answer that still assembles. The evidence is the lowest agreeing judges'
+// group, and for step 1 also the group of the pair that confirmed it.
 func fromConsensus(fourModel bool) step {
 	return func(_ *Candidate, _ *Env, cons *Consensus) (Name, Evidence, bool) {
 		if cons.Conflict || cons.Agreed == nil || cons.Agreed.Name == nil || cons.FourModel != fourModel {
 			return Name{}, Evidence{}, false
 		}
 		a := cons.Agreed
-		return *a.Name, Evidence{RunID: a.RunID, Arm: a.Arm, BatchSize: a.BatchSize, Canonical: a.Canonical,
-			Form: a.Form}, true
+		ev := Evidence{RunID: a.RunID, Arm: a.Arm, BatchSize: a.BatchSize, Canonical: a.Canonical, Form: a.Form}
+		if p := cons.Pair; p != nil {
+			ev.PairRunID, ev.PairArm, ev.PairBatchSize = p.RunID, p.Arm, p.BatchSize
+		}
+		return *a.Name, ev, true
 	}
 }
 

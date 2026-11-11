@@ -89,6 +89,42 @@ func TestJudgesConsensusGroups(t *testing.T) {
 		assert.False(t, got.FourModel, "the pair of another run, whose judges did not answer, does not count")
 	})
 
+	t.Run("the confirming pair is the lowest group whose pair gives the canonical", func(t *testing.T) {
+		stored := func(run int64, judges, pairA, pairB string) []Answer {
+			out := []Answer{
+				{RunID: run, Arm: "-", BatchSize: 1, Slot: SlotJudgeA, Canonical: judges, Form: "person", Name: n},
+				{RunID: run, Arm: "-", BatchSize: 1, Slot: SlotJudgeB, Canonical: judges, Form: "person", Name: n},
+			}
+			for _, g := range []struct {
+				arm   string
+				batch int
+				c     string
+			}{{"A", 10, pairA}, {"B", 1, pairB}} {
+				out = append(out,
+					Answer{RunID: run, Arm: g.arm, BatchSize: g.batch, Slot: SlotProductionA, Canonical: g.c},
+					Answer{RunID: run, Arm: g.arm, BatchSize: g.batch, Slot: SlotProductionB, Canonical: g.c})
+			}
+			return out
+		}
+		// Run 14: the judges agree, the pair never does. Run 27: the judges
+		// agree, the pair agrees in arm B only.
+		got := JudgesConsensus(append(stored(14, "c1", "c9", "c8"), stored(27, "c1", "c7", "c1")...))
+		require.NotNil(t, got.Agreed)
+		assert.Equal(t, int64(14), got.Agreed.RunID, "the evidence's judges stay the lowest run's")
+		require.True(t, got.FourModel)
+		require.NotNil(t, got.Pair)
+		assert.Equal(t, [3]any{int64(27), "B", 1}, [3]any{got.Pair.RunID, got.Pair.Arm, got.Pair.BatchSize},
+			"the four-model proof is run 27, arm B, batch 1")
+		assert.Equal(t, SlotProductionA, got.Pair.Slot)
+
+		got = JudgesConsensus(append(stored(14, "c1", "c1", "c1"), stored(27, "c1", "c1", "c1")...))
+		require.NotNil(t, got.Pair)
+		assert.Equal(t, [3]any{int64(14), "A", 10}, [3]any{got.Pair.RunID, got.Pair.Arm, got.Pair.BatchSize},
+			"the lowest of several")
+
+		assert.Nil(t, JudgesConsensus(stored(14, "c1", "c9", "c9")).Pair, "no four-model, no pair")
+	})
+
 	t.Run("judges who disagree or refuse give nothing", func(t *testing.T) {
 		split := answers(14, "c1", "c1", "person", n)
 		split[3].Canonical = "c5"

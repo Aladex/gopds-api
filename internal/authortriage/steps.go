@@ -161,6 +161,11 @@ type Evidence struct {
 	Canonical string `json:"canonical,omitempty"`
 	Form      string `json:"form,omitempty"`
 	Rule      string `json:"rule,omitempty"`
+	// The production pair's group that confirmed the canonical (step 1
+	// only): with the judges of PairRunID, the four-model proof.
+	PairRunID     int64  `json:"pair_run_id,omitempty"`
+	PairArm       string `json:"pair_arm,omitempty"`
+	PairBatchSize int    `json:"pair_batch_size,omitempty"`
 }
 
 // Decision is what Decide made of an item: a step, its rule, the action and

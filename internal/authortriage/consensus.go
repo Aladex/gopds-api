@@ -13,6 +13,10 @@ type Consensus struct {
 	// FourModel: in some group of a run whose judges agree, the production
 	// pair gave that canonical too.
 	FourModel bool
+	// Pair is the production_a answer of the lowest such group: its run, arm
+	// and batch size are where the four-model proof is. Nil without
+	// FourModel.
+	Pair *Answer
 	// Conflict: the groups' judges named more than one canonical. A conflict
 	// across runs is no consensus.
 	Conflict bool
@@ -29,7 +33,8 @@ type group struct {
 // group's judge answer is the canonical both judge_a and judge_b gave, neither
 // refused. One canonical across every group that has a judge answer is the
 // consensus; more than one is a conflict. Four models agree when the
-// production pair gave it in some group of a run whose judges agree.
+// production pair gave it in some group of a run whose judges agree; the
+// lowest such group is the Pair.
 func JudgesConsensus(answers []Answer) Consensus {
 	bySlot := map[group]map[string][]*Answer{}
 	var groups []group
@@ -82,8 +87,8 @@ func JudgesConsensus(answers []Answer) Consensus {
 		}
 		pa, paOK := slotAnswer(bySlot[g][SlotProductionA])
 		pb, pbOK := slotAnswer(bySlot[g][SlotProductionB])
-		if paOK && pbOK && pa.Canonical == canonical && pb.Canonical == canonical {
-			c.FourModel = true
+		if paOK && pbOK && pa.Canonical == canonical && pb.Canonical == canonical && c.Pair == nil {
+			c.FourModel, c.Pair = true, pa
 		}
 	}
 	return c

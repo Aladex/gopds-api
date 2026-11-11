@@ -369,3 +369,32 @@ func TestPlanOfALostLeaseIsNotStored(t *testing.T) {
 	require.NoError(t, database.StoreTriagePlan(e.ctx, e.db, batch.ID, second, plannedRows(1, "mononym", 3, 1),
 		json.RawMessage(`{}`)))
 }
+
+// A step-1 row of the audit sample names the confirming pair beside the
+// judges: the run, arm and batch size where the four-model proof is.
+func TestAuditSampleNamesTheConfirmingPair(t *testing.T) {
+	e := newTriageEnv(t)
+	judgesOnly := e.seedOpen(authornorm.ClassInitials, "first", "Б.", "last", "Кузнецов")
+	e.storeAnswers(&judgesOnly, 1, judgesOnlyAnswers()...)
+	e.storeAnswers(&judgesOnly, 2, fourModelAnswers()...)
+	batch := e.planOnce(e.loop(AuthorReviewTriageConfig{}))
+	require.Equal(t, int16(1), e.rowsOf(batch.ID)[judgesOnly.item].Step)
+
+	sample, err := NewAuthorReviewTriageAdmin(e.db).AuditSample(e.ctx, batch.ID)
+	require.NoError(t, err)
+	row := findAudit(sample, judgesOnly.item)
+	require.Equal(t, int16(1), row.Step)
+	var ev struct {
+		RunID         int64  `json:"run_id"`
+		Arm           string `json:"arm"`
+		BatchSize     int    `json:"batch_size"`
+		PairRunID     int64  `json:"pair_run_id"`
+		PairArm       string `json:"pair_arm"`
+		PairBatchSize int    `json:"pair_batch_size"`
+	}
+	require.NoError(t, json.Unmarshal(row.Evidence, &ev))
+	assert.Equal(t, e.llmRun(1), ev.RunID, "the lowest run whose judges agree")
+	assert.Equal(t, e.llmRun(2), ev.PairRunID, "the run whose pair confirmed it")
+	assert.NotEmpty(t, ev.PairArm)
+	assert.Positive(t, ev.PairBatchSize)
+}

@@ -1,6 +1,7 @@
 package authortriage
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -334,8 +335,30 @@ func TestDecideEvidence(t *testing.T) {
 		answers(14, "c1", "c1", "person", ptrName(andreev))...)
 	d := Decide(c, testEnv())
 	require.Equal(t, StepFourModel, d.Step)
+	assert.Equal(t, Evidence{RunID: 14, Arm: "a", BatchSize: 4, Canonical: "c1", Form: "person",
+		PairRunID: 14, PairArm: "a", PairBatchSize: 4}, d.Evidence, "the lowest run that carries the canonical")
+
+	// Run 14's pair disagrees, run 27's agrees: the evidence names both.
+	c.Answers = append(answers(14, "c1", "c2", "person", ptrName(andreev)),
+		answers(27, "c1", "c1", "person", ptrName(andreev))...)
+	for i := range c.Answers[4:] {
+		c.Answers[4+i].Arm, c.Answers[4+i].BatchSize = "b", 10
+	}
+	d = Decide(c, testEnv())
+	require.Equal(t, StepFourModel, d.Step)
+	assert.Equal(t, Evidence{RunID: 14, Arm: "a", BatchSize: 4, Canonical: "c1", Form: "person",
+		PairRunID: 27, PairArm: "b", PairBatchSize: 10}, d.Evidence, "the judges' run and the confirming pair's")
+	raw, err := json.Marshal(d.Evidence)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"run_id":14,"arm":"a","batch_size":4,"canonical":"c1","form":"person",
+		"pair_run_id":27,"pair_arm":"b","pair_batch_size":10}`, string(raw))
+
+	judged := candidate("particle", andreev)
+	judged.Answers = answers(14, "c1", "c2", "person", ptrName(andreev))
+	d = Decide(judged, testEnv())
+	require.Equal(t, StepJudgesOnly, d.Step)
 	assert.Equal(t, Evidence{RunID: 14, Arm: "a", BatchSize: 4, Canonical: "c1", Form: "person"}, d.Evidence,
-		"the lowest run that carries the canonical")
+		"step 2 has no confirming pair")
 
 	c = candidate("case_defect", Name{Given: "МИХАИЛ", Family: "АНДРЕЕВ", Display: "МИХАИЛ АНДРЕЕВ", Kind: "person"})
 	c.Source = source("case_defect", []string{"all_caps"}, "МИХАИЛ", nil, "АНДРЕЕВ")
