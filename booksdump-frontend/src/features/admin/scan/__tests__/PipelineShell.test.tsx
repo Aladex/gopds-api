@@ -27,6 +27,7 @@ vi.mock('@/api/admin', async (importOriginal) => {
         listUnscannedArchives: vi.fn(),
         listScannedArchives: vi.fn(),
         listScanErrors: vi.fn(),
+        getScanErrorFile: vi.fn(),
         getFixScanStatus: vi.fn(),
         getLatestAuthorMetadataRun: vi.fn(),
         getAuthorMetadataRunReport: vi.fn(),
@@ -305,4 +306,90 @@ it('no panel but the selected one is mounted', async () => {
     for (const other of ['Архивы', 'Книги', 'Модель', 'Сущности', 'Проверка человеком']) {
         expect(screen.queryByRole('region', { name: other })).toBeNull();
     }
+});
+
+/** The list item holding a file's download button. */
+const errorRow = (scope: HTMLElement, file: string) => {
+    const download = within(scope).getByRole('button', { name: `Скачать: ${file}` });
+    const row = download.closest('li');
+    if (row === null) {
+        throw new Error(`no row for ${file}`);
+    }
+    return { download, row };
+};
+
+/** The row says everything without a wide screen: no part of it is hidden. */
+const expectReadable = (row: HTMLElement, text: string) => {
+    const holder = within(row).getByText(text, { exact: false });
+    expect(holder.closest('.hidden, .truncate')).toBeNull();
+};
+
+it('an error of the newest archive shows even when its scan counted none', async () => {
+    const now = new Date();
+    const input = healthy(now);
+    serve(input);
+    const newest = input.scanned!.find((a) => a.name === 'fb2-824014-826219.zip')!;
+    expect(newest.errors_count).toBe(0);
+    api.listScanErrors.mockResolvedValue({
+        errors: [
+            {
+                file_name: 'review-newest.fb2',
+                archive_name: newest.name,
+                error: 'author_metadata: author_metadata_unavailable',
+                timestamp: now.toISOString(),
+            },
+        ],
+    });
+    api.getScanErrorFile.mockResolvedValue(new Blob(['x']));
+    renderAt('/admin/book-scanning?stage=arch');
+
+    const archives = await panel('Архивы');
+    const { download, row } = await waitFor(() => errorRow(archives, 'review-newest.fb2'));
+    expectReadable(row, 'author_metadata: author_metadata_unavailable');
+    fireEvent.click(download);
+    await waitFor(() =>
+        expect(api.getScanErrorFile).toHaveBeenCalledWith(newest.name, 'review-newest.fb2'),
+    );
+});
+
+it('an error row names its archive, its message and its time', async () => {
+    const now = new Date();
+    const at = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+    const moment = at.toLocaleString('ru', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+    serve(healthy(now));
+    api.listScanErrors.mockResolvedValue({
+        errors: [
+            {
+                file_name: '500000.fb2',
+                archive_name: 'fb2-119691-132107.zip',
+                error: 'author_metadata: invalid_fb2',
+                timestamp: at.toISOString(),
+            },
+            {
+                file_name: '500001.fb2',
+                archive_name: 'fb2-200000-210000.zip',
+                error: 'open 500001.fb2: permission denied',
+                timestamp: at.toISOString(),
+            },
+        ],
+    });
+    renderAt('/admin/book-scanning?stage=books');
+
+    const books = await panel('Книги');
+    const parsed = await waitFor(() => errorRow(books, '500000.fb2').row);
+    expectReadable(parsed, 'fb2-119691-132107.zip');
+    expectReadable(parsed, 'author_metadata: invalid_fb2');
+    expectReadable(parsed, moment);
+
+    // «Другие ошибки» says nothing about the cause: the raw message does.
+    const other = errorRow(books, '500001.fb2').row;
+    expect(other.closest('details')?.querySelector('summary')).toHaveTextContent('Другие ошибки');
+    expectReadable(other, 'fb2-200000-210000.zip');
+    expectReadable(other, 'open 500001.fb2: permission denied');
+    expectReadable(other, moment);
 });

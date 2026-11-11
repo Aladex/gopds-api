@@ -1230,6 +1230,7 @@
   "scanPanel.arch.unreadTitle_many": "{{count}} файлов архива {{archive}} не прочитаны",
   "scanPanel.arch.unreadTitle_other": "{{count}} файла архива {{archive}} не прочитаны",
   "scanPanel.arch.unreadHint": "Остальные книги архива в каталоге, эти файлы не попали никуда. Скачай файл, чтобы посмотреть, что с ним, или пересканируй архив.",
+  "scanPanel.arch.freshErrors": "Ошибки чтения архива {{archive}}",
   "scanPanel.arch.rescan": "Пересканировать архив",
   "scanPanel.arch.newArchives": "Новые архивы · {{count}}",
   "scanPanel.arch.allArchives": "Все архивы",

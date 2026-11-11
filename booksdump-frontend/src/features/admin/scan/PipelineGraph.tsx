@@ -76,7 +76,9 @@ const PipelineGraph: React.FC<PipelineGraphProps> = ({
                 {problems.length === 0 ? (
                     <span className="text-sm text-muted-foreground">{t('scanPanel.allGood')}</span>
                 ) : (
-                    <span className="flex flex-wrap items-center gap-1.5 text-[13px]">
+                    // Bounded by the card: on a phone a long pause reason
+                    // wraps inside its pill rather than running past the edge.
+                    <span className="flex max-w-full min-w-0 flex-wrap items-center gap-1.5 text-[13px]">
                         <span className="text-destructive">
                             {t('scanPanel.problems', { count: problems.length })}
                         </span>
@@ -89,14 +91,14 @@ const PipelineGraph: React.FC<PipelineGraphProps> = ({
                                     data-problem={key}
                                     onClick={() => onSelect(key)}
                                     className={cn(
-                                        'inline-flex h-10 max-w-full items-center gap-1.5 rounded-full px-2.5 text-left text-[13px] font-medium outline-none hover:underline hover:underline-offset-3 focus-visible:ring-[3px] focus-visible:ring-focus sm:h-7',
+                                        'inline-flex min-h-10 max-w-full min-w-0 items-center gap-1.5 rounded-2xl px-2.5 py-1 text-left text-[13px] font-medium outline-none hover:underline hover:underline-offset-3 focus-visible:ring-[3px] focus-visible:ring-focus sm:min-h-7',
                                         state === 'stuck'
                                             ? 'bg-destructive/10 text-destructive'
                                             : cn('bg-amber-500/10', WARNING_TEXT),
                                     )}
                                 >
                                     <StateDot state={state} />
-                                    <span className="truncate">
+                                    <span className="min-w-0 break-words">
                                         {t('scanPanel.pill', {
                                             stage: stageName(t, key),
                                             reason: reasonText(t, nodes[key].reason),

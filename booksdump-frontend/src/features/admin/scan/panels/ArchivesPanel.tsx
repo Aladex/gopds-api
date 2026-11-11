@@ -15,6 +15,7 @@ import { groupScanErrors, splitScanErrors } from '../scanErrors';
 import {
     formatCount,
     formatDay,
+    formatMoment,
     ProgressRow,
     StagePanel,
     WARNING_BUTTON,
@@ -40,27 +41,38 @@ interface ArchivesPanelProps {
     wide: boolean;
 }
 
-/** One unread file: its name, the error, its download. */
+/**
+ * One unread file: its name and download, then where and when it failed and
+ * the scanner's own message, wrapped at every width — the class fold names
+ * only the kind, and «Другие ошибки» not even that.
+ */
 const ErrorRow: React.FC<{ item: ScanErrorItem; onDownload: (item: ScanErrorItem) => void }> = ({
     item,
     onDownload,
 }) => {
     const { t } = useTranslation();
+    const at = formatMoment(item.timestamp);
     return (
-        <li className="flex min-w-0 items-center gap-2.5 text-sm">
-            <span className="min-w-0 flex-1 break-all sm:flex-none">{item.file_name}</span>
-            <span className="hidden min-w-0 flex-1 truncate text-muted-foreground sm:inline">
+        <li className="flex min-w-0 flex-col gap-0.5 text-sm">
+            <div className="flex min-w-0 items-center gap-2.5">
+                <span className="min-w-0 flex-1 break-all">{item.file_name}</span>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-10 sm:h-7"
+                    aria-label={`${t('scanPanel.arch.download')}: ${item.file_name}`}
+                    onClick={() => onDownload(item)}
+                >
+                    {t('scanPanel.arch.download')}
+                </Button>
+            </div>
+            <p className="text-xs break-all text-muted-foreground tabular-nums">
+                {item.archive_name}
+                {at !== '' && ` · ${at}`}
+            </p>
+            <p className="text-xs break-words text-muted-foreground [overflow-wrap:anywhere]">
                 {item.error}
-            </span>
-            <Button
-                variant="ghost"
-                size="sm"
-                className="h-10 sm:h-7"
-                aria-label={`${t('scanPanel.arch.download')}: ${item.file_name}`}
-                onClick={() => onDownload(item)}
-            >
-                {t('scanPanel.arch.download')}
-            </Button>
+            </p>
         </li>
     );
 };
@@ -81,7 +93,7 @@ export const ErrorFolds: React.FC<{
                     meta={t('scanPanel.arch.files', { count: items.length })}
                     defaultOpen={openFirst && index === 0}
                 >
-                    <ul className="flex flex-col gap-1">
+                    <ul className="flex flex-col gap-2.5">
                         {items.map((item, i) => (
                             <ErrorRow
                                 key={`${item.archive_name}/${item.file_name}/${i}`}
@@ -126,6 +138,10 @@ const ArchivesPanel: React.FC<ArchivesPanelProps> = ({ scan, pipeline, onOpen, w
     const newest = newestArchive(scannedArchives);
     const { fresh } = splitScanErrors(scanErrors, newest?.name ?? null);
     const unread = newest !== null && newest.errors_count > 0;
+    // The errors endpoint also carries later failures (a fix scan, a single
+    // book's rescan) that never touch the scan's own count, so the list shows
+    // whenever there is a row, warning or not.
+    const newestErrors = newest !== null && (unread || fresh.length > 0);
     const needle = filter.trim().toLocaleLowerCase();
     const shownArchives =
         needle === ''
@@ -235,26 +251,34 @@ const ArchivesPanel: React.FC<ArchivesPanelProps> = ({ scan, pipeline, onOpen, w
                 </p>
             )}
 
-            {unread && (
+            {newestErrors && (
                 <div className="flex flex-col gap-2">
-                    <div className="flex flex-col gap-1 rounded-[10px] border border-amber-500/45 bg-amber-500/10 px-3.5 py-3">
-                        <p className="text-sm break-words tabular-nums">
-                            <span className="font-semibold">
-                                {t('scanPanel.arch.unreadTitle', {
-                                    count: newest.errors_count,
-                                    archive: newest.name,
-                                })}
-                            </span>
-                            <span className="text-muted-foreground">
-                                {' · '}
-                                {formatDay(newest.scanned_at)}
-                            </span>
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                            {t('scanPanel.arch.unreadHint')}
-                        </p>
-                    </div>
-                    <ErrorFolds errors={fresh} onDownload={handleDownloadErrorFile} openFirst />
+                    {unread ? (
+                        <div className="flex flex-col gap-1 rounded-[10px] border border-amber-500/45 bg-amber-500/10 px-3.5 py-3">
+                            <p className="text-sm break-words tabular-nums">
+                                <span className="font-semibold">
+                                    {t('scanPanel.arch.unreadTitle', {
+                                        count: newest.errors_count,
+                                        archive: newest.name,
+                                    })}
+                                </span>
+                                <span className="text-muted-foreground">
+                                    {' · '}
+                                    {formatDay(newest.scanned_at)}
+                                </span>
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                {t('scanPanel.arch.unreadHint')}
+                            </p>
+                        </div>
+                    ) : (
+                        <h4 className="text-sm font-medium break-words">
+                            {t('scanPanel.arch.freshErrors', { archive: newest.name })}
+                        </h4>
+                    )}
+                    {fresh.length > 0 && (
+                        <ErrorFolds errors={fresh} onDownload={handleDownloadErrorFile} openFirst />
+                    )}
                     <div>
                         <Button variant="outline" onClick={() => handleRescanClick(newest.name)}>
                             {t('scanPanel.arch.rescan')}

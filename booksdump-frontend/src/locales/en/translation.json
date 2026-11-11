@@ -1204,6 +1204,7 @@
   "scanPanel.arch.unreadTitle_one": "{{count}} file of {{archive}} was not read",
   "scanPanel.arch.unreadTitle_other": "{{count}} files of {{archive}} were not read",
   "scanPanel.arch.unreadHint": "The other books of the archive are in the catalogue; these files went nowhere. Download one to see what is wrong with it, or rescan the archive.",
+  "scanPanel.arch.freshErrors": "Read errors of {{archive}}",
   "scanPanel.arch.rescan": "Rescan the archive",
   "scanPanel.arch.newArchives": "New archives · {{count}}",
   "scanPanel.arch.allArchives": "All archives",
