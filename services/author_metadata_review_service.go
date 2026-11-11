@@ -256,17 +256,64 @@ func (c *AdminCorrection) persisted() *database.ManualCorrection {
 	}
 }
 
+// DecideHooks run inside the transaction of one decision, around the review
+// action: Before ahead of it (timeouts, a pin check), After behind it with its
+// report (a log row). An error from either rolls the whole decision back.
+type DecideHooks struct {
+	Before func(tx *pg.Tx) error
+	After  func(tx *pg.Tx, rep database.ReviewReport) error
+}
+
+// DecideWithin takes one accept, edit or classify on an open item in one
+// transaction with the hooks around it, and logs it as Accept, Edit and
+// Classify do. It is the path of a triage batch, so it refuses every other
+// action and any decision that classifies the source as malformed
+// (ErrInvalidReviewRequest): a batch never takes those.
+func (s *AuthorMetadataReviewService) DecideWithin(
+	ctx context.Context, itemID, admin int64, decision database.ReviewDecision, hooks DecideHooks,
+) (database.ReviewReport, error) {
+	switch decision.Action {
+	case database.ReviewAccept, database.ReviewEdit, database.ReviewClassify:
+	case database.ReviewLeaveUnresolved, database.ReviewRetry:
+		return database.ReviewReport{}, ErrInvalidReviewRequest
+	default:
+		return database.ReviewReport{}, ErrInvalidReviewRequest
+	}
+	if decision.Malformed() {
+		return database.ReviewReport{}, ErrInvalidReviewRequest
+	}
+	return s.decide(ctx, itemID, admin, decision, hooks)
+}
+
+// act takes an admin's decision of any action, with no hooks.
 func (s *AuthorMetadataReviewService) act(
 	ctx context.Context, itemID, admin int64, decision database.ReviewDecision,
+) (database.ReviewReport, error) {
+	return s.decide(ctx, itemID, admin, decision, DecideHooks{})
+}
+
+func (s *AuthorMetadataReviewService) decide(
+	ctx context.Context, itemID, admin int64, decision database.ReviewDecision, hooks DecideHooks,
 ) (database.ReviewReport, error) {
 	if itemID <= 0 || admin <= 0 {
 		return database.ReviewReport{}, ErrInvalidReviewRequest
 	}
 	var report database.ReviewReport
 	err := s.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		if hooks.Before != nil {
+			if beforeErr := hooks.Before(tx); beforeErr != nil {
+				return beforeErr
+			}
+		}
 		var applyErr error
 		report, applyErr = database.ApplyReviewAction(ctx, tx, itemID, admin, decision)
-		return applyErr
+		if applyErr != nil {
+			return applyErr
+		}
+		if hooks.After != nil {
+			return hooks.After(tx, report)
+		}
+		return nil
 	})
 	if err != nil {
 		LogAuthorMetadataEvent(AuthorMetadataEventWarn, &AuthorMetadataEvent{

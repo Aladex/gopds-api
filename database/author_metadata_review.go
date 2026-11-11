@@ -53,6 +53,9 @@ var (
 	// ErrReviewConflict marks an item another reviewer already decided: the
 	// first transition wins and the caller's rollback discards the rest.
 	ErrReviewConflict = errors.New("database: review item already decided")
+	// ErrReviewProposalChanged marks a decision taken against a proposal the
+	// open item no longer carries (ReviewDecision.ExpectProposalResultID).
+	ErrReviewProposalChanged = errors.New("database: the review item's proposal is not the expected one")
 	// ErrReviewNothingToRetry marks a retry whose input's extractor version
 	// cannot be recovered.
 	ErrReviewNothingToRetry = errors.New("database: review retry found no extractor version")
@@ -349,6 +352,10 @@ type ReviewDecision struct {
 	// budget would only be ended again by the next claim: such a retry is
 	// refused instead of acknowledged.
 	RetryMaxAttempts int
+	// ExpectProposalResultID, when not zero, is the proposal the decision was
+	// made about: an open item with another proposal is refused with
+	// ErrReviewProposalChanged, after its credits are locked.
+	ExpectProposalResultID int64
 }
 
 func (d ReviewDecision) validate() error {
@@ -380,9 +387,9 @@ func (d ReviewDecision) validate() error {
 	return nil
 }
 
-// malformed reports whether the decision classifies the source as malformed:
+// Malformed reports whether the decision classifies the source as malformed:
 // the terminal-invalid path instead of an override.
-func (d ReviewDecision) malformed() bool {
+func (d ReviewDecision) Malformed() bool {
 	if d.Action == ReviewClassify {
 		return d.Kind == models.NormalizationMalformed
 	}
@@ -398,6 +405,9 @@ type ReviewReport struct {
 	// was already queued).
 	JobQueued bool
 	Credits   int
+	// OverrideID is the override an accept, edit or classify wrote; zero
+	// otherwise.
+	OverrideID int64
 }
 
 // proposalAsCorrection copies a proposal result into the manual correction an
@@ -610,14 +620,18 @@ func ApplyReviewAction(
 	if err != nil {
 		return ReviewReport{}, err
 	}
+	if decision.ExpectProposalResultID != 0 &&
+		(item.ProposalResultID == nil || *item.ProposalResultID != decision.ExpectProposalResultID) {
+		return ReviewReport{}, ErrReviewProposalChanged
+	}
 
 	report := ReviewReport{Credits: len(credits)}
 	switch decision.Action {
 	case ReviewAccept, ReviewEdit, ReviewClassify:
-		if decision.malformed() {
+		if decision.Malformed() {
 			report.ResultID, err = applyInvalidClassification(ctx, tx, &item, credits, admin, decision)
 		} else {
-			report.ResultID, err = decideWithOverride(ctx, tx, &item, credits, admin, decision)
+			report.ResultID, report.OverrideID, err = decideWithOverride(ctx, tx, &item, credits, admin, decision)
 		}
 	case ReviewLeaveUnresolved:
 		err = applyLeaveUnresolved(ctx, tx, &item, credits, admin)
@@ -638,7 +652,8 @@ func ApplyReviewAction(
 
 // decideWithOverride performs an accept, edit or classify: the manual result
 // (the proposal copied, or the admin's correction), the scope's newest
-// override, and the re-resolution of the item's credits.
+// override, and the re-resolution of the item's credits. It returns the
+// manual result and the override.
 func decideWithOverride(
 	ctx context.Context,
 	tx ResolutionTx,
@@ -646,38 +661,37 @@ func decideWithOverride(
 	credits []resolvableCredit,
 	admin int64,
 	decision ReviewDecision,
-) (int64, error) {
+) (resultID, overrideID int64, err error) {
 	correction, fingerprint := decision.Correction, item.SourceFingerprint
 	if decision.Action != ReviewEdit {
 		proposed, corrErr := proposalAsCorrection(ctx, tx, item, decision.Kind)
 		if corrErr != nil {
-			return 0, corrErr
+			return 0, 0, corrErr
 		}
 		correction = &proposed
 	}
 	completeCorrection(correction)
 	if validErr := correction.validate(); validErr != nil {
-		return 0, validErr
+		return 0, 0, validErr
 	}
-	var resultID int64
-	if _, err := tx.QueryOneContext(ctx, pg.Scan(&resultID), insertManualResultSQL,
+	if _, err = tx.QueryOneContext(ctx, pg.Scan(&resultID), insertManualResultSQL,
 		manualResultValues(fingerprint, correction, admin, models.NormalizationNormalized)...); err != nil {
-		return 0, fmt.Errorf("writing the manual result: %w", err)
+		return 0, 0, fmt.Errorf("writing the manual result: %w", err)
 	}
 	scope := OverrideScope{Fingerprint: item.ScopeFingerprint}
 	if item.ScopeCreditID != nil {
 		scope = OverrideScope{CreditID: *item.ScopeCreditID, Fingerprint: nil}
 	}
-	if _, err := insertOverride(ctx, tx, scope, fingerprint, resultID, admin); err != nil {
-		return 0, err
+	if overrideID, err = insertOverride(ctx, tx, scope, fingerprint, resultID, admin); err != nil {
+		return 0, 0, err
 	}
-	if _, err := resolveAffected(ctx, tx, credits); err != nil {
-		return 0, err
+	if _, err = resolveAffected(ctx, tx, credits); err != nil {
+		return 0, 0, err
 	}
-	if err := closeReviewItem(ctx, tx, item.ID, resultID, admin, decision.Action); err != nil {
-		return 0, err
+	if closeErr := closeReviewItem(ctx, tx, item.ID, resultID, admin, decision.Action); closeErr != nil {
+		return 0, 0, closeErr
 	}
-	return resultID, nil
+	return resultID, overrideID, nil
 }
 
 // markInvalidSQL writes the admin's terminal invalid verdict on one credit,

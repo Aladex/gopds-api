@@ -531,3 +531,96 @@ func TestReviewServiceRetryNeverOrphansTheCredit(t *testing.T) {
 		assert.True(t, a.Settled(), "no credit is left pending: %+v", a)
 	})
 }
+
+// decideWithinService is a review service over one committed open item.
+func decideWithinService(t *testing.T) (service *AuthorMetadataReviewService, f *reviewFixture, item, credit int64) {
+	t.Helper()
+	f = newReviewFixture(t)
+	item, credit = f.seedItem("first", "И.", "last", "Петров")
+	f.commit()
+	return reviewService(t, f.s, DefaultAuthorMetadataReviewConfig()), f, item, credit
+}
+
+func countOf(t *testing.T, s *pg.DB, query string, params ...interface{}) int {
+	t.Helper()
+	var n int
+	_, err := s.QueryOne(pg.Scan(&n), query, params...)
+	require.NoError(t, err)
+	return n
+}
+
+func TestDecideWithinRollsBackOnAfterError(t *testing.T) {
+	ctx := context.Background()
+	service, f, item, credit := decideWithinService(t)
+	refused := errors.New("the log row was refused")
+
+	var seen database.ReviewReport
+	var overridesInside int
+	_, err := service.DecideWithin(ctx, item, 7, database.ReviewDecision{Action: database.ReviewAccept},
+		DecideHooks{After: func(tx *pg.Tx, rep database.ReviewReport) error {
+			seen = rep
+			_, qErr := tx.QueryOne(pg.Scan(&overridesInside), `SELECT count(*) FROM contributor_manual_override`)
+			require.NoError(t, qErr)
+			return refused
+		}})
+	require.ErrorIs(t, err, refused)
+	assert.NotZero(t, seen.OverrideID, "After sees the decision's report")
+	assert.Equal(t, 1, overridesInside, "After runs inside the decision's transaction")
+	assert.Zero(t, countOf(t, f.s, `SELECT count(*) FROM contributor_manual_override`), "no override survives")
+	assert.Equal(t, 1, countOf(t, f.s, `SELECT count(*) FROM contributor_review_item WHERE id = ? AND status = 'open'`,
+		item), "the item stays open")
+	assert.Equal(t, models.CreditSelectionReview, selectionOf(t, f.s, credit).State)
+
+	_, err = service.DecideWithin(ctx, item, 7, database.ReviewDecision{Action: database.ReviewAccept},
+		DecideHooks{Before: func(*pg.Tx) error { return refused }})
+	require.ErrorIs(t, err, refused, "a Before error stops the decision too")
+	assert.Zero(t, countOf(t, f.s, `SELECT count(*) FROM contributor_manual_override`))
+
+	var timeout string
+	report, err := service.DecideWithin(ctx, item, 7, database.ReviewDecision{Action: database.ReviewAccept},
+		DecideHooks{
+			Before: func(tx *pg.Tx) error {
+				_, execErr := tx.Exec(`SET LOCAL lock_timeout = '3s'`)
+				return execErr
+			},
+			After: func(tx *pg.Tx, rep database.ReviewReport) error {
+				_, qErr := tx.QueryOne(pg.Scan(&timeout), `SELECT current_setting('lock_timeout')`)
+				return qErr
+			},
+		})
+	require.NoError(t, err)
+	assert.Equal(t, "3s", timeout, "Before, the action and After share one transaction")
+	assert.Equal(t, models.CreditSelectionSelected, selectionOf(t, f.s, credit).State)
+	assert.Equal(t, report.OverrideID, *selectionOf(t, f.s, credit).OverrideID)
+}
+
+func TestDecideWithinRefusesOtherActions(t *testing.T) {
+	ctx := context.Background()
+	service, f, item, credit := decideWithinService(t)
+	malformed := &database.ManualCorrection{Kind: models.NormalizationMalformed, DisplayName: "***", SearchKey: "x",
+		Script: "Cyrl"}
+	for name, decision := range map[string]database.ReviewDecision{
+		"leave unresolved":   {Action: database.ReviewLeaveUnresolved},
+		"retry":              {Action: database.ReviewRetry, RetryNormalizerVersion: authornorm.NormalizerVersion, RetryMaxAttempts: 5},
+		"classify malformed": {Action: database.ReviewClassify, Kind: models.NormalizationMalformed},
+		"edit malformed":     {Action: database.ReviewEdit, Correction: malformed},
+		"unknown":            {Action: "lost"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			called := false
+			_, err := service.DecideWithin(ctx, item, 7, decision, DecideHooks{
+				Before: func(*pg.Tx) error { called = true; return nil },
+			})
+			assert.ErrorIs(t, err, ErrInvalidReviewRequest)
+			assert.False(t, called, "refused before any transaction")
+		})
+	}
+	assert.Equal(t, 1, countOf(t, f.s, `SELECT count(*) FROM contributor_review_item WHERE id = ? AND status = 'open'`,
+		item))
+	assert.Equal(t, models.CreditSelectionReview, selectionOf(t, f.s, credit).State)
+
+	// The admin's own paths keep every action: classify malformed still works.
+	_, err := service.Classify(ctx, item, 7, models.NormalizationMalformed)
+	require.NoError(t, err)
+	assert.Equal(t, models.CreditSelectionInvalid, selectionOf(t, f.s, credit).State)
+}
