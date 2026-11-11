@@ -12,6 +12,7 @@ import type {
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
 import { useScanSource } from '@/features/admin/scan/ScanSources';
+import { formatMoment } from '@/features/admin/scan/scanUi';
 
 /**
  * The LLM block of the author metadata card. It shows one chain — check
@@ -31,9 +32,20 @@ import { useScanSource } from '@/features/admin/scan/ScanSources';
  *
  * With merge set, the block is the merge configuration's (E4c): the same
  * block on its own routes, whose one step is the merge pilot.
+ *
+ * parts picks what the block draws, so the scan tab's «Модель» panel can lay
+ * one block out over its sections: 'live' the pauses with their «Продолжить»,
+ * the active run and the last run's summary (and, for the names block, the
+ * budget line, so it shows once); 'steps' the step buttons; 'reports' the
+ * report downloads, the recompute and the lists to label. Without parts the
+ * block draws all three, as it always has.
  */
 
 const ACTIVE = new Set(['pending', 'running', 'paused']);
+
+/** A pause with its «Продолжить»: the cause box of the «Модель» panel. */
+const PAUSE_BOX =
+    'flex flex-wrap items-center gap-2 rounded-[10px] border border-destructive/45 bg-destructive/10 px-3.5 py-2.5';
 
 type T = ReturnType<typeof useTranslation>['t'];
 
@@ -394,12 +406,24 @@ const AdversarialReview: React.FC<AdversarialReviewProps> = ({ runID, busy, act,
     );
 };
 
+export type AuthorLLMPart = 'live' | 'steps' | 'reports';
+
+const ALL_PARTS: ReadonlyArray<AuthorLLMPart> = ['live', 'steps', 'reports'];
+
 interface AuthorLLMBlockProps {
     /** merge shows the merge configuration's block (E4c). */
     merge?: boolean;
+    /** The parts to draw; all of them by default. */
+    parts?: ReadonlyArray<AuthorLLMPart>;
 }
 
-const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
+/** «· с 02.12, 09:14» after a pause line, when the server says since when. */
+const sinceSuffix = (t: T, at?: string): string =>
+    at
+        ? ` · ${t('scanPanel.since', { defaultValue: 'since {{date}}', date: formatMoment(at) })}`
+        : '';
+
+const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false, parts = ALL_PARTS }) => {
     const { t } = useTranslation();
     const api = useMemo(() => llmApi(merge ? adminApi.llmMergeBase : undefined), [merge]);
     // The status, its failed read and its 5 s poll while a run is active
@@ -413,6 +437,9 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
 
     const run = status?.run ?? null;
     const active = run !== null && ACTIVE.has(run.status);
+    const live = parts.includes('live');
+    const showSteps = parts.includes('steps');
+    const showReports = parts.includes('reports');
 
     const act = async (action: () => Promise<unknown>) => {
         setBusy(true);
@@ -451,6 +478,9 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
     );
 
     if (status === null) {
+        if (!live) {
+            return null;
+        }
         return (
             <section className="flex flex-col gap-2 border-t pt-3">
                 {title}
@@ -468,6 +498,9 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
     }
 
     if (!status.enabled) {
+        if (!live) {
+            return null;
+        }
         return (
             <section className="flex flex-col gap-2 border-t pt-3">
                 {title}
@@ -486,7 +519,7 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
         <section className="flex flex-col gap-2 border-t pt-3">
             {title}
 
-            {loadFailed && (
+            {live && loadFailed && (
                 <Alert variant="destructive">
                     <AlertDescription>
                         {t('authorLLM.loadFailed', 'Could not read the LLM state.')}
@@ -499,10 +532,11 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                 </Alert>
             )}
 
-            {status.endpoint_paused_reason && (
-                <div className="flex flex-wrap items-center gap-2">
+            {live && status.endpoint_paused_reason && (
+                <div className={PAUSE_BOX}>
                     <p className="text-sm text-destructive">
                         {endpointPause(t, status.endpoint_paused_reason)}
+                        {sinceSuffix(t, status.endpoint_paused_at)}
                     </p>
                     <Button
                         size="sm"
@@ -514,12 +548,13 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                     </Button>
                 </div>
             )}
-            {(status.participants ?? [])
+            {(live ? (status.participants ?? []) : [])
                 .filter((p) => p.paused_reason)
                 .map((p) => (
-                    <div key={p.slot} className="flex flex-wrap items-center gap-2">
+                    <div key={p.slot} className={PAUSE_BOX}>
                         <p className="text-sm text-destructive">
                             {`${p.model}: ${participantPause(t, p.paused_reason ?? '')}`}
+                            {sinceSuffix(t, p.paused_at)}
                         </p>
                         <Button
                             size="sm"
@@ -532,7 +567,7 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                     </div>
                 ))}
 
-            {status.other_active && (
+            {live && status.other_active && (
                 <p className="text-sm text-muted-foreground">
                     {merge
                         ? t(
@@ -546,7 +581,7 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                 </p>
             )}
 
-            {run !== null && active && (
+            {live && run !== null && active && (
                 <div className="flex flex-col gap-1">
                     <p className="text-sm tabular-nums">{activeLine(t, run)}</p>
                     {run.status === 'paused' && (
@@ -606,143 +641,162 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                 </div>
             )}
 
-            {run !== null && report && (
+            {run !== null && report && (live || showReports) && (
                 <div className="flex flex-col gap-1">
-                    <p className="text-sm">
-                        {t('authorLLM.reportSummary', {
-                            defaultValue:
-                                '{{run}}: ✓ {{passed}} of {{total}} groups passed · the excerpt helps in {{helps}}',
-                            run: runLabel(t, run),
-                            passed: report.strata_passed,
-                            total: report.strata_total,
-                            helps: report.excerpt_helps,
-                        })}
-                    </p>
-                    {(report.repeats ?? []).map((r) => (
-                        <p
-                            key={r.participant}
-                            className="text-sm tabular-nums text-muted-foreground"
-                        >
-                            {t('authorLLM.repeatChanged', {
-                                defaultValue: '{{participant}} · repeats: {{share}}% changed',
-                                participant:
-                                    status.participants?.find((p) => p.slot === r.participant)
-                                        ?.model ?? r.participant,
-                                share: formatShare(r.changed, r.total),
-                            })}
-                        </p>
-                    ))}
-                    {!report.registrable && (
-                        <p className="text-sm text-muted-foreground">
-                            {t(
-                                'authorLLM.notRegistrable',
-                                'Not enough evidence to start resolving.',
-                            )}
-                        </p>
-                    )}
-                    <p className="text-sm tabular-nums text-muted-foreground">
-                        {tokensLine(t, run)}
-                        {run.cost !== undefined && status.price_unit
-                            ? ` · ≈ ${formatCost(run.cost)} ${status.price_unit}`
-                            : null}
-                    </p>
-                    {(report.versions ?? []).length > 1 &&
-                        (report.versions ?? []).map((v) => (
-                            <div
-                                key={v.version}
-                                className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-                            >
-                                <span className="tabular-nums">
-                                    {t('authorLLM.reportVersion', {
-                                        defaultValue: 'Version {{version}} · {{verdict}}',
-                                        version: v.version,
-                                        verdict: v.registrable
-                                            ? t('authorLLM.versionRegistrable', 'registers groups')
-                                            : t(
-                                                  'authorLLM.versionNotRegistrable',
-                                                  'registers nothing',
-                                              ),
+                    {live && (
+                        <>
+                            <p className="text-sm">
+                                {t('authorLLM.reportSummary', {
+                                    defaultValue:
+                                        '{{run}}: ✓ {{passed}} of {{total}} groups passed · the excerpt helps in {{helps}}',
+                                    run: runLabel(t, run),
+                                    passed: report.strata_passed,
+                                    total: report.strata_total,
+                                    helps: report.excerpt_helps,
+                                })}
+                            </p>
+                            {(report.repeats ?? []).map((r) => (
+                                <p
+                                    key={r.participant}
+                                    className="text-sm tabular-nums text-muted-foreground"
+                                >
+                                    {t('authorLLM.repeatChanged', {
+                                        defaultValue:
+                                            '{{participant}} · repeats: {{share}}% changed',
+                                        participant:
+                                            status.participants?.find(
+                                                (p) => p.slot === r.participant,
+                                            )?.model ?? r.participant,
+                                        share: formatShare(r.changed, r.total),
                                     })}
-                                </span>
-                                {v.version !== report.version && (
-                                    <Button
-                                        variant="link"
-                                        size="sm"
-                                        className="h-auto p-0"
-                                        disabled={busy}
-                                        onClick={() => downloadReport(run.id, v.version)}
+                                </p>
+                            ))}
+                            {!report.registrable && (
+                                <p className="text-sm text-muted-foreground">
+                                    {t(
+                                        'authorLLM.notRegistrable',
+                                        'Not enough evidence to start resolving.',
+                                    )}
+                                </p>
+                            )}
+                            <p className="text-sm tabular-nums text-muted-foreground">
+                                {tokensLine(t, run)}
+                                {run.cost !== undefined && status.price_unit
+                                    ? ` · ≈ ${formatCost(run.cost)} ${status.price_unit}`
+                                    : null}
+                            </p>
+                        </>
+                    )}
+                    {showReports && (
+                        <>
+                            {(report.versions ?? []).length > 1 &&
+                                (report.versions ?? []).map((v) => (
+                                    <div
+                                        key={v.version}
+                                        className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
                                     >
-                                        {t('authorLLM.reportButton', 'Report')}
+                                        <span className="tabular-nums">
+                                            {t('authorLLM.reportVersion', {
+                                                defaultValue: 'Version {{version}} · {{verdict}}',
+                                                version: v.version,
+                                                verdict: v.registrable
+                                                    ? t(
+                                                          'authorLLM.versionRegistrable',
+                                                          'registers groups',
+                                                      )
+                                                    : t(
+                                                          'authorLLM.versionNotRegistrable',
+                                                          'registers nothing',
+                                                      ),
+                                            })}
+                                        </span>
+                                        {v.version !== report.version && (
+                                            <Button
+                                                variant="link"
+                                                size="sm"
+                                                className="h-auto p-0"
+                                                disabled={busy}
+                                                onClick={() => downloadReport(run.id, v.version)}
+                                            >
+                                                {t('authorLLM.reportButton', 'Report')}
+                                            </Button>
+                                        )}
+                                    </div>
+                                ))}
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    disabled={busy}
+                                    onClick={() => downloadReport(run.id)}
+                                >
+                                    {t('authorLLM.reportButton', 'Report')}
+                                </Button>
+                                {run.kind === 'eval' && run.current_config && (
+                                    <Button
+                                        variant="outline"
+                                        disabled={busy}
+                                        onClick={() => act(() => api.recompute(run.id))}
+                                    >
+                                        {t('authorLLM.recomputeButton', 'Recompute report')}
                                     </Button>
                                 )}
                             </div>
-                        ))}
-                    <div className="flex flex-wrap gap-2">
-                        <Button
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => downloadReport(run.id)}
-                        >
-                            {t('authorLLM.reportButton', 'Report')}
-                        </Button>
-                        {run.kind === 'eval' && run.current_config && (
-                            <Button
-                                variant="outline"
-                                disabled={busy}
-                                onClick={() => act(() => api.recompute(run.id))}
-                            >
-                                {t('authorLLM.recomputeButton', 'Recompute report')}
-                            </Button>
-                        )}
-                    </div>
-                    {merge && (
-                        <>
-                            <AdversarialReview
-                                runID={run.id}
-                                busy={busy}
-                                act={act}
-                                source="audit"
-                            />
-                            <AdversarialReview
-                                runID={run.id}
-                                busy={busy}
-                                act={act}
-                                source="adversarial"
-                            />
+                            {merge && (
+                                <>
+                                    <AdversarialReview
+                                        runID={run.id}
+                                        busy={busy}
+                                        act={act}
+                                        source="audit"
+                                    />
+                                    <AdversarialReview
+                                        runID={run.id}
+                                        busy={busy}
+                                        act={act}
+                                        source="adversarial"
+                                    />
+                                </>
+                            )}
                         </>
                     )}
                 </div>
             )}
 
-            {run !== null && resolved && (
+            {run !== null && resolved && (live || showReports) && (
                 <div className="flex flex-col gap-1">
-                    <p className="text-sm">
-                        {t('authorLLM.resolveSummary', {
-                            defaultValue: '{{run}}: ✓ {{applied}} of {{total}} applied',
-                            run: runLabel(t, run),
-                            applied: formatNumber(resolved.applied),
-                            total: formatNumber(resolved.total),
-                        })}
-                    </p>
-                    <p className="text-sm tabular-nums text-muted-foreground">
-                        {tokensLine(t, run)}
-                        {run.cost !== undefined && status.price_unit
-                            ? ` · ≈ ${formatCost(run.cost)} ${status.price_unit}`
-                            : null}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                        <Button
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => downloadReport(run.id)}
-                        >
-                            {t('authorLLM.reportButton', 'Report')}
-                        </Button>
-                    </div>
+                    {live && (
+                        <>
+                            <p className="text-sm">
+                                {t('authorLLM.resolveSummary', {
+                                    defaultValue: '{{run}}: ✓ {{applied}} of {{total}} applied',
+                                    run: runLabel(t, run),
+                                    applied: formatNumber(resolved.applied),
+                                    total: formatNumber(resolved.total),
+                                })}
+                            </p>
+                            <p className="text-sm tabular-nums text-muted-foreground">
+                                {tokensLine(t, run)}
+                                {run.cost !== undefined && status.price_unit
+                                    ? ` · ≈ ${formatCost(run.cost)} ${status.price_unit}`
+                                    : null}
+                            </p>
+                        </>
+                    )}
+                    {showReports && (
+                        <div className="flex flex-wrap gap-2">
+                            <Button
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => downloadReport(run.id)}
+                            >
+                                {t('authorLLM.reportButton', 'Report')}
+                            </Button>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {run !== null && run.status === 'closed' && (
+            {live && run !== null && run.status === 'closed' && (
                 <p className="text-sm text-muted-foreground">
                     {t('authorLLM.closed', {
                         defaultValue: '{{run}}: closed',
@@ -751,7 +805,7 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                 </p>
             )}
 
-            {run !== null && run.status === 'failed_systemic' && (
+            {live && run !== null && run.status === 'failed_systemic' && (
                 <p className="text-sm text-destructive">
                     {t('authorLLM.failed', {
                         defaultValue: '{{run}} stopped with an error ({{class}})',
@@ -761,40 +815,46 @@ const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
                 </p>
             )}
 
-            <ol className="flex flex-wrap gap-2">
-                {steps.map((s) => (
-                    <li key={s.key} className="flex flex-col gap-1">
-                        <Button
-                            variant={s.enabled ? 'default' : 'outline'}
-                            disabled={busy || !s.enabled}
-                            title={s.strata?.join(', ')}
-                            onClick={() => act(() => api.start(s.kind, s.mode))}
-                        >
-                            {s.done ? `✓ ${labels[s.key]}` : labels[s.key]}
-                        </Button>
-                        {s.estimate_tokens ? (
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                                {t('authorLLM.step.estimate', {
-                                    defaultValue: '~{{tokens}} tokens',
-                                    tokens: formatNumber(s.estimate_tokens),
-                                })}
-                            </span>
-                        ) : null}
-                    </li>
-                ))}
-            </ol>
-            {unavailable && (
-                <p className="text-sm text-muted-foreground">
-                    {t('authorLLM.notAvailable', 'This step comes in the next version.')}
+            {showSteps && (
+                <>
+                    <ol className="flex flex-wrap gap-2">
+                        {steps.map((s) => (
+                            <li key={s.key} className="flex flex-col gap-1">
+                                <Button
+                                    variant={s.enabled ? 'default' : 'outline'}
+                                    disabled={busy || !s.enabled}
+                                    title={s.strata?.join(', ')}
+                                    onClick={() => act(() => api.start(s.kind, s.mode))}
+                                >
+                                    {s.done ? `✓ ${labels[s.key]}` : labels[s.key]}
+                                </Button>
+                                {s.estimate_tokens ? (
+                                    <span className="text-xs tabular-nums text-muted-foreground">
+                                        {t('authorLLM.step.estimate', {
+                                            defaultValue: '~{{tokens}} tokens',
+                                            tokens: formatNumber(s.estimate_tokens),
+                                        })}
+                                    </span>
+                                ) : null}
+                            </li>
+                        ))}
+                    </ol>
+                    {unavailable && (
+                        <p className="text-sm text-muted-foreground">
+                            {t('authorLLM.notAvailable', 'This step comes in the next version.')}
+                        </p>
+                    )}
+                </>
+            )}
+            {live && !merge && (
+                <p className="text-xs tabular-nums text-muted-foreground">
+                    {t('authorLLM.budget', {
+                        defaultValue: 'All runs together: {{spent}} of {{budget}} tokens',
+                        spent: formatNumber(status.spent_tokens),
+                        budget: formatNumber(status.budget_tokens),
+                    })}
                 </p>
             )}
-            <p className="text-xs tabular-nums text-muted-foreground">
-                {t('authorLLM.budget', {
-                    defaultValue: 'All runs together: {{spent}} of {{budget}} tokens',
-                    spent: formatNumber(status.spent_tokens),
-                    budget: formatNumber(status.budget_tokens),
-                })}
-            </p>
         </section>
     );
 };

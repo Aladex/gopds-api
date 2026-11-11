@@ -24,7 +24,8 @@ it('no page or hook opens its own WebSocket', () => {
 });
 
 it('every event-driven admin view rides the shared socket', () => {
-    for (const page of ['BookScanning.tsx', 'Duplicates.tsx', 'GenreManagement.tsx']) {
+    // The scan tab's state, its socket subscriptions included, lives in its hook.
+    for (const page of ['scan/useBookScan.ts', 'Duplicates.tsx', 'GenreManagement.tsx']) {
         const source = readFileSync(join(SRC, 'features', 'admin', page), 'utf8');
         expect(source, page).toContain('useWebSocket');
         expect(source, page).not.toContain('/api/ws');

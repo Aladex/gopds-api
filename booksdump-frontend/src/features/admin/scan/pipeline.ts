@@ -107,8 +107,8 @@ const percentOf = (done: number, total: number): number =>
     total > 0 ? Math.round((done / total) * 100) : 0;
 
 /** The newest archive with a readable scan date. */
-function newestArchive(scanned: ScannedArchiveSummary[]): ScannedArchiveSummary | null {
-    let newest: ScannedArchiveSummary | null = null;
+export function newestArchive<T extends ScannedArchiveSummary>(scanned: T[]): T | null {
+    let newest: T | null = null;
     let newestAt = -Infinity;
     for (const archive of scanned) {
         const at = Date.parse(archive.scanned_at);
@@ -223,10 +223,14 @@ function modelNode(names: AuthorLLMStatus, merge: AuthorLLMStatus | null): Stage
     for (const status of statuses) {
         const paused = status.participants?.find((p) => p.paused_reason);
         if (paused) {
-            return node('model', 'stuck', figure, 'model.participant', {
+            const values: Record<string, string> = {
                 model: paused.model,
                 reason: paused.paused_reason ?? '',
-            });
+            };
+            if (paused.paused_at) {
+                values.since = paused.paused_at;
+            }
+            return node('model', 'stuck', figure, 'model.participant', values);
         }
     }
     for (const status of statuses) {

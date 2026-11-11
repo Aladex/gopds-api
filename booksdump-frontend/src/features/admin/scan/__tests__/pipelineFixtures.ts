@@ -1,5 +1,6 @@
 import type {
     AuthorAutopilotStatus,
+    AuthorEntityReport,
     AuthorEntityStatus,
     AuthorLLMStatus,
     AuthorMetadataRun,
@@ -118,6 +119,43 @@ export const autopilot = (
     ...overrides,
 });
 
+/** The newest entity pass's report, whole, so the entity block can render it. */
+export const entityReport = (): AuthorEntityReport => ({
+    credits: 632_742,
+    books: 517_439,
+    fingerprints: 166_103,
+    entities: 146_788,
+    initials_entities: 13_935,
+    sizes: [{ label: '1', entities: 91_303, books: 91_303 }],
+    top: [{ id: '01a163ad-4511-71e5-91b3-7c1e4de8eb47', books: 1_296 }],
+    typo_merges: 198,
+    no_entity: {},
+    buckets: {
+        buckets: 100_261,
+        books: 394_222,
+        with_full_names: 12_507,
+        with_full_names_books: 98_626,
+        moved: 25_016,
+        moved_by: { title: 10_497, series: 10_835, coauthor: 7_494 },
+        conflicting: 298,
+        samizdat_books: 4_088,
+        samizdat_kept: 89,
+        remaining: 369_206,
+        emptied: 1_182,
+        entities: 99_079,
+    },
+    ids: { inherited: 0, new: 159_604, merged: 0, orphaned: 0 },
+    legacy: {
+        authors: 144_101,
+        entities_per_author: [{ label: '1', entities: 131_394, books: 400_206 }],
+        shared_entities: 1_973,
+    },
+    unselected_credits: 45_273,
+    units_skipped: 0,
+    changes: 509_129,
+    timings: { load_ms: 2_420, plan_ms: 6_620, apply_ms: 8_288 },
+});
+
 export const entityStatus = (
     now: Date,
     overrides: Partial<AuthorEntityStatus> = {},
@@ -132,7 +170,7 @@ export const entityStatus = (
         created_at: ago(now, 5 * DAY_MS),
         finished_at: ago(now, 5 * DAY_MS),
     },
-    report: { entities: 146_788 } as AuthorEntityStatus['report'],
+    report: entityReport(),
     wikidata: null,
     autopilot: autopilot(now),
     ...overrides,

@@ -279,7 +279,12 @@ describe('derivePipeline', () => {
             }),
             state: 'stuck',
             key: 'model.participant',
-            values: { model: 'model-b', reason: 'model_mismatch' },
+            // The panel's cause says since when the model stands.
+            values: (now) => ({
+                model: 'model-b',
+                reason: 'model_mismatch',
+                since: ago(now, 2 * 60 * 60 * 1000),
+            }),
         },
         {
             name: 'a paused merge run is stuck',

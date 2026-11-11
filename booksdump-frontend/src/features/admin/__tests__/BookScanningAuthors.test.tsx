@@ -6,8 +6,8 @@ import * as adminApi from '@/api/admin';
 import { BookConversionProvider } from '@/context/BookConversionContext';
 import { WebSocketProvider } from '@/context/WebSocketContext';
 
-// The scanning section carries the author metadata card and an «Авторы» tab
-// with the review queue; the tab lives in the address (?tab=authors).
+// The scanning section is a pipeline of stages; the selected one lives in the
+// address (?stage=…), and the old ?tab=authors still opens the review queue.
 
 vi.mock('react-i18next', () => ({
     useTranslation: () => ({
@@ -75,26 +75,30 @@ const renderAt = (path: string) =>
         </BookConversionProvider>,
     );
 
-it('shows the author metadata card in the scanning section', async () => {
-    renderAt('/admin/book-scanning');
-    expect(await screen.findByText('Author metadata')).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Walk the catalogue' })).toBeInTheDocument();
+it('shows the metadata pass in the books stage', async () => {
+    renderAt('/admin/book-scanning?stage=books');
+    expect(
+        await screen.findByRole('button', { name: 'Walk the catalogue', hidden: true }),
+    ).toBeInTheDocument();
 });
 
-it('opens the authors tab from the address and loads the review queue only there', async () => {
-    renderAt('/admin/book-scanning');
-    await screen.findByText('Author metadata');
+it('?tab=authors selects the review stage', async () => {
+    const { container } = renderAt('/admin/book-scanning?tab=authors');
+    await waitFor(() => expect(api.listAuthorReviewItems).toHaveBeenCalled());
+    expect(container.querySelector('[data-stage-node="human"]')).toHaveAttribute(
+        'aria-current',
+        'true',
+    );
+});
+
+it('loads the review queue only on the review stage', async () => {
+    const { container } = renderAt('/admin/book-scanning?stage=books');
+    await screen.findByRole('button', { name: 'Walk the catalogue', hidden: true });
     expect(api.listAuthorReviewItems).not.toHaveBeenCalled();
 
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Authors' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Authors' }));
+    const human = container.querySelector<HTMLElement>('[data-stage-node="human"]');
+    fireEvent.click(human!);
     await waitFor(() => expect(api.listAuthorReviewItems).toHaveBeenCalled());
-});
-
-it('lands in the authors tab when the address names it', async () => {
-    renderAt('/admin/book-scanning?tab=authors');
-    await waitFor(() => expect(api.listAuthorReviewItems).toHaveBeenCalled());
-    expect(screen.getByRole('tab', { name: 'Authors' })).toHaveAttribute('aria-selected', 'true');
 });
 
 // Review B8: a fix scan's per-book author failures land in the shared errors

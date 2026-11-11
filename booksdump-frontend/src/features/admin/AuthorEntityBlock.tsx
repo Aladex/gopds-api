@@ -11,6 +11,7 @@ import * as adminApi from '@/api/admin';
 import type {
     AuthorAutopilotStatus,
     AuthorMergeApplyReport,
+    AuthorMerges,
     AuthorMergeDecision,
     AuthorMergeRegistration,
     AuthorMergeVeto,
@@ -23,12 +24,18 @@ import type {
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
 import { useScanSource } from '@/features/admin/scan/ScanSources';
+import Fold from '@/features/admin/scan/Fold';
 
 /**
  * The author entity block of the author metadata card (design E, phase E1):
  * one button that starts a build pass, the pass's progress while it runs,
- * and the summary of the newest report. The entities are built in the
- * shadow: nothing a reader sees uses them yet.
+ * and the summary of the newest report. Readers see the entities as the
+ * author pages.
+ *
+ * In the scan tab it is the «Сущности» panel's body: what stops the stage on
+ * top (an unanchored veto, failed autopilot checks, a failed pass), the two
+ * switches with one line each and their policy folded under «Как работает»,
+ * then the merges and the kinds, Wikidata and the report in folds.
  *
  * The start answers at once; the block re-reads after it and every few
  * seconds while a pass is active.
@@ -459,43 +466,66 @@ const AutopilotSection: React.FC<{
         }
     };
 
+    const minutes = formatNumber(Math.round(autopilot.quiet_seconds / 60));
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-3">
-                <label htmlFor="author-autopilot" className="text-sm font-medium">
-                    {t('authorEntity.autopilot.title', 'Autopilot after a scan')}
-                </label>
+            <div className="flex items-start gap-3">
                 <Switch
                     id="author-autopilot"
+                    className="mt-0.5"
                     disabled={busy}
                     checked={autopilot.enabled}
                     onCheckedChange={toggle(adminApi.setAuthorAutopilot)}
                 />
+                <div className="flex min-w-0 flex-1 flex-col">
+                    <label htmlFor="author-autopilot" className="text-sm font-medium">
+                        {t('authorEntity.autopilot.title', 'Autopilot after a scan')}
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                        {t('authorEntity.autopilot.line', {
+                            defaultValue:
+                                'After {{minutes}} min of quiet it resolves the new names and builds the entities.',
+                            minutes,
+                        })}
+                    </span>
+                </div>
             </div>
-            <p className="text-sm text-muted-foreground">
-                {t('authorEntity.autopilot.hint', {
-                    defaultValue:
-                        'Every minute, once no book was added for {{minutes}} min and local normalization is done, and while no LLM run and no entity pass is active (whoever started it): the never-asked names of the registered strata go to a resolve run, otherwise, if the selections changed, the entities are built. It never starts a check (eval) and never registers a stratum. A pause of {{minutes}} min within a long scan counts as quiet; the books after it are taken up by a later check.',
-                    minutes: formatNumber(Math.round(autopilot.quiet_seconds / 60)),
-                })}
-            </p>
-            <div className="flex items-center justify-between gap-3">
-                <label htmlFor="author-autopilot-merge" className="text-sm font-medium">
-                    {t('authorEntity.autopilot.merge.title', 'Merge step')}
-                </label>
+            <div className="flex items-start gap-3">
                 <Switch
                     id="author-autopilot-merge"
+                    className="mt-0.5"
                     disabled={busy}
                     checked={autopilot.merge_enabled}
                     onCheckedChange={toggle(adminApi.setAuthorAutopilotMerge)}
                 />
+                <div className="flex min-w-0 flex-1 flex-col">
+                    <label htmlFor="author-autopilot-merge" className="text-sm font-medium">
+                        {t('authorEntity.autopilot.merge.title', 'Merge step')}
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                        {t(
+                            'authorEntity.autopilot.merge.line',
+                            'Asks the model about the new merge candidates.',
+                        )}
+                    </span>
+                </div>
             </div>
-            <p className="text-sm text-muted-foreground">
-                {t(
-                    'authorEntity.autopilot.merge.hint',
-                    "With the autopilot on and nothing else to do (the scan quiet, the names resolved, the entities built), it starts one merge run over the merge candidates due: of a registered kind and never asked, the new ones and those whose card changed. It is the ordinary merge run, never a check (eval); the entity pass after it applies the decisions. It waits while any LLM run is active, a veto is unanchored, a model drifted or is paused, or the run's estimate exceeds the budget left. Only one LLM run is active at a time, so while its merge run runs an administrator's run is refused. Pausing and closing that run frees the slot, but the candidates it has not answered then count as asked and are not asked again until their card changes: keep the step off while running checks by hand.",
-                )}
-            </p>
+            {/* The two policy paragraphs stay, folded (DECISION 1). */}
+            <Fold label={t('authorEntity.autopilot.howItWorks', 'How it works')}>
+                <p className="text-sm text-muted-foreground">
+                    {t('authorEntity.autopilot.hint', {
+                        defaultValue:
+                            'Every minute, once no book was added for {{minutes}} min and local normalization is done, and while no LLM run and no entity pass is active (whoever started it): the never-asked names of the registered strata go to a resolve run, otherwise, if the selections changed, the entities are built. It never starts a check (eval) and never registers a stratum. A pause of {{minutes}} min within a long scan counts as quiet; the books after it are taken up by a later check.',
+                        minutes,
+                    })}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                    {t(
+                        'authorEntity.autopilot.merge.hint',
+                        "With the autopilot on and nothing else to do (the scan quiet, the names resolved, the entities built), it starts one merge run over the merge candidates due: of a registered kind and never asked, the new ones and those whose card changed. It is the ordinary merge run, never a check (eval); the entity pass after it applies the decisions. It waits while any LLM run is active, a veto is unanchored, a model drifted or is paused, or the run's estimate exceeds the budget left. Only one LLM run is active at a time, so while its merge run runs an administrator's run is refused. Pausing and closing that run frees the slot, but the candidates it has not answered then count as asked and are not asked again until their card changes: keep the step off while running checks by hand.",
+                    )}
+                </p>
+            </Fold>
             {errorText !== null && (
                 <Alert variant="destructive">
                     <AlertDescription>{errorText}</AlertDescription>
@@ -523,20 +553,26 @@ const AutopilotSection: React.FC<{
                     </p>
                 ))
             )}
-            {autopilot.failures > 0 && (
-                <p className="text-sm tabular-nums text-destructive">
-                    {t('authorEntity.autopilot.failed', {
-                        defaultValue:
-                            'The last check failed {{failures}} times in a row ({{error}}); next attempt {{date}}.',
-                        failures: autopilot.failures,
-                        error: autopilot.last_error_class ?? '',
-                        date: autopilot.next_attempt_at
-                            ? formatTime(autopilot.next_attempt_at)
-                            : '',
-                    })}
-                </p>
-            )}
         </div>
+    );
+};
+
+/** The autopilot's failed checks, at the top of the block: they stop the stage. */
+const AutopilotFailures: React.FC<{ autopilot: AuthorAutopilotStatus }> = ({ autopilot }) => {
+    const { t } = useTranslation();
+    if (autopilot.failures <= 0) {
+        return null;
+    }
+    return (
+        <p className="text-sm tabular-nums text-destructive">
+            {t('authorEntity.autopilot.failed', {
+                defaultValue:
+                    'The last check failed {{failures}} times in a row ({{error}}); next attempt {{date}}.',
+                failures: autopilot.failures,
+                error: autopilot.last_error_class ?? '',
+                date: autopilot.next_attempt_at ? formatTime(autopilot.next_attempt_at) : '',
+            })}
+        </p>
     );
 };
 
@@ -960,12 +996,20 @@ const applyLine = (t: T, a: AuthorMergeApplyReport): string =>
         already: formatNumber(a.already_decided),
     });
 
-/** The merges section: the model's decisions and the vetoes of revokes. */
-const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged }) => {
+/** The merges' shared state: the list, its actions' busy flag and error, the last apply. */
+interface MergesState {
+    merges: AuthorMerges | null;
+    busy: boolean;
+    errorText: string | null;
+    applied: AuthorMergeApplyReport | null;
+    setApplied: (report: AuthorMergeApplyReport) => void;
+    act: (action: () => Promise<unknown>) => Promise<void>;
+}
+
+/** The merges from the tab's shared source, read once on mount, and their actions. */
+function useMerges(onChanged: () => Promise<void>): MergesState {
     const { t } = useTranslation();
-    // The merges come from the tab's shared source, read once on mount.
     const source = useScanSource('merges');
-    const merges = source.data;
     const load = source.reload;
     const [busy, setBusy] = useState(false);
     const [actionErrorText, setErrorText] = useState<string | null>(null);
@@ -990,6 +1034,29 @@ const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged
         }
     };
 
+    return { merges: source.data, busy, errorText, applied, setApplied, act };
+}
+
+const MergesError: React.FC<{ errorText: string | null }> = ({ errorText }) =>
+    errorText === null ? null : (
+        <Alert variant="destructive">
+            <AlertDescription>{errorText}</AlertDescription>
+        </Alert>
+    );
+
+/** The model's merge decisions, filtered by name over the loaded rows, and the vetoes. */
+const MergeDecisions: React.FC<{ state: MergesState }> = ({ state }) => {
+    const { t } = useTranslation();
+    const { merges, busy, act } = state;
+    const [filter, setFilter] = useState('');
+    const needle = filter.trim().toLocaleLowerCase();
+    const decisions = (merges?.decisions ?? []).filter(
+        (d) =>
+            needle === '' ||
+            d.side_a.display_name.toLocaleLowerCase().includes(needle) ||
+            d.side_b.display_name.toLocaleLowerCase().includes(needle),
+    );
+
     const revoke = (d: AuthorMergeDecision) => {
         if (
             window.confirm(
@@ -1007,38 +1074,30 @@ const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged
 
     return (
         <div className="flex flex-col gap-2">
-            <h5 className="text-sm font-medium">
-                {t('authorEntity.merges.title', 'Merges by the model')}
-            </h5>
             <p className="text-sm text-muted-foreground">
                 {t(
                     'authorEntity.merges.hint',
                     'Two records the model found to be one person. Undoing a merge splits the pair at the next pass and leaves a veto: no pass joins them again until it is retired.',
                 )}
             </p>
-            {errorText !== null && (
-                <Alert variant="destructive">
-                    <AlertDescription>{errorText}</AlertDescription>
-                </Alert>
-            )}
-            {merges?.unanchored && (
-                <Alert>
-                    <AlertDescription>
-                        {t(
-                            'authorEntity.merges.unanchored',
-                            'A veto lost its books (re-extracted with other data): no question goes to the model until it is re-anchored or retired.',
-                        )}
-                    </AlertDescription>
-                </Alert>
-            )}
             {merges !== null && merges.decisions_total === 0 && (
                 <p className="text-sm text-muted-foreground">
                     {t('authorEntity.merges.none', 'No merge decision yet.')}
                 </p>
             )}
             {merges !== null && merges.decisions.length > 0 && (
+                <Input
+                    type="search"
+                    aria-label={t('authorEntity.merges.filter', 'Filter by name')}
+                    placeholder={t('authorEntity.merges.filter', 'Filter by name')}
+                    className="sm:max-w-80"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                />
+            )}
+            {decisions.length > 0 && (
                 <ul className="flex flex-col gap-2">
-                    {merges.decisions.map((d) => (
+                    {decisions.map((d) => (
                         <li
                             key={d.id}
                             className="flex flex-wrap items-center justify-between gap-2"
@@ -1084,6 +1143,16 @@ const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged
                     ))}
                 </ul>
             )}
+        </div>
+    );
+};
+
+/** The kinds of merge registered from a merge check, and the form to register one. */
+const MergeRegistrations: React.FC<{ state: MergesState }> = ({ state }) => {
+    const { t } = useTranslation();
+    const { merges, busy, act, applied, setApplied } = state;
+    return (
+        <div className="flex flex-col gap-2">
             <h5 className="text-sm font-medium">
                 {t('authorEntity.merges.registrations', 'Registered kinds')}
             </h5>
@@ -1165,7 +1234,12 @@ const reportLines = (t: T, r: AuthorEntityReport): string[] => {
     ];
 };
 
-const AuthorEntityBlock: React.FC = () => {
+interface AuthorEntityBlockProps {
+    /** panel: the body of the scan tab's «Сущности» panel, which names the stage itself. */
+    variant?: 'card' | 'panel';
+}
+
+const AuthorEntityBlock: React.FC<AuthorEntityBlockProps> = ({ variant = 'card' }) => {
     const { t } = useTranslation();
     // The status, its failed read and its polls (5 s while a pass or a
     // Wikidata fetch runs, 15 s while the autopilot is on) come from the
@@ -1174,6 +1248,7 @@ const AuthorEntityBlock: React.FC = () => {
     const status = source.data;
     const loadFailed = source.failed;
     const load = source.reload;
+    const merges = useMerges(load);
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -1196,19 +1271,34 @@ const AuthorEntityBlock: React.FC = () => {
     const report = status?.report ?? null;
     const done = run?.units_done ?? 0;
     const total = run?.units_total ?? 0;
+    const liveKinds = (merges.merges?.registrations ?? []).filter(
+        (r) => r.withdrawn_at === undefined,
+    ).length;
+    const writers = status?.wikidata?.published?.people;
+    // The pass the report belongs to: the newest run when it completed.
+    const reportPass = run !== null && run.status === 'completed' ? run.id : null;
 
     return (
-        <section className="flex flex-col gap-2 border-t pt-3">
-            <h4 className="text-sm font-medium">
-                {t('authorEntity.title', 'Author entities (shadow)')}
-            </h4>
-            <p className="text-sm text-muted-foreground">
-                {t(
-                    'authorEntity.hint',
-                    'One record per real author, built from the selected names. Readers do not see it yet.',
-                )}
-            </p>
+        <section
+            className={
+                variant === 'panel' ? 'flex flex-col gap-3' : 'flex flex-col gap-2 border-t pt-3'
+            }
+        >
+            {variant === 'card' && (
+                <h4 className="text-sm font-medium">{t('authorEntity.title', 'Entities')}</h4>
+            )}
 
+            {merges.merges?.unanchored && (
+                <Alert>
+                    <AlertDescription>
+                        {t(
+                            'authorEntity.merges.unanchored',
+                            'A veto lost its books (re-extracted with other data): no question goes to the model until it is re-anchored or retired.',
+                        )}
+                    </AlertDescription>
+                </Alert>
+            )}
+            <MergesError errorText={merges.errorText} />
             {loadFailed && (
                 <Alert variant="destructive">
                     <AlertDescription>
@@ -1221,6 +1311,7 @@ const AuthorEntityBlock: React.FC = () => {
                     <AlertDescription>{errorText}</AlertDescription>
                 </Alert>
             )}
+            {status?.autopilot && <AutopilotFailures autopilot={status.autopilot} />}
 
             {run !== null && building && (
                 <div className="flex flex-col gap-1">
@@ -1248,62 +1339,94 @@ const AuthorEntityBlock: React.FC = () => {
                 </p>
             )}
 
-            {status !== null && (
-                <div>
-                    <Button variant="outline" disabled={busy || building} onClick={start}>
-                        {t('authorEntity.build', 'Build author entities')}
-                    </Button>
-                </div>
-            )}
-
             {status?.autopilot && (
                 <AutopilotSection autopilot={status.autopilot} onChanged={load} />
             )}
 
             {status !== null && (
-                <WikidataSection wikidata={status.wikidata ?? null} onChanged={load} />
+                <div className="flex flex-col gap-1.5">
+                    <Fold
+                        label={t('authorEntity.merges.title', 'Merges by the model')}
+                        meta={
+                            merges.merges === null
+                                ? null
+                                : formatNumber(merges.merges.decisions_total)
+                        }
+                    >
+                        <MergeDecisions state={merges} />
+                    </Fold>
+                    <Fold
+                        label={
+                            reportPass === null
+                                ? t('authorEntity.kindsFoldNoPass', 'Merge kinds, Wikidata, report')
+                                : t('authorEntity.kindsFold', {
+                                      defaultValue: 'Merge kinds, Wikidata, report of pass #{{id}}',
+                                      id: reportPass,
+                                  })
+                        }
+                        meta={t('authorEntity.kindsMeta', {
+                            defaultValue: '{{kinds}} kinds · {{writers}} writers',
+                            kinds: formatNumber(liveKinds),
+                            writers: formatNumber(writers ?? 0),
+                        })}
+                    >
+                        <MergeRegistrations state={merges} />
+                        <WikidataSection wikidata={status.wikidata ?? null} onChanged={load} />
+                        {report !== null && (
+                            <div className="flex flex-col gap-1">
+                                {reportLines(t, report).map((line) => (
+                                    <p key={line} className="text-sm tabular-nums">
+                                        {line}
+                                    </p>
+                                ))}
+                                {report.wikidata !== undefined &&
+                                    report.wikidata.extract !== '' &&
+                                    wikidataLines(t, report.wikidata).map((line) => (
+                                        <p key={line} className="text-sm tabular-nums">
+                                            {line}
+                                        </p>
+                                    ))}
+                                <details className="text-sm">
+                                    <summary className="cursor-pointer text-muted-foreground">
+                                        {t(
+                                            'authorEntity.details',
+                                            'Sizes and the largest entities',
+                                        )}
+                                    </summary>
+                                    <ul className="mt-1 flex flex-col gap-0.5 tabular-nums">
+                                        {report.sizes.map((s) => (
+                                            <li key={s.label}>
+                                                {t('authorEntity.size', {
+                                                    defaultValue:
+                                                        '{{label}} books: {{entities}} entities',
+                                                    label: s.label,
+                                                    entities: formatNumber(s.entities),
+                                                })}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <ul className="mt-1 flex flex-col gap-0.5">
+                                        {report.top.map((e) => (
+                                            <li key={e.id} className="tabular-nums">
+                                                <span className="font-mono text-xs break-all">
+                                                    {e.id}
+                                                </span>
+                                                {` · ${formatNumber(e.books)}`}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            </div>
+                        )}
+                    </Fold>
+                </div>
             )}
 
-            {status !== null && <MergesSection onChanged={load} />}
-
-            {report !== null && (
-                <div className="flex flex-col gap-1">
-                    {reportLines(t, report).map((line) => (
-                        <p key={line} className="text-sm tabular-nums">
-                            {line}
-                        </p>
-                    ))}
-                    {report.wikidata !== undefined &&
-                        report.wikidata.extract !== '' &&
-                        wikidataLines(t, report.wikidata).map((line) => (
-                            <p key={line} className="text-sm tabular-nums">
-                                {line}
-                            </p>
-                        ))}
-                    <details className="text-sm">
-                        <summary className="cursor-pointer text-muted-foreground">
-                            {t('authorEntity.details', 'Sizes and the largest entities')}
-                        </summary>
-                        <ul className="mt-1 flex flex-col gap-0.5 tabular-nums">
-                            {report.sizes.map((s) => (
-                                <li key={s.label}>
-                                    {t('authorEntity.size', {
-                                        defaultValue: '{{label}} books: {{entities}} entities',
-                                        label: s.label,
-                                        entities: formatNumber(s.entities),
-                                    })}
-                                </li>
-                            ))}
-                        </ul>
-                        <ul className="mt-1 flex flex-col gap-0.5">
-                            {report.top.map((e) => (
-                                <li key={e.id} className="tabular-nums">
-                                    <span className="font-mono text-xs break-all">{e.id}</span>
-                                    {` · ${formatNumber(e.books)}`}
-                                </li>
-                            ))}
-                        </ul>
-                    </details>
+            {status !== null && (
+                <div>
+                    <Button variant="outline" disabled={busy || building} onClick={start}>
+                        {t('authorEntity.build', 'Build author entities')}
+                    </Button>
                 </div>
             )}
         </section>

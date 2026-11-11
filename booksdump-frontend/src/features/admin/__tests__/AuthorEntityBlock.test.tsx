@@ -843,7 +843,7 @@ describe('AuthorEntityBlock', () => {
                 expect(ru[key], `ru ${key}`).not.toBe(en[key]);
             }
         }
-        expect(ru['authorEntity.build']).toBe('Собрать сущности авторов');
+        expect(ru['authorEntity.build']).toBe('Собрать сущности сейчас');
         expect(ru['authorEntity.wikidata.fetch']).toBe('Загрузить Wikidata');
         expect(ru['authorEntity.autopilot.title']).toBe('Автопилот после сканирования');
         for (const key of Object.keys(en).filter((k) => k.startsWith('authorEntity.autopilot.'))) {
