@@ -230,7 +230,9 @@ func TestTriageApplyAndUndoAnswers(t *testing.T) {
 	assert.JSONEq(t, `{"marked":4}`, rec.Body.String())
 	assert.Equal(t, "undo 3", svc.calls[len(svc.calls)-1])
 
-	for _, body := range []string{``, `{}`, `{"step":-1}`, `{"step":9}`, `{"step":"1"}`} {
+	for _, body := range []string{``, `{}`, `{"step":-1}`, `{"step":9}`, `{"step":"1"}`, `{"step":null}`,
+		`{"step":1.5}`, `[]`, `{"step":1,"step":2}`, `{"step":1,"all":true}`, `{"step":1}{"step":2}`,
+		`{"step":1} []`, `{"Step":1}`} {
 		rec = csrfRequest(t, r, http.MethodPost, triageBase+"/batches/3/undo", body)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
 		assert.JSONEq(t, `{"error":"invalid_request"}`, rec.Body.String(), body)

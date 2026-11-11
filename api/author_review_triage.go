@@ -247,7 +247,7 @@ func (h *reviewTriageHandler) undo(c *gin.Context) {
 		return
 	}
 	var req triageUndoRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.Step == nil || *req.Step < 0 || *req.Step > triageMaxStep {
+	if err := decodeStrict(c, &req); err != nil || req.Step == nil || *req.Step < 0 || *req.Step > triageMaxStep {
 		abortRun(c, http.StatusBadRequest, codeInvalidRequest)
 		return
 	}
