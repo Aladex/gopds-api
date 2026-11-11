@@ -192,6 +192,13 @@ func triagePlanRow(item *database.TriageOpenItem, d *authortriage.Decision) (dat
 		return row, nil
 	case d.Step == 0:
 		row.Outcome = database.TriageOutcomeLeft
+		if d.Refusal != "" {
+			evidence, err := json.Marshal(d.Evidence)
+			if err != nil {
+				return row, fmt.Errorf("encoding the refusal: %w", err)
+			}
+			row.Evidence, row.Refusal = evidence, string(d.Refusal)
+		}
 		return row, nil
 	case d.Step < authortriage.StepFourModel || d.Step > authortriage.StepParticleOnly:
 		return row, fmt.Errorf("services: the rule set decided an unknown step %d", d.Step)
@@ -214,6 +221,7 @@ type triageCountsJSON struct {
 	RuleVersion string                 `json:"rule_version"`
 	Cells       []triageCellCount      `json:"cells"`
 	Left        []database.TriageCount `json:"left"`
+	LeftReasons []database.TriageCount `json:"left_reasons"`
 	Excluded    []database.TriageCount `json:"excluded"`
 }
 
@@ -225,14 +233,15 @@ type triageCellCount struct {
 }
 
 // triagePlanCounts counts the plan per (step, class), and what it left per
-// class and excluded per reason.
+// class and per reason and excluded per reason.
 func triagePlanCounts(plan []database.TriagePlanItem) (json.RawMessage, error) {
 	type cellKey struct {
 		step  int16
 		class string
 	}
 	cells := map[cellKey]*triageCellCount{}
-	left, excluded := map[string]*database.TriageCount{}, map[string]*database.TriageCount{}
+	left, reasons := map[string]*database.TriageCount{}, map[string]*database.TriageCount{}
+	excluded := map[string]*database.TriageCount{}
 	add := func(m map[string]*database.TriageCount, key string, credits int) {
 		if m[key] == nil {
 			m[key] = &database.TriageCount{Key: key}
@@ -245,6 +254,7 @@ func triagePlanCounts(plan []database.TriagePlanItem) (json.RawMessage, error) {
 		switch p.Outcome {
 		case database.TriageOutcomeLeft:
 			add(left, p.Class, p.Credits)
+			add(reasons, cmp.Or(p.Refusal, database.TriageLeftNoStep), p.Credits)
 		case database.TriageOutcomeExcluded:
 			add(excluded, p.Exclusion, p.Credits)
 		default:
@@ -257,7 +267,7 @@ func triagePlanCounts(plan []database.TriagePlanItem) (json.RawMessage, error) {
 		}
 	}
 	out := triageCountsJSON{RuleVersion: authortriage.RuleVersion, Cells: []triageCellCount{},
-		Left: sortedTriageCounts(left), Excluded: sortedTriageCounts(excluded)}
+		Left: sortedTriageCounts(left), LeftReasons: sortedTriageCounts(reasons), Excluded: sortedTriageCounts(excluded)}
 	for _, c := range cells {
 		out.Cells = append(out.Cells, *c)
 	}

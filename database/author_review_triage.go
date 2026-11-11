@@ -106,7 +106,13 @@ type TriagePlanItem struct {
 	Evidence         json.RawMessage
 	Exclusion        string
 	Outcome          string
+	// Refusal is why a left item was left: the guard that refused the step
+	// that held (stored in the evidence), or empty when no step held.
+	Refusal string
 }
+
+// TriageLeftNoStep is the reason of a left item no step held for.
+const TriageLeftNoStep = "no_step"
 
 // triageOneActiveIndex keeps one batch active at a time.
 const triageOneActiveIndex = "author_review_triage_batch_one_active"
@@ -331,11 +337,14 @@ type TriageExample struct {
 
 // TriageBatchView is a batch with its plan's table and its outcomes.
 type TriageBatchView struct {
-	Batch    TriageBatch          `json:"batch"`
-	Cells    []TriageCell         `json:"cells"`
-	Left     []TriageCount        `json:"left"`
-	Excluded []TriageCount        `json:"excluded"`
-	Outcomes []TriageOutcomeCount `json:"outcomes"`
+	Batch TriageBatch   `json:"batch"`
+	Cells []TriageCell  `json:"cells"`
+	Left  []TriageCount `json:"left"`
+	// LeftReasons count what the plan left by reason: a guard's refusal,
+	// or TriageLeftNoStep.
+	LeftReasons []TriageCount        `json:"left_reasons"`
+	Excluded    []TriageCount        `json:"excluded"`
+	Outcomes    []TriageOutcomeCount `json:"outcomes"`
 }
 
 // TriageCount is the items and credits of one key: a class or a reason.
@@ -363,15 +372,16 @@ const triageNameJSON = `jsonb_build_object('given', coalesce(p.given_name, ''),
 	'display', coalesce(p.display_name, ''), 'sort', coalesce(p.sort_name, ''), 'kind', p.kind)`
 
 // ReadTriageBatch reads a batch with the counts of its plan per (step,
-// class), the ten heaviest items of each cell, what it left and excluded,
+// class), the ten heaviest items of each cell, what it left (by class and
+// by reason) and excluded,
 // and the outcomes per step.
 func ReadTriageBatch(ctx context.Context, db pg.DBI, batchID int64) (*TriageBatchView, error) {
 	batch, err := readTriageBatchRow(ctx, db, batchID)
 	if err != nil {
 		return nil, err
 	}
-	view := &TriageBatchView{Batch: *batch, Cells: []TriageCell{}, Left: []TriageCount{}, Excluded: []TriageCount{},
-		Outcomes: []TriageOutcomeCount{}}
+	view := &TriageBatchView{Batch: *batch, Cells: []TriageCell{}, Left: []TriageCount{},
+		LeftReasons: []TriageCount{}, Excluded: []TriageCount{}, Outcomes: []TriageOutcomeCount{}}
 	if _, err = db.QueryContext(ctx, &view.Cells, `
 		SELECT step, decision_class AS class, count(*) AS items, sum(credits) AS credits
 		FROM public.author_review_triage_item WHERE batch_id = ? AND step IS NOT NULL
@@ -386,6 +396,12 @@ func ReadTriageBatch(ctx context.Context, db pg.DBI, batchID int64) (*TriageBatc
 		FROM public.author_review_triage_item WHERE batch_id = ? AND outcome = 'left'
 		GROUP BY decision_class ORDER BY count(*) DESC, decision_class`, batchID); err != nil {
 		return nil, fmt.Errorf("counting what the plan left: %w", err)
+	}
+	if _, err = db.QueryContext(ctx, &view.LeftReasons, `
+		SELECT coalesce(evidence ->> 'refusal', ?) AS key, count(*) AS items, sum(credits) AS credits
+		FROM public.author_review_triage_item WHERE batch_id = ? AND outcome = 'left'
+		GROUP BY 1 ORDER BY count(*) DESC, 1`, TriageLeftNoStep, batchID); err != nil {
+		return nil, fmt.Errorf("counting why the plan left items: %w", err)
 	}
 	if _, err = db.QueryContext(ctx, &view.Excluded, `
 		SELECT exclusion AS key, count(*) AS items, sum(credits) AS credits

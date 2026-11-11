@@ -91,6 +91,40 @@ func TestDryRunPlansEveryOpenItemOnce(t *testing.T) {
 	assert.False(t, again, "a planned batch is not planned twice")
 }
 
+// A step that holds but whose guard refuses leaves the item, and the plan
+// keeps the reason in the row's evidence, in the batch's counts and in its
+// view: what is left groups by reason for the people.
+func TestDryRunRecordsWhyAGuardLeftAnItem(t *testing.T) {
+	e := newTriageEnv(t)
+	// The four models read «Игорь Numus» as «Игорь» with the nickname
+	// Numus: a word of the display is lost.
+	lost := e.seedOpen(authornorm.ClassMixedScript, "first", "Игорь", "last", "Numus")
+	e.storeAnswers(&lost, 1, answersOf(personReply(llmres.RoleGiven, llmres.RoleNickname), allSlots...)...)
+	unreadable := e.seedOpen(authornorm.ClassInitials, "first", "Г.", "last", "Лебедев")
+
+	batch := e.planOnce(e.loop(AuthorReviewTriageConfig{}))
+	rows := e.rowsOf(batch.ID)
+	require.Equal(t, database.TriageOutcomeLeft, rows[lost.item].Outcome)
+	assert.Zero(t, rows[lost.item].Step)
+	var evidence authortriage.Evidence
+	require.NoError(t, json.Unmarshal([]byte(rows[lost.item].Evidence), &evidence))
+	assert.Equal(t, authortriage.StepFourModel, evidence.RefusedStep)
+	assert.Equal(t, authortriage.RefusedLostToken, evidence.Refusal)
+	assert.NotZero(t, evidence.RunID, "the refused answer's evidence is kept")
+	assert.Empty(t, rows[unreadable.item].Evidence, "a left item no step held for has no evidence")
+
+	var counts struct {
+		LeftReasons []database.TriageCount `json:"left_reasons"`
+	}
+	require.NoError(t, json.Unmarshal(batch.Counts, &counts))
+	want := []database.TriageCount{{Key: string(authortriage.RefusedLostToken), Items: 1, Credits: 1},
+		{Key: database.TriageLeftNoStep, Items: 1, Credits: 1}}
+	assert.Equal(t, want, counts.LeftReasons)
+	view, err := database.ReadTriageBatch(e.ctx, e.db, batch.ID)
+	require.NoError(t, err)
+	assert.Equal(t, want, view.LeftReasons)
+}
+
 // An item a batch of the same rule version applied and an undo restored is
 // not planned again: the same rule would pick it again.
 func TestDryRunExcludesItemsUndoneBefore(t *testing.T) {

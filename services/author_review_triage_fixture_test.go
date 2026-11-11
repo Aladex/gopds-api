@@ -337,6 +337,7 @@ type triageRow struct {
 	Exclusion    string `pg:"exclusion"`
 	Outcome      string `pg:"outcome"`
 	Planned      string `pg:"planned"`
+	Evidence     string `pg:"evidence"`
 	UndoOutcome  string `pg:"undo_outcome"`
 	ResultID     int64  `pg:"result_id"`
 	OverrideID   int64  `pg:"override_id"`
@@ -348,7 +349,8 @@ func (e *triageEnv) rowsOf(batchID int64) map[int64]triageRow {
 	var rows []triageRow
 	_, err := e.db.Query(&rows, `SELECT id, review_item_id, coalesce(step, 0) AS step, coalesce(rule, '') AS rule,
 		coalesce(action, '') AS action, coalesce(exclusion, '') AS exclusion, outcome,
-		coalesce(planned::text, '') AS planned, coalesce(undo_outcome, '') AS undo_outcome,
+		coalesce(planned::text, '') AS planned, coalesce(evidence::text, '') AS evidence,
+		coalesce(undo_outcome, '') AS undo_outcome,
 		coalesce(result_id, 0) AS result_id, coalesce(override_id, 0) AS override_id
 		FROM author_review_triage_item WHERE batch_id = ?`, batchID)
 	require.NoError(e.t, err)
