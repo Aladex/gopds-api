@@ -644,14 +644,25 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
                         {decision === 'unresolved'
                             ? t('authorReview.keepShort', 'As in file')
                             : full}
-                        {focused && showKeys && (
-                            <kbd
-                                aria-hidden="true"
-                                className="rounded border border-current px-1 py-px font-sans text-[11px] leading-none font-medium opacity-60"
-                            >
-                                {index + 1}
-                            </kbd>
-                        )}
+                        {/*
+                          The key shows on the focused row; every other wide
+                          row keeps the same room empty, so moving the focus
+                          widens no row and shifts no column.
+                        */}
+                        {showKeys &&
+                            (focused ? (
+                                <kbd data-keycap aria-hidden="true" className={KEYCAP}>
+                                    {index + 1}
+                                </kbd>
+                            ) : (
+                                <span
+                                    data-keycap
+                                    aria-hidden="true"
+                                    className={cn(KEYCAP, 'invisible')}
+                                >
+                                    {index + 1}
+                                </span>
+                            ))}
                     </Button>
                 );
             })}
@@ -662,7 +673,12 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
         t(`authorReview.verdict.${action}`, VERDICT_FALLBACKS[action]);
 
     const evidence = (row: AuthorReviewListItem) => (
-        <div className={cn('flex min-w-0 flex-col gap-3 pb-4', isWide ? 'px-5' : 'px-4')}>
+        <div
+            className={cn(
+                'flex min-w-0 flex-col gap-3 pb-4',
+                isWide ? 'col-span-full px-5' : 'px-4',
+            )}
+        >
             {focusedDetail === null && item.phase !== 'failed' && (
                 <p className="text-sm text-muted-foreground">{t('loading', 'Loading...')}</p>
             )}
@@ -699,7 +715,7 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
         <ul
             role="list"
             aria-label={t('authorReview.listLabel', 'Review items')}
-            className="flex flex-col"
+            className={cn(isWide ? 'col-span-full grid grid-cols-subgrid' : 'flex flex-col')}
         >
             {items.map((row) => {
                 const focused = row.id === focusedID;
@@ -729,14 +745,16 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
                         }}
                         className={cn(
                             'border-b border-border/70 last:border-b-0',
+                            isWide && 'col-span-full grid grid-cols-subgrid',
                             focused && 'bg-accent shadow-[inset_3px_0_0_var(--primary)]',
                         )}
                     >
                         <div
+                            data-queue-row
                             className={cn(
                                 'grid items-center',
                                 isWide
-                                    ? 'min-h-[46px] grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_4rem_auto] gap-x-4 px-5 py-1.5'
+                                    ? 'col-span-full min-h-[46px] grid-cols-subgrid px-5 py-1.5'
                                     : 'grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 px-4 pt-3 pb-2',
                                 done !== undefined && 'opacity-55',
                             )}
@@ -844,12 +862,18 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
                         '-mx-4 border-b border-border/70 sm:-mx-5',
                         // In the panel the rows start right under its header.
                         tools ? 'border-t' : '-mt-4',
+                        // Wide, the heading and every row take their columns
+                        // from this one template, so a cell lines up with its
+                        // heading whatever the rows hold.
+                        isWide &&
+                            'grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_4rem_auto] gap-x-4',
                     )}
                 >
                     {isWide && (
                         <div
                             aria-hidden="true"
-                            className="grid h-[34px] grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_4rem_auto] items-center gap-x-4 border-b border-border/70 px-5 text-xs font-medium text-muted-foreground"
+                            data-queue-head
+                            className="col-span-full grid h-[34px] grid-cols-subgrid items-center border-b border-border/70 px-5 text-xs font-medium text-muted-foreground"
                         >
                             <span>{t('authorReview.sourceDisplay', 'As written')}</span>
                             <span>{t('authorReview.proposal', 'Proposed')}</span>
@@ -930,10 +954,11 @@ const AuthorReviewQueue: React.FC<AuthorReviewQueueProps> = ({
     );
 };
 
+const KEYCAP =
+    'rounded border border-current px-1 py-px font-sans text-[11px] leading-none font-medium opacity-60';
+
 const Keycap: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <kbd className="rounded border border-current px-1 py-px font-sans text-[11px] leading-none font-medium opacity-60">
-        {children}
-    </kbd>
+    <kbd className={KEYCAP}>{children}</kbd>
 );
 
 export default AuthorReviewQueue;

@@ -40,7 +40,10 @@ const StageNode: React.FC<StageNodeProps> = ({
     const { t } = useTranslation();
     const name = stageName(t, node.key);
     const loading = node.reason.key === 'loading';
-    const reason = reasonText(t, node.reason, true);
+    // The graph's node is narrow and keeps a moment to its day; a phone card
+    // is wide enough for the whole cause, its time included, and wraps it.
+    const card = variant === 'card';
+    const reason = reasonText(t, node.reason, !card);
     const big = nodeFigure(t, node);
     return (
         <button
@@ -89,7 +92,8 @@ const StageNode: React.FC<StageNodeProps> = ({
                     </span>
                     <span
                         className={cn(
-                            'truncate text-[12.5px] tabular-nums',
+                            'text-[12.5px] tabular-nums',
+                            card ? 'break-words' : 'truncate',
                             node.state === 'stuck' && 'font-medium text-destructive',
                             node.state === 'warning' && cn('font-medium', WARNING_TEXT),
                             (node.state === 'ok' || node.state === 'waiting') &&

@@ -6,6 +6,7 @@ import PipelineCarousel from '@/features/admin/scan/PipelineCarousel';
 import { derivePipeline, type StageKey } from '@/features/admin/scan/pipeline';
 import en from '@/locales/en/translation.json';
 import ru from '@/locales/ru/translation.json';
+import { formatMoment } from '@/features/admin/scan/scanUi';
 import { healthy, twoProblems } from './pipelineFixtures';
 
 /*
@@ -169,6 +170,21 @@ describe('PipelineCarousel', () => {
 
         // The first stage known is where the page opens, still without a glide.
         expect(scrollTo).toHaveBeenCalledWith({ left: 3 * PITCH, behavior: 'auto' });
+    });
+
+    test('a card says its whole reason, the pause time included', () => {
+        const { pipeline } = draw('twoProblems');
+        const since = pipeline.nodes.model.reason.values?.since;
+        expect(typeof since).toBe('string');
+
+        const card = document.querySelector<HTMLElement>('[data-slide="3"] [data-stage-node]')!;
+        const reason = within(card).getByText((text) => text.startsWith('провайдер стоит'));
+        // The whole cause with its time, wrapping on a narrow card, never cut.
+        expect(reason).toHaveTextContent(`провайдер стоит · с ${formatMoment(String(since))}`);
+        expect(reason.closest('.truncate, .whitespace-nowrap, .line-clamp-1')).toBeNull();
+        for (const slide of document.querySelectorAll('[data-slide] [data-stage-node]')) {
+            expect(slide.querySelector('.truncate')).toBeNull();
+        }
     });
 
     test('a swipe that comes to rest selects its stage without a history entry', () => {

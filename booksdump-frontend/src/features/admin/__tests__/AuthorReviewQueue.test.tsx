@@ -1920,6 +1920,146 @@ describe('triage by keyboard', () => {
         expect(screen.getByText(/^3 of 13/)).toBeInTheDocument();
     });
 
+    it('every desktop row keeps its keycap room, so the focus moves no column', async () => {
+        const restore = stubTableWide(true);
+        try {
+            renderAt('/queue');
+            await screen.findByRole('listitem', { name: 'Fixture Display A' });
+            await evidenceOf('Fixture Display A', 11);
+
+            const room = () =>
+                ['Fixture Display A', 'Fixture Display B'].map((name) =>
+                    [...rowOf(name).querySelectorAll('[data-keycap]')].map((cap) =>
+                        // Room is only kept by a box that is laid out.
+                        cap.hasAttribute('hidden') || getComputedStyle(cap).display === 'none'
+                            ? 'gone'
+                            : cap.tagName === 'KBD' && !cap.classList.contains('invisible')
+                              ? 'shown'
+                              : cap.classList.contains('invisible')
+                                ? 'held'
+                                : 'other',
+                    ),
+                );
+            // Shown on the focused row, held empty on the others: the same width.
+            expect(room()).toEqual([
+                ['shown', 'shown', 'shown'],
+                ['held', 'held', 'held'],
+            ]);
+
+            press('KeyJ');
+            await evidenceOf('Fixture Display B', 12);
+            expect(room()).toEqual([
+                ['held', 'held', 'held'],
+                ['shown', 'shown', 'shown'],
+            ]);
+        } finally {
+            restore();
+        }
+    });
+
+    it('the heading and the rows share one set of columns', async () => {
+        const restore = stubTableWide(true);
+        try {
+            renderAt('/queue');
+            await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+            // One column template for the whole table, laid out once; the
+            // heading and every row take their columns from it.
+            const templates = [...document.querySelectorAll('*')].filter((element) =>
+                String(element.getAttribute('class')).includes('grid-cols-[minmax'),
+            );
+            expect(templates).toHaveLength(1);
+            const table = templates[0];
+            const head = table.querySelector('[data-queue-head]');
+            const rows = table.querySelectorAll('[data-queue-row]');
+            expect(head).not.toBeNull();
+            expect(rows.length).toBeGreaterThan(1);
+            for (const grid of [head!, ...rows]) {
+                expect(grid).toHaveClass('grid-cols-subgrid');
+                // Every level between the template and the cells passes it on.
+                for (
+                    let level = grid.parentElement;
+                    level !== null && level !== table;
+                    level = level.parentElement
+                ) {
+                    expect(level).toHaveClass('grid-cols-subgrid');
+                }
+            }
+        } finally {
+            restore();
+        }
+    });
+
+    it('rapid duplicate decisions and Enters send one decision', async () => {
+        // Wide, so a spare Enter opens the modal over the list, not the route.
+        const restore = stubTableWide(true);
+        try {
+            const user = userEvent.setup();
+            let settle!: (value: { item: AuthorReviewDetail }) => void;
+            api.acceptAuthorReviewItem.mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        settle = resolve;
+                    }),
+            );
+            renderAt('/queue');
+            await screen.findByRole('listitem', { name: 'Fixture Display A' });
+            await evidenceOf('Fixture Display A', 11);
+
+            press('Digit1');
+            press('Digit1');
+            const dialog = await screen.findByRole('dialog');
+            expect(screen.getAllByRole('dialog')).toHaveLength(1);
+            await waitFor(() =>
+                expect(within(dialog).getByRole('button', { name: 'Confirm' })).toHaveFocus(),
+            );
+            await user.keyboard('{Enter}{Enter}');
+            press('Digit1');
+            press('Enter');
+            await act(async () => {});
+
+            expect(api.acceptAuthorReviewItem).toHaveBeenCalledTimes(1);
+            await act(async () => settle({ item: detailFor(11) }));
+            await waitFor(() =>
+                expect(rowOf('Fixture Display A')).toHaveAttribute('aria-disabled', 'true'),
+            );
+            expect(api.acceptAuthorReviewItem).toHaveBeenCalledTimes(1);
+            expect(api.acceptAuthorReviewItem).toHaveBeenCalledWith(11, { scope: 'fingerprint' });
+        } finally {
+            restore();
+        }
+    });
+
+    it('keys are inert after the queue unmounts', async () => {
+        // Every keydown listener the queue puts on the document, and every one taken off.
+        const added = vi.spyOn(document, 'addEventListener');
+        const removed = vi.spyOn(document, 'removeEventListener');
+        const keydown = (spy: typeof added) =>
+            spy.mock.calls.filter(([type]) => type === 'keydown').map(([, listener]) => listener);
+        const view = renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        await evidenceOf('Fixture Display A', 11);
+        const reads = api.getAuthorReviewItem.mock.calls.length;
+        view.unmount();
+
+        for (const code of ['KeyJ', 'KeyK', 'Digit1', 'Digit2', 'Digit3', 'Enter']) {
+            press(code);
+        }
+        // Longer than the focus debounce: a live listener would have read a detail by now.
+        await act(() => new Promise((resolve) => setTimeout(resolve, 250)));
+
+        expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(reads);
+        expect(api.acceptAuthorReviewItem).not.toHaveBeenCalled();
+        expect(api.markAuthorReviewUnresolved).not.toHaveBeenCalled();
+        expect(screen.queryByRole('dialog')).toBeNull();
+        // Nothing of the queue is left listening.
+        const left = keydown(added).filter((listener) => !keydown(removed).includes(listener));
+        expect(keydown(added).length).toBeGreaterThan(0);
+        expect(left).toEqual([]);
+        added.mockRestore();
+        removed.mockRestore();
+    });
+
     it('keeps both locales complete for the triage strings', () => {
         const en = enTranslation as Record<string, string>;
         const ru = ruTranslation as Record<string, string>;
