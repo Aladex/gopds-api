@@ -157,6 +157,9 @@ beforeEach(() => {
 });
 
 /** The real route pair: the queue (narrow leaves it, wide stays on it) and the detail screen. */
+// Rows are asked for by role, hidden included: an open dialog marks the list
+// aria-hidden, and the focused row's evidence repeats the proposed name as
+// text once its detail arrives, so a text match would depend on timing.
 const renderAt = (path: string) =>
     render(
         <MemoryRouter initialEntries={[path]}>
@@ -222,6 +225,13 @@ const openDetailWide = async (name: string) => {
     return view;
 };
 
+/** Picks a sort order through the queue's Select, as a keyboard user would. */
+const chooseSort = async (name: string) => {
+    const trigger = screen.getByRole('combobox', { name: 'Sort' });
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    fireEvent.click(await screen.findByRole('option', { name }));
+};
+
 /** Overrides the media query answer for the one boundary the queue asks about. */
 const stubTableWide = (wide: boolean) => {
     const original = window.matchMedia;
@@ -244,48 +254,61 @@ const stubTableWide = (wide: boolean) => {
 describe('queue list', () => {
     it('renders the open queue by default with paginated rows', async () => {
         renderAt('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
-        expect(api.listAuthorReviewItems).toHaveBeenCalledWith({ status: 'open', limit: 50 });
-        expect(screen.getByText('Fixture Display B')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
-        expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
+        expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
+            status: 'open',
+            order: 'credits',
+            limit: 50,
+        });
+        expect(
+            screen.getByRole('listitem', { name: 'Fixture Display B', hidden: true }),
+        ).toBeInTheDocument();
+        // Appending replaces paging: there is no way back, only more.
+        expect(screen.getByRole('button', { name: 'More 50' })).toBeEnabled();
+        expect(screen.queryByRole('button', { name: 'Previous page' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
     });
 
     it('filters by status through the server', async () => {
         renderAt('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
         fireEvent.click(screen.getByRole('button', { name: 'Closed' }));
 
         await waitFor(() =>
-            expect(api.listAuthorReviewItems).toHaveBeenCalledWith({ status: 'closed', limit: 50 }),
+            expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
+                status: 'closed',
+                order: 'credits',
+                limit: 50,
+            }),
         );
     });
 
-    it('pages forward and back through opaque cursors', async () => {
+    it('more appends the next page', async () => {
         api.listAuthorReviewItems
             .mockResolvedValueOnce({ items: [listItem()], next_cursor: 'cursor-2' })
             .mockResolvedValueOnce({ items: [secondItem], next_cursor: null });
         renderAt('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
-        await screen.findByText('Fixture Display B');
+        fireEvent.click(screen.getByRole('button', { name: 'More 50' }));
+        await screen.findByRole('listitem', { name: 'Fixture Display B', hidden: true });
         expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
             status: 'open',
+            order: 'credits',
             cursor: 'cursor-2',
             limit: 50,
         });
-        expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
-        expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
-
-        fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
-        await screen.findByText('Fixture Display A');
-        expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
-            status: 'open',
-            limit: 50,
-        });
+        // The earlier rows stay, and so does the focus on the first one.
+        expect(
+            screen.getByRole('listitem', { name: 'Fixture Display A', hidden: true }),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('listitem', { name: 'Fixture Display A' })).toHaveAttribute(
+            'aria-current',
+            'true',
+        );
+        expect(screen.queryByRole('button', { name: 'More 50' })).toBeNull();
     });
 
     it('renders the empty state', async () => {
@@ -319,7 +342,7 @@ describe('queue list', () => {
             next_cursor: null,
         });
         renderAt('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
         const view = screen.getByRole('button', { name: 'View: Fixture Display A' });
         expect(view).toBeDisabled();
@@ -360,7 +383,7 @@ describe('detail on its own route (narrow)', () => {
         await openDetail('Fixture Display A');
 
         expect(api.getAuthorReviewItem).toHaveBeenCalledWith(11);
-        expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'More 50' })).toBeNull();
         expect(screen.getByRole('button', { name: 'Back to the queue' })).toBeInTheDocument();
     });
 
@@ -385,19 +408,23 @@ describe('detail on its own route (narrow)', () => {
         }
     });
 
-    it('back returns to the queue at the same filter and page', async () => {
+    it('back returns to the queue at the same filter and order', async () => {
         renderAt('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
         fireEvent.click(screen.getByRole('button', { name: 'Closed' }));
         await waitFor(() =>
-            expect(api.listAuthorReviewItems).toHaveBeenCalledWith({ status: 'closed', limit: 50 }),
-        );
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
-        await waitFor(() =>
-            expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
-                cursor: 'cursor-2',
+                order: 'credits',
+                limit: 50,
+            }),
+        );
+        await chooseSort('Oldest first');
+        await waitFor(() =>
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+                status: 'closed',
+                order: 'created',
                 limit: 50,
             }),
         );
@@ -408,11 +435,14 @@ describe('detail on its own route (narrow)', () => {
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
-                cursor: 'cursor-2',
+                order: 'created',
                 limit: 50,
             }),
         );
-        expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Closed' })).toHaveAttribute(
+            'aria-pressed',
+            'true',
+        );
     });
 
     it('back from a bare deep-link lands on the queue defaults', async () => {
@@ -424,6 +454,7 @@ describe('detail on its own route (narrow)', () => {
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
+                order: 'credits',
                 limit: 50,
             }),
         );
@@ -458,8 +489,10 @@ describe('detail in a modal (wide)', () => {
             // The list stays where it was. While the modal is open Radix marks
             // the background aria-hidden, so the rows are asked for by text and
             // the pager with hidden: true — present is what matters.
-            expect(screen.getByText('Fixture Display B')).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: 'Next page', hidden: true })).toBeEnabled();
+            expect(
+                screen.getByRole('listitem', { name: 'Fixture Display B', hidden: true }),
+            ).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: 'More 50', hidden: true })).toBeEnabled();
         } finally {
             restore();
         }
@@ -479,7 +512,7 @@ describe('detail in a modal (wide)', () => {
             await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
             expect(view).toHaveFocus();
             // And the queue is still there, un-navigated.
-            expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
+            expect(screen.getByRole('button', { name: 'More 50' })).toBeEnabled();
         } finally {
             restore();
         }
@@ -518,7 +551,7 @@ describe('detail in a modal (wide)', () => {
             await screen.findByRole('dialog');
 
             // The list moves on while the modal is open; the opener's row leaves.
-            fireEvent.click(screen.getByRole('button', { name: 'Next page', hidden: true }));
+            fireEvent.click(screen.getByRole('button', { name: 'Closed', hidden: true }));
             await waitFor(() =>
                 expect(
                     screen.queryByRole('button', { name: 'View: Fixture Display A' }),
@@ -554,44 +587,51 @@ describe('detail in a modal (wide)', () => {
 describe('browser history within the queue', () => {
     it('reflects browser Back within the queue in both URL and data', async () => {
         const { history } = renderWithHistory('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
         fireEvent.click(screen.getByRole('button', { name: 'Closed' }));
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
+                order: 'credits',
                 limit: 50,
             }),
         );
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        await chooseSort('Oldest first');
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
-                cursor: 'cursor-2',
+                order: 'created',
                 limit: 50,
             }),
         );
+        expect(history.location.search).toContain('order=created');
 
-        // Native Back pops the pagination entry: the address loses the cursor
-        // and the queue must ask for the first page of the closed list again.
+        // Native Back pops the sort entry: the address loses the order and
+        // the queue must ask for the closed list in the default order again.
         act(() => history.go(-1));
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
+                order: 'credits',
                 limit: 50,
             }),
         );
-        expect(screen.getByText('Fixture Display A')).toBeInTheDocument();
+        expect(history.location.search).not.toContain('order=');
+        expect(
+            screen.getByRole('listitem', { name: 'Fixture Display A', hidden: true }),
+        ).toBeInTheDocument();
     });
 
     it('restores the status filter after native browser Back', async () => {
         const { history } = renderWithHistory('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
         fireEvent.click(screen.getByRole('button', { name: 'Closed' }));
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
+                order: 'credits',
                 limit: 50,
             }),
         );
@@ -602,6 +642,7 @@ describe('browser history within the queue', () => {
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
+                order: 'credits',
                 limit: 50,
             }),
         );
@@ -611,15 +652,15 @@ describe('browser history within the queue', () => {
         );
     });
 
-    it('follows browser Forward back onto the paginated page', async () => {
+    it('follows browser Forward back onto the chosen order', async () => {
         const { history } = renderWithHistory('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
-        fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+        await chooseSort('Oldest first');
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
-                cursor: 'cursor-2',
+                order: 'created',
                 limit: 50,
             }),
         );
@@ -627,6 +668,7 @@ describe('browser history within the queue', () => {
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
+                order: 'credits',
                 limit: 50,
             }),
         );
@@ -635,7 +677,7 @@ describe('browser history within the queue', () => {
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
-                cursor: 'cursor-2',
+                order: 'created',
                 limit: 50,
             }),
         );
@@ -643,12 +685,13 @@ describe('browser history within the queue', () => {
 
     it('carries the address state, not stale local state, into the detail route', async () => {
         const { history } = renderWithHistory('/queue');
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
 
         fireEvent.click(screen.getByRole('button', { name: 'Closed' }));
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'closed',
+                order: 'credits',
                 limit: 50,
             }),
         );
@@ -656,6 +699,7 @@ describe('browser history within the queue', () => {
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
+                order: 'credits',
                 limit: 50,
             }),
         );
@@ -667,6 +711,7 @@ describe('browser history within the queue', () => {
         await waitFor(() =>
             expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
                 status: 'open',
+                order: 'credits',
                 limit: 50,
             }),
         );
@@ -779,9 +824,13 @@ describe("three decisions, always on the item's own scope", () => {
 
     it('keeps a legacy credit-scoped item out of the list', async () => {
         renderAt('/queue');
-        await screen.findByText('Fixture Display A');
-        expect(screen.getByText('Fixture Display B')).toBeInTheDocument();
-        expect(screen.queryByText('Fixture Display C')).toBeNull();
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
+        expect(
+            screen.getByRole('listitem', { name: 'Fixture Display B', hidden: true }),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByRole('listitem', { name: 'Fixture Display C', hidden: true }),
+        ).toBeNull();
     });
 
     it('shows a legacy credit-scoped item opened by its link read-only', async () => {
@@ -805,13 +854,14 @@ describe("three decisions, always on the item's own scope", () => {
             .mockResolvedValueOnce({ items: [secondItem], next_cursor: null });
         renderAt('/queue');
 
-        await screen.findByText('Fixture Display B');
+        await screen.findByRole('listitem', { name: 'Fixture Display B', hidden: true });
         expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
             status: 'open',
+            order: 'credits',
             cursor: 'cursor-2',
             limit: 50,
         });
-        expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+        expect(screen.queryByRole('button', { name: 'More 50' })).toBeNull();
     });
 
     it('shows the empty state when only legacy items are left', async () => {
@@ -822,7 +872,7 @@ describe("three decisions, always on the item's own scope", () => {
         renderAt('/queue');
 
         expect(await screen.findByText('No review items.')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+        expect(screen.queryByRole('button', { name: 'More 50' })).toBeNull();
     });
 
     it('classifies through the kind field of Correct', async () => {
@@ -886,7 +936,9 @@ describe("three decisions, always on the item's own scope", () => {
             // The response replaces the detail view...
             expect(await screen.findByText('Edited Display')).toBeInTheDocument();
             // ...but the list keeps the prior item until it is fetched again.
-            expect(screen.getByText('Fixture Display B')).toBeInTheDocument();
+            expect(
+                screen.getByRole('listitem', { name: 'Fixture Display B', hidden: true }),
+            ).toBeInTheDocument();
         } finally {
             restore();
         }
@@ -972,7 +1024,10 @@ describe('conflicts', () => {
         );
         renderAt('/queue');
         await openDetail('Fixture Display A');
-        expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(1);
+        // Counted from here: the queue's inline evidence may have read the
+        // focused row before the detail opened, depending on timing.
+        expect(api.getAuthorReviewItem).toHaveBeenLastCalledWith(11);
+        const readsBefore = api.getAuthorReviewItem.mock.calls.length;
 
         fireEvent.click(screen.getByRole('button', { name: 'Correct' }));
         fireEvent.change(screen.getByLabelText('Display name'), {
@@ -988,7 +1043,9 @@ describe('conflicts', () => {
         expect(await screen.findByRole('status')).toHaveTextContent(
             'Another admin changed this review item. It has been refreshed; your draft is preserved.',
         );
-        await waitFor(() => expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(2));
+        await waitFor(() =>
+            expect(api.getAuthorReviewItem.mock.calls.length).toBe(readsBefore + 1),
+        );
         expect(screen.getByLabelText('Display name')).toHaveValue('Typed Display');
     });
 
@@ -1044,22 +1101,28 @@ describe('layout boundary', () => {
         );
     });
 
-    it('renders the table when wide and cards when narrow', async () => {
+    it('renders one list at every width, with the key hint only when wide', async () => {
         const restore = stubTableWide(true);
         try {
             const wide = renderAt('/queue');
-            await screen.findByText('Fixture Display A');
-            expect(screen.getByRole('table')).toBeInTheDocument();
+            await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
+            expect(screen.queryByRole('table')).toBeNull();
+            const rows = screen.getByRole('list', { name: 'Review items' });
+            // The rows themselves; the focused row's book list has items too.
+            expect(rows.querySelectorAll(':scope > li')).toHaveLength(2);
+            expect(screen.getByText('next')).toBeInTheDocument();
             wide.unmount();
         } finally {
             restore();
         }
 
         const narrow = renderAt('/queue');
-        await screen.findByText('Fixture Display A');
-        expect(screen.queryByRole('table')).toBeNull();
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
         const cards = screen.getByRole('list', { name: 'Review items' });
-        expect(within(cards).getAllByRole('listitem')).toHaveLength(2);
+        expect(cards.querySelectorAll(':scope > li')).toHaveLength(2);
+        expect(screen.queryByText('next')).toBeNull();
+        // No keycaps on a phone, not even on the focused row.
+        expect(cards.querySelectorAll('kbd')).toHaveLength(0);
         narrow.unmount();
     });
 });
@@ -1184,9 +1247,12 @@ describe('stale modal state and delayed responses', () => {
             expect(view).toHaveFocus();
 
             // Reopening the item starts from the server, not the stale answer.
+            // (The queue's own inline evidence reads the focused row too, so
+            // only the reads the reopen adds are counted.)
+            const readsBefore = api.getAuthorReviewItem.mock.calls.length;
             fireEvent.click(view);
             await screen.findByRole('dialog');
-            expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(2);
+            expect(api.getAuthorReviewItem.mock.calls.length).toBe(readsBefore + 1);
             expect(
                 await screen.findByText('Fixture Display A', { selector: 'p' }),
             ).toBeInTheDocument();
@@ -1206,6 +1272,7 @@ describe('stale modal state and delayed responses', () => {
             await confirmDialog();
             fireEvent.click(screen.getByRole('button', { name: 'Close' }));
             await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+            const readsBefore = api.getAuthorReviewItem.mock.calls.length;
 
             await act(async () => {
                 gate.reject(
@@ -1214,7 +1281,7 @@ describe('stale modal state and delayed responses', () => {
             });
 
             expect(screen.queryByRole('status')).toBeNull();
-            expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(1);
+            expect(api.getAuthorReviewItem.mock.calls.length).toBe(readsBefore);
         } finally {
             restore();
         }
@@ -1237,7 +1304,7 @@ describe('stale modal state and delayed responses', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'View: Fixture Display A' }));
         fireEvent.click(screen.getByRole('button', { name: 'Back to the queue' }));
-        await screen.findByText('Fixture Display A');
+        await screen.findByRole('listitem', { name: 'Fixture Display A', hidden: true });
         fireEvent.click(screen.getByRole('button', { name: 'View: Fixture Display B' }));
         await screen.findByText('Proposal B');
 
@@ -1246,7 +1313,8 @@ describe('stale modal state and delayed responses', () => {
         });
         expect(screen.getByText('Proposal B')).toBeInTheDocument();
         expect(screen.queryByText('Source B')).toBeInTheDocument();
-        expect(api.getAuthorReviewItem).toHaveBeenCalledTimes(2);
+        // B was read once; A's reads (the route, maybe the queue's evidence) all hang.
+        expect(api.getAuthorReviewItem.mock.calls.filter(([id]) => id === 12)).toHaveLength(1);
     });
 
     it('keeps the decisions disabled until the detail is confirmed', async () => {
@@ -1340,5 +1408,542 @@ describe('confirm focus settlement', () => {
         });
         await waitFor(() => expect(accept).toBeEnabled());
         expect(accept).toHaveFocus();
+    });
+});
+
+describe('triage by keyboard', () => {
+    const thirdItem = listItem({
+        id: 14,
+        source_fingerprint: '1122334455667788',
+        display_name: 'Fixture Display D',
+        source_display_name: 'Fixture Source D',
+        credits_count: 1,
+        created_at: minutesBefore(20),
+    });
+
+    /** A detail whose source line names its id, so the evidence on screen says whose it is. */
+    const detailFor = (id: number): AuthorReviewDetail => {
+        const base =
+            [listItem(), secondItem, thirdItem].find((item) => item.id === id) ?? listItem();
+        return detail({
+            ...base,
+            source: { ...detail().source, display: `Source Shown ${id}` },
+        });
+    };
+
+    const KEYS: Record<string, string> = {
+        KeyJ: 'j',
+        KeyK: 'k',
+        Digit1: '1',
+        Digit2: '2',
+        Digit3: '3',
+        Enter: 'Enter',
+    };
+    const press = (code: string, init: Partial<KeyboardEventInit> = {}, target?: Element) =>
+        fireEvent.keyDown(target ?? document, { code, key: KEYS[code] ?? code, ...init });
+
+    // Hidden included: an open dialog marks the list aria-hidden, and the
+    // tests still ask where the focus sits under it.
+    const rowOf = (name: string) => screen.getByRole('listitem', { name, hidden: true });
+    const focusedName = () =>
+        screen
+            .getAllByRole('listitem', { hidden: true })
+            .find((row) => row.getAttribute('aria-current') === 'true')
+            ?.getAttribute('aria-label');
+
+    beforeEach(() => {
+        api.listAuthorReviewItems.mockResolvedValue({
+            items: [listItem(), legacyCreditItem, secondItem, thirdItem],
+            next_cursor: null,
+        });
+        api.getAuthorReviewItem.mockImplementation(async (id) => ({ item: detailFor(id) }));
+    });
+
+    /** Waits until the focused row shows its own evidence. */
+    const evidenceOf = async (name: string, id: number) =>
+        within(rowOf(name)).findByText(`Source Shown ${id}`);
+
+    it('the first item is focused with its evidence open', async () => {
+        const restore = stubTableWide(true);
+        try {
+            renderAt('/queue');
+            const first = await screen.findByRole('listitem', { name: 'Fixture Display A' });
+            expect(first).toHaveAttribute('aria-current', 'true');
+            expect(rowOf('Fixture Display B')).not.toHaveAttribute('aria-current');
+            // The row names the file's spelling and the proposal.
+            expect(within(first).getByText('Fixture Source A')).toBeInTheDocument();
+
+            await evidenceOf('Fixture Display A', 11);
+            expect(api.getAuthorReviewItem).toHaveBeenCalledWith(11);
+            expect(within(first).getByText('In the file')).toBeInTheDocument();
+            expect(within(first).getByText('Fixture Book One')).toBeInTheDocument();
+            expect(
+                within(first).getByText('The decision covers all 1 credits with this name'),
+            ).toBeInTheDocument();
+            // The proposed display name differs from the file's: it is marked.
+            const changed = first.querySelectorAll('[data-changed="true"]');
+            expect([...changed].map((node) => node.textContent)).toContain('Fixture Display A');
+
+            // Evidence and keycaps belong to the focused row only.
+            const second = rowOf('Fixture Display B');
+            expect(within(second).queryByText('In the file')).toBeNull();
+            expect(first.querySelectorAll('kbd')).toHaveLength(3);
+            expect(second.querySelectorAll('kbd')).toHaveLength(0);
+        } finally {
+            restore();
+        }
+    });
+
+    it('J and K move the focus and the evidence follows, one detail per resting item', async () => {
+        vi.useFakeTimers();
+        const settle = (ms: number) =>
+            act(async () => {
+                await vi.advanceTimersByTimeAsync(ms);
+            });
+        try {
+            renderAt('/queue');
+            await settle(0);
+            expect(focusedName()).toBe('Fixture Display A');
+            expect(api.getAuthorReviewItem).not.toHaveBeenCalled();
+            await settle(150);
+            expect(api.getAuthorReviewItem.mock.calls).toEqual([[11]]);
+
+            // Two quick steps: the row passed over is never read.
+            press('KeyJ');
+            await settle(50);
+            press('KeyJ');
+            expect(focusedName()).toBe('Fixture Display D');
+            await settle(149);
+            expect(api.getAuthorReviewItem.mock.calls).toEqual([[11]]);
+            await settle(1);
+            expect(api.getAuthorReviewItem.mock.calls).toEqual([[11], [14]]);
+            expect(within(rowOf('Fixture Display D')).getByText('Source Shown 14')).toBeVisible();
+            expect(within(rowOf('Fixture Display A')).queryByText('Source Shown 11')).toBeNull();
+
+            // J at the end stays put; K goes back.
+            press('KeyJ');
+            expect(focusedName()).toBe('Fixture Display D');
+            press('KeyK');
+            expect(focusedName()).toBe('Fixture Display B');
+            await settle(150);
+            expect(api.getAuthorReviewItem.mock.calls).toEqual([[11], [14], [12]]);
+            expect(within(rowOf('Fixture Display B')).getByText('Source Shown 12')).toBeVisible();
+
+            // Focus moves never re-read the list.
+            expect(api.listAuthorReviewItems).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keys work on a Russian layout', async () => {
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        press('KeyJ', { key: 'о' });
+        expect(focusedName()).toBe('Fixture Display B');
+        press('KeyK', { key: 'л' });
+        expect(focusedName()).toBe('Fixture Display A');
+        // The letter alone, on another key, does nothing.
+        press('KeyO', { key: 'j' });
+        expect(focusedName()).toBe('Fixture Display A');
+    });
+
+    it('keys ignore fields and dialogs', async () => {
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        await evidenceOf('Fixture Display A', 11);
+
+        // Modifiers belong to the browser and the system.
+        for (const modifier of ['ctrlKey', 'metaKey', 'altKey'] as const) {
+            press('KeyJ', { [modifier]: true });
+            expect(focusedName()).toBe('Fixture Display A');
+        }
+
+        // Anything typed into a field elsewhere on the page.
+        const fields = [
+            document.createElement('input'),
+            document.createElement('textarea'),
+            document.createElement('select'),
+            document.createElement('div'),
+        ];
+        // jsdom does not reflect the contentEditable property; the attribute is what a page carries.
+        fields[3].setAttribute('contenteditable', 'true');
+        for (const field of fields) {
+            document.body.appendChild(field);
+            press('KeyJ', {}, field);
+            press('Digit1', {}, field);
+            expect(focusedName()).toBe('Fixture Display A');
+            expect(screen.queryByRole('dialog')).toBeNull();
+            field.remove();
+        }
+
+        // The inline correction form: typing a J into its field stays there.
+        press('Digit2');
+        const given = await within(rowOf('Fixture Display A')).findByLabelText('Given name');
+        await waitFor(() => expect(given).toHaveFocus());
+        press('KeyJ', {}, given);
+        expect(focusedName()).toBe('Fixture Display A');
+        // And the queue's keys rest while the form is open.
+        press('KeyJ');
+        expect(focusedName()).toBe('Fixture Display A');
+        fireEvent.click(within(rowOf('Fixture Display A')).getByRole('button', { name: 'Cancel' }));
+        await waitFor(() =>
+            expect(within(rowOf('Fixture Display A')).queryByLabelText('Given name')).toBeNull(),
+        );
+
+        // The confirmation dialog: neither J nor another decision gets through.
+        press('Digit1');
+        const dialog = await screen.findByRole('dialog');
+        press('KeyJ');
+        press('Digit3');
+        press('Digit3', {}, within(dialog).getByRole('button', { name: 'Confirm' }));
+        expect(focusedName()).toBe('Fixture Display A');
+        expect(screen.getAllByRole('dialog')).toHaveLength(1);
+        expect(api.markAuthorReviewUnresolved).not.toHaveBeenCalled();
+        expect(api.acceptAuthorReviewItem).not.toHaveBeenCalled();
+    });
+
+    it('a closing dialog does not swallow the next key', async () => {
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        // Radix keeps a dialog on the page while it fades out, focus trapped
+        // inside: an open one still owns the keys, a closing one does not.
+        const overlay = document.createElement('div');
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('data-state', 'open');
+        const inside = document.createElement('button');
+        overlay.appendChild(inside);
+        document.body.appendChild(overlay);
+        try {
+            press('KeyJ', {}, inside);
+            expect(focusedName()).toBe('Fixture Display A');
+            overlay.setAttribute('data-state', 'closed');
+            press('KeyJ', {}, inside);
+            expect(focusedName()).toBe('Fixture Display B');
+            // Enter on the closing dialog's button opens the focused row.
+            press('Enter', {}, inside);
+            expect(await screen.findByRole('region', { name: 'Review item' })).toBeVisible();
+            expect(api.getAuthorReviewItem).toHaveBeenLastCalledWith(12);
+        } finally {
+            overlay.remove();
+        }
+    });
+
+    it('1 then Enter accepts the focused item', async () => {
+        const user = userEvent.setup();
+        api.acceptAuthorReviewItem.mockResolvedValue({ item: detailFor(11) });
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        await evidenceOf('Fixture Display A', 11);
+
+        press('Digit1');
+        const dialog = await screen.findByRole('dialog');
+        await waitFor(() =>
+            expect(within(dialog).getByRole('button', { name: 'Confirm' })).toHaveFocus(),
+        );
+        await user.keyboard('{Enter}');
+
+        await waitFor(() =>
+            expect(api.acceptAuthorReviewItem).toHaveBeenCalledWith(11, { scope: 'fingerprint' }),
+        );
+        await waitFor(() =>
+            expect(rowOf('Fixture Display A')).toHaveAttribute('aria-disabled', 'true'),
+        );
+        // Kept in place, and the focus moved on to the next row — the
+        // keyboard focus too, so the next Enter opens that row.
+        expect(screen.getAllByRole('listitem')[0]).toBe(rowOf('Fixture Display A'));
+        expect(focusedName()).toBe('Fixture Display B');
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: 'View: Fixture Display B' })).toHaveFocus(),
+        );
+        expect(api.acceptAuthorReviewItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('focus moves to the next undecided row after a decision', async () => {
+        api.markAuthorReviewUnresolved.mockResolvedValue({ item: detailFor(12) });
+        api.acceptAuthorReviewItem.mockResolvedValue({ item: detailFor(11) });
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        // Decide B first, then come back to A.
+        press('KeyJ');
+        await evidenceOf('Fixture Display B', 12);
+        press('Digit3');
+        await confirmInDialog();
+        await waitFor(() =>
+            expect(rowOf('Fixture Display B')).toHaveAttribute('aria-disabled', 'true'),
+        );
+        expect(focusedName()).toBe('Fixture Display D');
+
+        press('KeyK');
+        press('KeyK');
+        expect(focusedName()).toBe('Fixture Display A');
+        await evidenceOf('Fixture Display A', 11);
+        press('Digit1');
+        await confirmInDialog();
+        await waitFor(() =>
+            expect(rowOf('Fixture Display A')).toHaveAttribute('aria-disabled', 'true'),
+        );
+        // B is decided already: the focus skips it.
+        expect(focusedName()).toBe('Fixture Display D');
+    });
+
+    it('accept disabled without a proposal', async () => {
+        api.listAuthorReviewItems.mockResolvedValue({
+            items: [listItem({ proposal_kind: null }), secondItem],
+            next_cursor: null,
+        });
+        api.getAuthorReviewItem.mockImplementation(async (id) => ({
+            item: { ...detailFor(id), proposal: null },
+        }));
+        renderAt('/queue');
+        const first = await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        await evidenceOf('Fixture Display A', 11);
+
+        expect(within(first).getByRole('button', { name: 'Accept' })).toBeDisabled();
+        expect(within(first).getByRole('button', { name: 'Keep as in the file' })).toBeEnabled();
+        press('Digit1');
+        await act(async () => {});
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(api.acceptAuthorReviewItem).not.toHaveBeenCalled();
+    });
+
+    it('3 keeps as in file through the dialog', async () => {
+        api.markAuthorReviewUnresolved.mockResolvedValue({ item: detailFor(11) });
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        await evidenceOf('Fixture Display A', 11);
+
+        press('Digit3');
+        await confirmInDialog();
+        await waitFor(() =>
+            expect(api.markAuthorReviewUnresolved).toHaveBeenCalledWith(11, {
+                scope: 'fingerprint',
+            }),
+        );
+        expect(api.acceptAuthorReviewItem).not.toHaveBeenCalled();
+    });
+
+    it('2 opens the inline correction form', async () => {
+        api.editAuthorReviewItem.mockResolvedValue({ item: detailFor(11) });
+        renderAt('/queue');
+        const first = await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        await evidenceOf('Fixture Display A', 11);
+
+        press('Digit2');
+        expect(await within(first).findByText('Correction')).toBeInTheDocument();
+        const given = within(first).getByLabelText('Given name');
+        await waitFor(() => expect(given).toHaveFocus());
+        expect(given).toHaveValue('Fixture');
+
+        fireEvent.click(within(first).getByRole('button', { name: 'Save correction' }));
+        await confirmInDialog();
+        await waitFor(() =>
+            expect(api.editAuthorReviewItem).toHaveBeenCalledWith(
+                11,
+                expect.objectContaining({ scope: 'fingerprint' }),
+            ),
+        );
+    });
+
+    it('a click on a segment of an unfocused row focuses it and arms once loaded', async () => {
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        fireEvent.click(
+            within(rowOf('Fixture Display B')).getByRole('button', {
+                name: 'Keep as in the file',
+            }),
+        );
+        expect(focusedName()).toBe('Fixture Display B');
+        const dialog = await screen.findByRole('dialog');
+        expect(api.getAuthorReviewItem).toHaveBeenCalledWith(12);
+        expect(dialog).toHaveTextContent('all 4 credits');
+    });
+
+    it('a decision asked before its detail arrived is dropped once the focus moves on', async () => {
+        // The clicked row's detail never arrives; every other row reads at once.
+        api.getAuthorReviewItem.mockImplementation((id) =>
+            id === 12 ? new Promise(() => {}) : Promise.resolve({ item: detailFor(id) }),
+        );
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+
+        fireEvent.click(
+            within(rowOf('Fixture Display B')).getByRole('button', {
+                name: 'Keep as in the file',
+            }),
+        );
+        expect(focusedName()).toBe('Fixture Display B');
+        press('KeyJ');
+        expect(focusedName()).toBe('Fixture Display D');
+
+        // The next row's detail arrives; the decision meant for B must not land on it.
+        await evidenceOf('Fixture Display D', 14);
+        await act(async () => {
+            await Promise.resolve();
+        });
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(api.markAuthorReviewUnresolved).not.toHaveBeenCalled();
+    });
+
+    it('sort defaults to credits and switching re-reads with order=created', async () => {
+        renderAt('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        expect(api.listAuthorReviewItems).toHaveBeenCalledWith({
+            status: 'open',
+            order: 'credits',
+            limit: 50,
+        });
+        expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveTextContent(
+            'Most books first',
+        );
+
+        await chooseSort('Oldest first');
+        await waitFor(() =>
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+                status: 'open',
+                order: 'created',
+                limit: 50,
+            }),
+        );
+        expect(api.listAuthorReviewItems).toHaveBeenCalledTimes(2);
+    });
+
+    it('the order survives the detail route round trip', async () => {
+        const { history } = renderWithHistory('/queue?order=created');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+            status: 'open',
+            order: 'created',
+            limit: 50,
+        });
+
+        // Narrow: Enter opens the focused item's own route.
+        press('Enter');
+        await screen.findByRole('region', { name: 'Review item' });
+        expect(history.location.pathname).toBe(`${REVIEW_DETAIL_ROUTE}/11`);
+        expect(new URLSearchParams(history.location.search).get('order')).toBe('created');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Back to the queue' }));
+        await waitFor(() =>
+            expect(api.listAuthorReviewItems).toHaveBeenLastCalledWith({
+                status: 'open',
+                order: 'created',
+                limit: 50,
+            }),
+        );
+        expect(new URLSearchParams(history.location.search).get('order')).toBe('created');
+    });
+
+    it('the default order stays out of the address', async () => {
+        const { history } = renderWithHistory('/queue');
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        press('Enter');
+        await screen.findByRole('region', { name: 'Review item' });
+        expect(new URLSearchParams(history.location.search).has('order')).toBe(false);
+    });
+
+    it('Enter opens the focused item in the modal when wide', async () => {
+        const restore = stubTableWide(true);
+        try {
+            renderAt('/queue');
+            await screen.findByRole('listitem', { name: 'Fixture Display A' });
+            press('KeyJ');
+            press('Enter');
+            const dialog = await screen.findByRole('dialog');
+            expect(within(dialog).getByRole('region', { name: 'Review item' })).toBeVisible();
+            await waitFor(() => expect(api.getAuthorReviewItem).toHaveBeenCalledWith(12));
+
+            fireEvent.keyDown(document.body, { key: 'Escape' });
+            await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+            expect(screen.getByRole('button', { name: 'View: Fixture Display B' })).toHaveFocus();
+        } finally {
+            restore();
+        }
+    });
+
+    it('a decision in the card greys the row and hands the focus on', async () => {
+        api.markAuthorReviewUnresolved.mockResolvedValue({ item: detailFor(11) });
+        const restore = stubTableWide(true);
+        try {
+            renderAt('/queue');
+            await screen.findByRole('listitem', { name: 'Fixture Display A' });
+            press('Enter');
+            const dialog = await screen.findByRole('dialog');
+            await within(dialog).findByRole('region', { name: 'Review item' });
+            fireEvent.click(
+                await within(dialog).findByRole('button', { name: 'Keep as in the file' }),
+            );
+            await confirmInDialog();
+            await waitFor(() =>
+                expect(rowOf('Fixture Display A')).toHaveAttribute('aria-disabled', 'true'),
+            );
+            expect(focusedName()).toBe('Fixture Display B');
+
+            fireEvent.keyDown(document.body, { key: 'Escape' });
+            await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
+            await waitFor(() =>
+                expect(
+                    screen.getByRole('button', { name: 'View: Fixture Display B' }),
+                ).toHaveFocus(),
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('closed filter hides the decision segment', async () => {
+        renderAt('/queue?status=closed');
+        const first = await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        await evidenceOf('Fixture Display A', 11);
+
+        expect(within(first).queryByRole('group', { name: 'Decision' })).toBeNull();
+        expect(within(first).queryByRole('button', { name: 'Accept' })).toBeNull();
+        press('Digit1');
+        press('Digit3');
+        await act(async () => {});
+        expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('the footer counts the loaded rows of the open total', async () => {
+        render(
+            <MemoryRouter initialEntries={['/queue']}>
+                <Routes>
+                    <Route path="/queue" element={<AuthorReviewQueue openCount={13023} />} />
+                </Routes>
+            </MemoryRouter>,
+        );
+        await screen.findByRole('listitem', { name: 'Fixture Display A' });
+        expect(screen.getByText(/^3 of 13/)).toBeInTheDocument();
+    });
+
+    it('keeps both locales complete for the triage strings', () => {
+        const en = enTranslation as Record<string, string>;
+        const ru = ruTranslation as Record<string, string>;
+        expect(ru['authorReview.sort.credits']).toBe('Сначала частые');
+        expect(ru['authorReview.more']).toBe('Ещё {{count}}');
+        expect(ru['authorReview.shown']).toBe('{{shown}} из {{total}}');
+        expect(ru['authorReview.scopeLine_many']).toBe(
+            'Решение — для всех {{count}} записей с этим именем',
+        );
+        for (const key of [
+            'authorReview.sort.label',
+            'authorReview.sort.credits',
+            'authorReview.sort.created',
+            'authorReview.more',
+            'authorReview.shown',
+            'authorReview.decision',
+            'authorReview.keepShort',
+            'authorReview.keysHint.move',
+            'authorReview.keysHint.decide',
+            'authorReview.keysHint.open',
+        ]) {
+            expect(en[key], `en ${key}`).toBeTruthy();
+            expect(ru[key], `ru ${key}`).toBeTruthy();
+            expect(ru[key], `ru ${key} is not the English text`).not.toBe(en[key]);
+        }
     });
 });
