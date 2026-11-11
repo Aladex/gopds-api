@@ -160,7 +160,7 @@ func fixedName(given, additional, family, display, sort string) labeledFix {
 var labeledErrors = map[int64]labeledFix{
 	// Step 1: look-alike letters folded.
 	58244:  fixedName("Артур", "", "Хинеман", "Артур Хинеман", "Хинеман, Артур"),
-	266271: fixedName("Сара", "", "Сил", "Сара Сил", "Сил, Сара"),
+	266271: refused(RefusedLookalikeWord), // «Capa Сил»: a whole look-alike word, refused rather than rewritten
 	58235:  fixedName("Джин", "", "Родденберри", "Джин Родденберри", "Родденберри, Джин"),
 	128729: fixedName("И", "", "Мантель-Нечко", "И Мантель-Нечко", "Мантель-Нечко, И"),
 	318956: fixedName("В.", "", "Баландин", "В. Баландин", "Баландин, В."),
@@ -182,12 +182,11 @@ var labeledErrors = map[int64]labeledFix{
 	63833:  refused(RefusedLostToken), // unclear: «Антонина Бересклет (Клименкова)»
 	320684: refused(RefusedLostToken), // unclear: «Celeste Unknown» → «Celeste»
 	// Step 2.
-	244319: refused(RefusedLostToken), // «ИЕРОМОНАХ ПАНТЕЛЕИМОН (ЛЕДИН)»: Ледин lost, the prefix in capitals
-	314835: refused(RefusedLostToken), // two pen names merged and dropped from the display
-	320687: refused(RefusedLostToken), // unclear: «Аноним Райкар» → «Райкар»
-	321084: refused(RefusedLostToken), // unclear: «Аноним Лера» → «Лера»
-	318514: {after: &Name{Given: "K.", Family: "Kalmikovs", Prefix: "doc", Display: "doc. K. Kalmikovs",
-		Sort: "Kalmikovs, K.", Kind: KindPerson}},
+	244319: refused(RefusedLostToken),        // «ИЕРОМОНАХ ПАНТЕЛЕИМОН (ЛЕДИН)»: Ледин lost, the prefix in capitals
+	314835: refused(RefusedLostToken),        // two pen names merged and dropped from the display
+	320687: refused(RefusedLostToken),        // unclear: «Аноним Райкар» → «Райкар»
+	321084: refused(RefusedLostToken),        // unclear: «Аноним Лера» → «Лера»
+	318514: refused(RefusedStrayPunctuation), // «doc. K. Kalmikovs,»: the display ends in a comma
 	// Step 5.
 	240641: refused(RefusedRoleAsName),       // «Shane McKenzie, ed.»
 	321342: refused(RefusedGenreList),        // «Epic, legends and tales»
@@ -266,13 +265,12 @@ func TestTriageV2FixesOrRefusesTheLabeledErrors(t *testing.T) {
 
 // Why a row labeled same changes under triage-v2.
 const (
-	whyNickname    = "lost token: a nickname of more than one word, or with a bare number, left the display"
-	whyAside       = "lost token: a part in parentheses or quotes left the display"
-	whyPunctuation = "a stray dot or comma dropped: the display the parts give"
-	whyLookalike   = "Cyrillic initials of a Latin name folded to Latin"
-	whyTitleShape  = "a pair with a lower-case word reads as a title: refused to the people"
-	whyHeavy       = "a kept handle on 20 credits or more goes to the people"
-	whyShortCaps   = "a kept handle of five capitals or fewer goes to the people"
+	whyNickname   = "lost token: a nickname of more than one word, or with a bare number, left the display"
+	whyAside      = "lost token: a part in parentheses or quotes left the display"
+	whyLookalike  = "Cyrillic initials of a Latin name folded to Latin"
+	whyTitleShape = "a pair with a lower-case word reads as a title: refused to the people"
+	whyHeavy      = "a kept handle on 20 credits or more goes to the people"
+	whyShortCaps  = "a kept handle of five capitals or fewer goes to the people"
 )
 
 // labeledSameChanged are the rows labeled same (or a named pair) that
@@ -282,23 +280,15 @@ var labeledSameChanged = map[int64]struct {
 	reason string
 }{
 	12207:  {refused(RefusedLostToken), whyAside}, // "Г. А. Тюньдешев (Харамоос)"
-	12764:  {fixedName("James", "Wesley", "Rawles", "James Wesley Rawles", "Rawles, James Wesley"), whyPunctuation},
 	37767:  {fixedName("C.", "A.", "Ekshut", "C. A. Ekshut", "Ekshut, C. A."), whyLookalike},
-	46730:  {fixedName("Алексей", "Кузьмич", "Югов", "Алексей Кузьмич Югов", "Югов, Алексей Кузьмич"), whyPunctuation},
-	57332:  {refused(RefusedLostToken), whyNickname}, // "Михаил Валерин August Flieger"
-	73567:  {refused(RefusedLostToken), whyNickname}, // "Doris May Lessing Little Dorrit"
-	88211:  {fixedName("Atk", "", "Butterfly", "Atk Butterfly", "Butterfly, Atk"), whyPunctuation},
-	92441:  {fixedName("Андрей", "", "Битов", "Андрей Битов", "Битов, Андрей"), whyPunctuation},
-	95444:  {refused(RefusedLostToken), whyNickname}, // "Николай Александрович Романов Николай II"
-	101587: {refused(RefusedLostToken), whyNickname}, // "Отем Грей Grey Autumn"
-	102622: {refused(RefusedLostToken), whyNickname}, // "Александр Михайлович Гуков Карась 72"
-	189511: {fixedName("Денис", "", "Гуцко", "Денис Гуцко", "Гуцко, Денис"), whyPunctuation},
-	208603: {refused(RefusedLostToken), whyAside}, // "Вильям (Уильям) Виллис (Уиллис)"
-	241808: {refused(RefusedLostToken), whyAside}, // "Хардин Джесси «Волк»"
-	271018: {fixedName("Августин", "", "", "Августин Блаженный", ""), whyPunctuation},
-	314735: {refused(RefusedLostToken), whyNickname}, // "Алексис Опсокополос Alexis Opsokopolos"
-	316073: {fixedName("Иван", "", "Трушков", "Иван Трушков", "Трушков, Иван"), whyPunctuation},
-	317670: {fixedName("Jāzeps", "", "Osmanis", "Jāzeps Osmanis", "Osmanis, Jāzeps"), whyPunctuation},
+	57332:  {refused(RefusedLostToken), whyNickname},    // "Михаил Валерин August Flieger"
+	73567:  {refused(RefusedLostToken), whyNickname},    // "Doris May Lessing Little Dorrit"
+	95444:  {refused(RefusedLostToken), whyNickname},    // "Николай Александрович Романов Николай II"
+	101587: {refused(RefusedLostToken), whyNickname},    // "Отем Грей Grey Autumn"
+	102622: {refused(RefusedLostToken), whyNickname},    // "Александр Михайлович Гуков Карась 72"
+	208603: {refused(RefusedLostToken), whyAside},       // "Вильям (Уильям) Виллис (Уиллис)"
+	241808: {refused(RefusedLostToken), whyAside},       // "Хардин Джесси «Волк»"
+	314735: {refused(RefusedLostToken), whyNickname},    // "Алексис Опсокополос Alexis Opsokopolos"
 	318676: {refused(RefusedLostToken), whyAside},       // "Сатеник (Сати) Жоровна Епремян"
 	320685: {refused(RefusedLostToken), whyNickname},    // "Константин Владимирович Ткаченко К. и Т. Енко"
 	311449: {refused(RefusedLostToken), whyAside},       // "Марк «Всплеск» Астон"

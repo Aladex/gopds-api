@@ -29,19 +29,29 @@ const (
 )
 
 // storedAnswerGuard guards a stored answer the judges agree on (steps 1 and
-// 2). A person's look-alike letters are folded and a stray dot or comma
-// dropped; then the answer is refused when it loses a word of the
+// 2). A fix never changes a name that could be right: a person's look-alike
+// letters are folded only where the word is a defect for sure, and a dot or
+// comma is dropped only where the source set it apart as a word of its
+// own. A look-alike word it cannot tell from a real one, or a display that
+// ends in a comma, is refused; so is an answer that loses a word of the
 // proposal's display, shows a word none of its parts holds, or keeps a role
 // as a name.
 func storedAnswerGuard(c *Candidate, after *Name, ev *Evidence) Refusal {
 	if after.Kind == KindPerson {
-		if folded := foldNameLookalikes(after); folded != *after {
+		folded, ok := foldNameLookalikes(after, c.Proposal.Display)
+		if !ok {
+			return RefusedLookalikeWord
+		}
+		if folded != *after {
 			*after = folded
 			ev.Fixes = append(ev.Fixes, FixLookalike)
 		}
-		if cleaned := fixStrayPunctuation(after); cleaned != *after {
+		if cleaned := fixStrayPunctuation(after, c.Proposal.Display); cleaned != *after {
 			*after = cleaned
 			ev.Fixes = append(ev.Fixes, FixPunctuation)
+		}
+		if strings.HasSuffix(after.Display, ",") {
+			return RefusedStrayPunctuation
 		}
 	}
 	if lostWord(c.Proposal.Display, after) {
@@ -123,35 +133,80 @@ func scripts(s string) (cyr, lat int) {
 }
 
 // foldNameLookalikes folds the look-alike letters of a person's name parts
-// with the build's look-alike table (authorentity.FoldLookalikeWord): a
-// word of both scripts to the script its own letters tell, a word all of
-// look-alikes («Capa», «B.») to the script the name's letters tell. A real
-// word of the other script («Игорь Numus») stays, and so does a word of
-// both scripts with a letter of no look-alike («Стогоff»). The display and
-// the sort follow the parts.
-func foldNameLookalikes(n *Name) Name {
+// with the build's look-alike table (authorentity.FoldLookalikeWord), only
+// where the word is a defect for sure: a word of both scripts, to the script
+// its own letters tell («Аpтуp», «Мантель-Heчко»); a whole word of look-alikes
+// of the name's minor script when it is an initial («B.», «C.») or the
+// source writes it mixed. Initials of the minor script of which one has no
+// look-alike («E. L. Джеймс») are the name's own: ok is false. Any other whole look-alike word («Capa», «Cox»)
+// may be a real word of the other script: ok is false, the answer is not
+// rewritten. A word with a letter of no look-alike stays («Игорь Numus»,
+// «Стогоff»). The display and the sort follow the parts.
+func foldNameLookalikes(n *Name, source string) (Name, bool) {
 	words := slices.Concat(strings.Fields(n.Given), strings.Fields(n.Additional), strings.Fields(n.Family))
 	cyr, lat := scripts(strings.Join(words, " "))
 	if cyr == lat {
-		return *n
+		return *n, true
 	}
 	toCyrillic := cyr > lat
+	mixedInSource := mixedWordsOf(source)
 	repl := map[string]string{}
+	foldedInitial, keptInitial := false, false
 	for _, w := range words {
-		wc, wl := scripts(w)
-		to := toCyrillic
-		if wc > 0 && wl > 0 && wc != wl {
-			to = wc > wl
+		folded, has := authorentity.FoldLookalikeWord(w, foldsTo(w, toCyrillic))
+		whole := !mixedScript(w)
+		keptInitial = keptInitial || (whole && initial(w) && !has)
+		if !has || folded == w {
+			continue
 		}
-		if folded, has := authorentity.FoldLookalikeWord(w, to); has && folded != w {
-			repl[w] = folded
+		foldedInitial = foldedInitial || (whole && initial(w))
+		if whole && !initial(w) && !mixedInSource[compareKey(strings.Trim(w, wordPunctuation))] {
+			return *n, false
 		}
+		repl[w] = folded
+	}
+	if foldedInitial && keptInitial {
+		return *n, false
 	}
 	out := *n
 	out.Given, out.Additional, out.Family = replaceWords(n.Given, repl), replaceWords(n.Additional, repl),
 		replaceWords(n.Family, repl)
 	out.Display, out.Sort = replaceWords(n.Display, repl), replaceWords(n.Sort, repl)
+	return out, true
+}
+
+// foldsTo is the script a word folds to: a mixed word's own, told by its
+// letters, unless they tie; else the name's (toCyrillic).
+func foldsTo(w string, toCyrillic bool) bool {
+	if mixedScript(w) {
+		if wc, wl := scripts(w); wc != wl {
+			return wc > wl
+		}
+	}
+	return toCyrillic
+}
+
+// mixedWordsOf are the words (compareKey) the source writes in both scripts.
+func mixedWordsOf(source string) map[string]bool {
+	out := map[string]bool{}
+	for _, t := range strings.Fields(source) {
+		if mixedScript(t) {
+			out[compareKey(strings.Trim(t, wordPunctuation))] = true
+		}
+	}
 	return out
+}
+
+// mixedScript reports a word with letters of both scripts.
+func mixedScript(w string) bool {
+	return strings.ContainsFunc(w, func(r rune) bool { return unicode.Is(unicode.Cyrillic, r) }) &&
+		strings.ContainsFunc(w, func(r rune) bool { return unicode.Is(unicode.Latin, r) })
+}
+
+// initial reports one letter and a dot («B.»).
+func initial(w string) bool {
+	core, dotted := strings.CutSuffix(w, ".")
+	return dotted && utf8.RuneCountInString(core) == 1
 }
 
 // wordPunctuation is what may stand around a name word in a display or a
@@ -178,15 +233,22 @@ func replaceWords(s string, repl map[string]string) string {
 	return strings.Join(tokens, " ")
 }
 
-// fixStrayPunctuation drops a person's stray dots and commas: a part that
-// is only a mark, a comma after a name word that no suffix follows, a dot
-// after a word that is no initial and no abbreviation («Чарлз. Мессенджер»,
-// «Роберт, Блох», «Иван Трушков.»). The sort keeps its comma after the
-// sort key.
-func fixStrayPunctuation(n *Name) Name {
+// fixStrayPunctuation drops the dots and commas the source set apart as
+// words of their own («ЧАРЛЗ . МЕССЕНДЖЕР», «Роберт , Блох»): such a mark as
+// a word, and the same mark glued to the name word the source wrote it
+// after («Чарлз. Мессенджер», «Роберт, Блох»). Any other mark stays: an
+// abbreviation («Влад.», «Dr. med.»), an initial («J-P.»), the author's own
+// comma («James Wesley, Rawles»). The sort keeps its comma after the sort
+// key.
+func fixStrayPunctuation(n *Name, source string) Name {
+	stray := strayAfter(source)
+	if len(stray) == 0 {
+		return *n
+	}
 	out := *n
-	out.Given, out.Additional, out.Family = cleanPart(n.Given), cleanPart(n.Additional), cleanPart(n.Family)
-	out.Display, out.Sort = cleanDisplay(n.Display, n, false), cleanDisplay(n.Sort, n, true)
+	out.Given, out.Additional, out.Family = cleanMarks(n.Given, n, stray, false),
+		cleanMarks(n.Additional, n, stray, false), cleanMarks(n.Family, n, stray, false)
+	out.Display, out.Sort = cleanMarks(n.Display, n, stray, false), cleanMarks(n.Sort, n, stray, true)
 	return out
 }
 
@@ -195,24 +257,26 @@ func marksOnly(t string) bool {
 	return strings.Trim(t, ".,") == ""
 }
 
-func cleanPart(s string) string {
-	var out []string
-	for _, w := range strings.Fields(s) {
-		if marksOnly(w) {
+// strayAfter are the words (compareKey) the source wrote a dot or comma
+// after as a word of its own.
+func strayAfter(source string) map[string]bool {
+	out := map[string]bool{}
+	tokens := strings.Fields(source)
+	for i := 1; i < len(tokens); i++ {
+		if !marksOnly(tokens[i]) || marksOnly(tokens[i-1]) {
 			continue
 		}
-		w = strings.TrimRight(w, ",")
-		if strings.HasSuffix(w, ".") && strayDot(w) {
-			w = strings.TrimRight(w, ".")
+		if words := compareWords(tokens[i-1]); len(words) > 0 {
+			out[words[len(words)-1]] = true
 		}
-		out = append(out, w)
 	}
-	return strings.Join(out, " ")
+	return out
 }
 
-// cleanDisplay cleans a display or, with sort, a sort name: there a comma
-// before the last word is the sort key's.
-func cleanDisplay(s string, n *Name, sort bool) string {
+// cleanMarks drops from s the marks-only words and the one mark glued to a
+// word of stray («Б..» keeps its initial's dot). A comma before a suffix stays («Иванов, мл.»); in a sort
+// (sort) only the last word's comma may go: the others are the sort key's.
+func cleanMarks(s string, n *Name, stray map[string]bool, sort bool) string {
 	var tokens []string
 	for _, t := range strings.Fields(s) {
 		if !marksOnly(t) {
@@ -220,45 +284,25 @@ func cleanDisplay(s string, n *Name, sort bool) string {
 		}
 	}
 	for i, t := range tokens {
+		if !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ",") {
+			continue
+		}
+		core := t[:len(t)-1]
+		if words := compareWords(core); len(words) == 0 || !stray[words[len(words)-1]] {
+			continue
+		}
 		last := i == len(tokens)-1
-		if strings.HasSuffix(t, ",") && (last || (!sort && !suffixWord(tokens[i+1], n))) {
-			t = strings.TrimRight(t, ",")
+		if strings.HasSuffix(t, ",") && !last && (sort || suffixWord(tokens[i+1], n)) {
+			continue
 		}
-		if strings.HasSuffix(t, ".") && strayDot(t) {
-			t = strings.TrimRight(t, ".")
-		}
-		tokens[i] = t
+		tokens[i] = core
 	}
 	return strings.Join(tokens, " ")
 }
 
-// abbreviations are the shortened words a dot ends in a name: generational
-// suffixes, honorifics, clerical titles and the roles a file writes.
-var abbreviations = setOf("мл", "ст", "jr", "sr", "св", "свт", "прп", "прот", "свящ", "иером", "игум", "архиеп",
-	"еп", "митр", "проф", "акад", "д-р", "dr", "prof", "rev", "st", "mr", "mrs", "ms", "doc", "ed", "eds", "ред",
-	"сост", "пер", "ил", "илл", "бл", "блж", "ген", "кн", "гр")
-
 // suffixes are the generational suffixes a comma may set off («Иванов,
 // мл.»).
 var suffixes = setOf("мл", "ст", "младший", "старший", "jr", "sr", "junior", "senior", "ii", "iii", "iv")
-
-// strayDot reports a dot that ends a word (w ends in it) which is no
-// initial («K.», «Дж.», «Ж.-П.») and no abbreviation («мл.», «doc.»,
-// «Онкен-мл.»).
-func strayDot(w string) bool {
-	core := strings.TrimRight(w, ".")
-	if strings.Contains(core, ".") || utf8.RuneCountInString(core) <= 2 {
-		return false
-	}
-	lower := strings.ToLower(core)
-	if abbreviations[lower] {
-		return false
-	}
-	if i := strings.LastIndex(lower, "-"); i >= 0 && abbreviations[lower[i+1:]] {
-		return false
-	}
-	return true
-}
 
 // suffixWord reports a word that is a generational suffix or the name's
 // suffix.
@@ -332,10 +376,20 @@ func lostWord(source string, after *Name) bool {
 		!strings.ContainsAny(source, quoteMarks) && strings.ContainsFunc(after.Nickname, unicode.IsLetter) {
 		nickname = wordSet(after.Nickname)
 	}
-	return slices.ContainsFunc(rawWords(source), func(w string) bool {
-		key := compareKey(w)
-		return !have[key] && !nickname[key] && !personRoles[strings.ToLower(w)] && !clericalTitles[strings.ToLower(w)]
-	})
+	tokens := strings.Fields(source)
+	for i, t := range tokens {
+		afterComma := i > 0 && strings.HasSuffix(tokens[i-1], ",")
+		words := rawWords(t)
+		for _, w := range words {
+			key := compareKey(w)
+			if have[key] || nickname[key] || clericalTitles[strings.ToLower(w)] ||
+				(len(words) == 1 && roleToken(t, afterComma)) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // unparsedWord reports a person answer with name parts whose display or
@@ -355,25 +409,47 @@ func roleKey(w string) string {
 	return strings.ToLower(strings.Trim(w, wordPunctuation))
 }
 
+// roleToken reports a token that names a role: a role word, or a role's
+// short form written as one, with its dot, in parentheses or after a comma
+// («ed.», «(ред)», «, eds»). A bare short form is a name («Ed McBain»).
+func roleToken(t string, afterComma bool) bool {
+	key := roleKey(t)
+	if roleWords[key] {
+		return true
+	}
+	return roleAbbreviations[key] &&
+		(strings.HasSuffix(strings.TrimRight(t, ")"), ".") || strings.HasPrefix(t, "(") || afterComma)
+}
+
 // roleAsName reports a person whose given or additional names hold a role
-// or a clerical title, or whose prefix is written in capitals. A family name
-// may be one («Евгений Монах»).
+// or a clerical title, or whose prefix is a role or a title written in
+// capitals («ИЕРОМОНАХ»; not «DJ»). A family name may be one («Евгений
+// Монах»).
 func roleAsName(n *Name) bool {
 	if n.Kind != KindPerson {
 		return false
 	}
 	for _, w := range strings.Fields(n.Given + " " + n.Additional) {
-		if personRoles[roleKey(w)] || clericalTitles[roleKey(w)] {
+		if roleToken(w, false) || clericalTitles[roleKey(w)] {
 			return true
 		}
 	}
-	return allCaps(n.Prefix, capsPrefixLetters, 0)
+	return allCaps(n.Prefix, capsPrefixLetters, 0) && slices.ContainsFunc(strings.Fields(n.Prefix), func(w string) bool {
+		k := roleKey(w)
+		return roleWords[k] || roleAbbreviations[k] || clericalTitles[k]
+	})
 }
 
 // personRoleIn reports a person's role among the words of a collective's
 // display («Shane McKenzie, ed.»).
 func personRoleIn(display string) bool {
-	return slices.ContainsFunc(strings.Fields(display), func(w string) bool { return personRoles[roleKey(w)] })
+	tokens := strings.Fields(display)
+	for i, t := range tokens {
+		if roleToken(t, i > 0 && strings.HasSuffix(tokens[i-1], ",")) {
+			return true
+		}
+	}
+	return false
 }
 
 // allCaps reports s with at least least letters, at most most (0: any), all
@@ -501,7 +577,7 @@ func collectiveMarker(display string) bool {
 // magazines, titles and placeholder words.
 func listedHandle(display string) bool {
 	return slices.ContainsFunc(keyWords(display), func(w string) bool {
-		return slices.ContainsFunc(handleStems, func(s string) bool { return strings.HasPrefix(w, s) })
+		return handleNames[w] || slices.ContainsFunc(handleStems, func(s string) bool { return strings.HasPrefix(w, s) })
 	})
 }
 

@@ -59,9 +59,21 @@ func TestStoredAnswerGuards(t *testing.T) {
 			c:     stored(person("Аpтуp", "Хинеман"), person("Аpтуp", "Хинеман")),
 			after: person("Артур", "Хинеман"), fixes: []string{FixLookalike},
 		},
-		"a whole Latin look-alike word in a Cyrillic name": {
-			c:     stored(person("Capa", "Сил"), person("Capa", "Сил")),
+		"a whole Latin look-alike word in a Cyrillic name is refused, not rewritten": {
+			c:       stored(person("Capa", "Сил"), person("Capa", "Сил")),
+			refusal: RefusedLookalikeWord,
+		},
+		"a real Latin surname of look-alike letters is never rewritten": {
+			c:       stored(person("Игорь", "Cox"), person("Игорь", "Cox")),
+			refusal: RefusedLookalikeWord,
+		},
+		"a whole look-alike word the source writes mixed": {
+			c:     stored(Name{Display: "Сapa Сил", Kind: KindPerson}, person("Capa", "Сил")),
 			after: person("Сара", "Сил"), fixes: []string{FixLookalike},
+		},
+		"a Latin initial of a Cyrillic name": {
+			c:     stored(person("B.", "Баландин"), person("B.", "Баландин")),
+			after: person("В.", "Баландин"), fixes: []string{FixLookalike},
 		},
 		"a Cyrillic look-alike inside a Latin word": {
 			c: stored(person("Kārlis", "Маrkss"), person("Kārlis", "Маrkss")),
@@ -91,7 +103,7 @@ func TestStoredAnswerGuards(t *testing.T) {
 			after: person("Чарлз", "Мессенджер"), fixes: []string{FixPunctuation},
 		},
 		"a stray comma in a part": {
-			c: stored(person("Роберт", "Блох"), Name{Given: "Роберт,", Family: "Блох", Display: "Роберт, Блох",
+			c: stored(Name{Display: "Роберт , Блох", Kind: KindPerson}, Name{Given: "Роберт,", Family: "Блох", Display: "Роберт, Блох",
 				Sort: "Блох, Роберт,", Kind: KindPerson}),
 			after: person("Роберт", "Блох"), fixes: []string{FixPunctuation},
 		},
@@ -108,6 +120,118 @@ func TestStoredAnswerGuards(t *testing.T) {
 					Sort: "Онкен-мл., Уильям", Kind: KindPerson}),
 			after: Name{Given: "Уильям", Family: "Онкен-мл.", Prefix: "архиеп", Display: "архиеп. Уильям Онкен-мл.",
 				Sort: "Онкен-мл., Уильям", Kind: KindPerson},
+		},
+		"abbreviated given names keep their dots": {
+			c:     stored(Name{Display: "Влад. Азов", Kind: KindPerson}, person("Влад.", "Азов")),
+			after: person("Влад.", "Азов"),
+		},
+		"an abbreviated Latin given name keeps its dot": {
+			c: stored(Name{Display: "Jas. R. Petrin", Kind: KindPerson}, Name{Given: "Jas.", Additional: "R.",
+				Family: "Petrin", Display: "Jas. R. Petrin", Sort: "Petrin, Jas. R.", Kind: KindPerson}),
+			after: Name{Given: "Jas.", Additional: "R.", Family: "Petrin", Display: "Jas. R. Petrin",
+				Sort: "Petrin, Jas. R.", Kind: KindPerson},
+		},
+		"transliterated initials keep their dots": {
+			c: stored(Name{Display: "Ди. Джи. Виски", Kind: KindPerson}, Name{Given: "Ди.", Additional: "Джи.",
+				Family: "Виски", Display: "Ди. Джи. Виски", Sort: "Виски, Ди. Джи.", Kind: KindPerson}),
+			after: Name{Given: "Ди.", Additional: "Джи.", Family: "Виски", Display: "Ди. Джи. Виски",
+				Sort: "Виски, Ди. Джи.", Kind: KindPerson},
+		},
+		"degrees keep their dots": {
+			c: stored(Name{Display: "Dr. med. Hauards K. Katlers", Kind: KindPerson}, Name{Given: "Hauards",
+				Additional: "K.", Family: "Katlers", Prefix: "Dr. med.", Display: "Dr. med. Hauards K. Katlers",
+				Sort: "Katlers, Hauards K.", Kind: KindPerson}),
+			after: Name{Given: "Hauards", Additional: "K.", Family: "Katlers", Prefix: "Dr. med.",
+				Display: "Dr. med. Hauards K. Katlers", Sort: "Katlers, Hauards K.", Kind: KindPerson},
+		},
+		"a compound initial keeps its dot": {
+			c:     stored(Name{Display: "J-P. Sartre", Kind: KindPerson}, person("J-P.", "Sartre")),
+			after: person("J-P.", "Sartre"),
+		},
+		"the author's own comma stays": {
+			c: stored(Name{Display: "James Wesley, Rawles", Kind: KindPerson}, Name{Given: "James",
+				Additional: "Wesley", Family: "Rawles", Display: "James Wesley, Rawles", Sort: "Rawles, James Wesley",
+				Kind: KindPerson}),
+			after: Name{Given: "James", Additional: "Wesley", Family: "Rawles", Display: "James Wesley, Rawles",
+				Sort: "Rawles, James Wesley", Kind: KindPerson},
+		},
+		"a trailing dot the source glued is kept": {
+			c: stored(Name{Display: "Андрей Битов.", Kind: KindPerson}, Name{Given: "Андрей", Family: "Битов",
+				Display: "Андрей Битов.", Sort: "Битов, Андрей", Kind: KindPerson}),
+			after: Name{Given: "Андрей", Family: "Битов", Display: "Андрей Битов.", Sort: "Битов, Андрей",
+				Kind: KindPerson},
+		},
+		"a suffix comma and an apostrophe stay": {
+			c: stored(Name{Display: "John O’Neill, Jr.", Kind: KindPerson}, Name{Given: "John", Family: "O’Neill",
+				Suffix: "Jr.", Display: "John O’Neill, Jr.", Sort: "O’Neill, John", Kind: KindPerson}),
+			after: Name{Given: "John", Family: "O’Neill", Suffix: "Jr.", Display: "John O’Neill, Jr.",
+				Sort: "O’Neill, John", Kind: KindPerson},
+		},
+		"a comma that ends the display": {
+			c: stored(Name{Display: "doc. K. Kalmikovs,", Kind: KindPerson}, Name{Given: "K.", Family: "Kalmikovs",
+				Prefix: "doc", Display: "doc. K. Kalmikovs,", Sort: "Kalmikovs, K.", Kind: KindPerson}),
+			refusal: RefusedStrayPunctuation,
+		},
+		"Ed is a given name": {
+			c:     stored(person("Ed", "McBain"), person("Ed", "McBain")),
+			after: person("Ed", "McBain"),
+		},
+		"Ed dropped is a lost word": {
+			c:       stored(person("Ed", "McBain"), handle("McBain")),
+			refusal: RefusedLostToken,
+		},
+		"Per is a given name": {
+			c:     stored(person("Пер", "Валё"), person("Пер", "Валё")),
+			after: person("Пер", "Валё"),
+		},
+		"an editor's mark dropped": {
+			c:     stored(Name{Display: "Роберт Коули (ред.)", Kind: KindPerson}, person("Роберт", "Коули")),
+			after: person("Роберт", "Коули"),
+		},
+		"an abbreviated role kept as a given name": {
+			c: stored(Name{Display: "ред. Коули", Kind: KindPerson}, Name{Given: "ред.", Family: "Коули",
+				Display: "ред. Коули", Sort: "Коули, ред.", Kind: KindPerson}),
+			refusal: RefusedRoleAsName,
+		},
+		"a DJ prefix": {
+			c: stored(Name{Display: "DJ Miller", Kind: KindPerson}, Name{Family: "Miller", Prefix: "DJ",
+				Display: "DJ Miller", Sort: "Miller", Kind: KindPerson}),
+			after: Name{Family: "Miller", Prefix: "DJ", Display: "DJ Miller", Sort: "Miller", Kind: KindPerson},
+		},
+		"a mark set apart in the answer too": {
+			c: stored(Name{Display: "Чарлз . Мессенджер", Kind: KindPerson}, Name{Given: "Чарлз", Additional: ".",
+				Family: "Мессенджер", Display: "Чарлз . Мессенджер", Sort: "Мессенджер, Чарлз .", Kind: KindPerson}),
+			after: person("Чарлз", "Мессенджер"), fixes: []string{FixPunctuation},
+		},
+		"a sort key comma the source set apart stays in the sort": {
+			c: stored(Name{Display: "Блох , Роберт", Kind: KindPerson}, Name{Given: "Роберт", Family: "Блох",
+				Display: "Роберт Блох", Sort: "Блох, Роберт", Kind: KindPerson}),
+			after: person("Роберт", "Блох"),
+		},
+		"a suffix comma the source set apart stays": {
+			c: stored(Name{Display: "Иван Иванов , мл.", Kind: KindPerson}, Name{Given: "Иван", Family: "Иванов",
+				Suffix: "мл.", Display: "Иван Иванов, мл.", Sort: "Иванов, Иван", Kind: KindPerson}),
+			after: Name{Given: "Иван", Family: "Иванов", Suffix: "мл.", Display: "Иван Иванов, мл.",
+				Sort: "Иванов, Иван", Kind: KindPerson},
+		},
+		"an editor's mark in parentheses without a dot dropped": {
+			c:     stored(Name{Display: "Роберт Коули (ред)", Kind: KindPerson}, person("Роберт", "Коули")),
+			after: person("Роберт", "Коули"),
+		},
+		"a role word dropped": {
+			c:     stored(Name{Display: "Ирина Зюзина художник", Kind: KindPerson}, person("Ирина", "Зюзина")),
+			after: person("Ирина", "Зюзина"),
+		},
+		"only the mark the source set apart goes": {
+			c: stored(Name{Display: "Фрэйн Б. .", Kind: KindPerson}, Name{Given: "Б..", Family: "Фрэйн",
+				Display: "Фрэйн Б..", Sort: "Фрэйн, Б..", Kind: KindPerson}),
+			after: Name{Given: "Б.", Family: "Фрэйн", Display: "Фрэйн Б.", Sort: "Фрэйн, Б.", Kind: KindPerson},
+			fixes: []string{FixPunctuation},
+		},
+		"Latin initials of which one has no look-alike": {
+			c: stored(Name{Display: "E. L. Джеймс", Kind: KindPerson}, Name{Given: "E.", Additional: "L.",
+				Family: "Джеймс", Display: "E. L. Джеймс", Sort: "Джеймс, E. L.", Kind: KindPerson}),
+			refusal: RefusedLookalikeWord,
 		},
 		"a collective's punctuation is its title's": {
 			c:     stored(Name{Display: "Журнал «Полдень, XXI век»", Kind: "person"}, *assembled("Журнал «Полдень, XXI век»", "collective")),
@@ -283,6 +407,11 @@ func TestCollectiveGuards(t *testing.T) {
 			refusal: RefusedGenreList},
 		"a magazine named for genres": {c: organization("Журнал «Мифы и легенды»"), step: StepPlaceholderOrg},
 		"a magazine":                  {c: organization("Журнал «Искатель»"), step: StepPlaceholderOrg},
+		"an editor's mark in a named collective": {c: named("Иван Петров и Анна Смит (ред.)"),
+			step: StepAsNamedCollective, refusal: RefusedRoleAsName},
+		"Ed in a named pair": {c: named("Ed McBain и Анна Смит"), step: StepAsNamedCollective},
+		"editors after a comma read as an organization": {c: organization("Shane McKenzie, eds"),
+			step: StepPlaceholderOrg, refusal: RefusedRoleAsName},
 		"a placeholder phrase is unknown, unguarded": {c: organization("Автор неизвестен"),
 			step: StepPlaceholderOrg},
 	} {
@@ -311,16 +440,19 @@ func TestKeepHandleGuards(t *testing.T) {
 		c       *Candidate
 		refusal Refusal
 	}{
-		"a magazine":                    {c: mononym("Компьютерра", 3), refusal: RefusedListedName},
-		"a church":                      {c: mononym("РПЦ", 3), refusal: RefusedListedName},
-		"the Bible":                     {c: mononym("Bībele", 3), refusal: RefusedListedName},
-		"a placeholder word":            {c: mononym("Пользователь", 3), refusal: RefusedListedName},
-		"five capitals":                 {c: mononym("ИГСОА", 3), refusal: RefusedShortCaps},
-		"two Latin capitals":            {c: mononym("VS", 1), refusal: RefusedShortCaps},
-		"six capitals are a handle":     {c: mononym("ОХАЙЕЗ", 1)},
-		"a capitalized handle":          {c: mononym("Зорро", 19)},
-		"a script with no case":         {c: mononym("盛世", 2)},
-		"twenty credits go to a person": {c: mononym("Зорро", 20), refusal: RefusedHeavy},
+		"a magazine":                {c: mononym("Компьютерра", 3), refusal: RefusedListedName},
+		"a church":                  {c: mononym("РПЦ", 3), refusal: RefusedListedName},
+		"the Bible":                 {c: mononym("Bībele", 3), refusal: RefusedListedName},
+		"a placeholder word":        {c: mononym("Пользователь", 3), refusal: RefusedListedName},
+		"five capitals":             {c: mononym("ИГСОА", 3), refusal: RefusedShortCaps},
+		"two Latin capitals":        {c: mononym("VS", 1), refusal: RefusedShortCaps},
+		"six capitals are a handle": {c: mononym("ОХАЙЕЗ", 1)},
+		"a handle that begins like a listed name": {c: mononym("Терран", 1)},
+		"the listed publisher":                    {c: mononym("Терра", 1), refusal: RefusedListedName},
+		"a magazine's longer name":                {c: mononym("Журналист", 1), refusal: RefusedListedName},
+		"a capitalized handle":                    {c: mononym("Зорро", 19)},
+		"a script with no case":                   {c: mononym("盛世", 2)},
+		"twenty credits go to a person":           {c: mononym("Зорро", 20), refusal: RefusedHeavy},
 	} {
 		t.Run(title, func(t *testing.T) {
 			d := Decide(c.c, testEnv())

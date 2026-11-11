@@ -97,6 +97,13 @@ const (
 	// the answer's display: not moved to the prefix, not a role or clerical
 	// title, and not a one-word nickname beside a full display.
 	RefusedLostToken Refusal = "lost_token"
+	// RefusedLookalikeWord: a whole word of look-alike letters of the other
+	// script that is no initial and no mixed word of the source («Capa
+	// Сил», «Игорь Cox»): a defect or a real word, the guard cannot tell.
+	RefusedLookalikeWord Refusal = "lookalike_word"
+	// RefusedStrayPunctuation: a person's display that ends in a comma, a
+	// mark the source did not set apart («doc. K. Kalmikovs,»).
+	RefusedStrayPunctuation Refusal = "stray_punctuation"
 	// RefusedUnparsedWord: a word of a person's display or sort that none
 	// of the name parts holds («Kelley St. John» with the family «John»).
 	RefusedUnparsedWord Refusal = "display_word_not_in_parts"

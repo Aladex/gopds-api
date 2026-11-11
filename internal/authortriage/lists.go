@@ -75,11 +75,16 @@ func collectiveName(display string) bool {
 // error shapes. Words are compared lower-case; stems as word prefixes of a
 // display's search key.
 
-// personRoles are the roles a file writes beside a person's name, never a
-// name of their own («художник», «ed.»).
-var personRoles = setOf("художник", "художница", "иллюстратор", "редактор", "ред", "составитель", "составители",
-	"сост", "переводчик", "переводчица", "пер", "ed", "eds", "editor", "editors", "ill", "illus", "illustrator",
-	"transl", "translator", "comp", "compiler", "hrsg", "übers")
+// roleWords are the roles a file writes beside a person's name, never a
+// name of their own («художник», «editor»). roleAbbreviations are their
+// short forms, which are names too («Ed», «Пер»): a role only as a file
+// writes one, with its dot, in parentheses or after a comma («ed.»,
+// «(ред)», «, eds»).
+var (
+	roleWords = setOf("художник", "художница", "иллюстратор", "редактор", "составитель", "составители",
+		"переводчик", "переводчица", "editor", "editors", "illustrator", "translator", "compiler")
+	roleAbbreviations = setOf("ред", "сост", "пер", "ed", "eds", "ill", "illus", "transl", "comp", "hrsg", "übers")
+)
 
 // clericalTitles are the clerical titles and honorifics a person's name
 // keeps in its prefix, never as its given or family name («Иеромонах
@@ -128,8 +133,11 @@ const stemPublisher = "издательств"
 var collectiveStems = []string{"коллектив", "колектив", "коллетив", "литагент", "редакц", "редколл",
 	stemPublisher}
 
-// handleStems are the one-word names of organizations, magazines, titles
-// and placeholders a kept handle must not be («Компьютерра», «РПЦ»,
-// «Bībele», «пользователь», «Терра»).
-var handleStems = []string{"журнал", "газет", "альманах", stemPublisher, "церк", "рпц", "компьютерр",
-	"библи", "bībel", "bibel", "bible", "пользовател", "терра"}
+// handleStems are the productive stems of the words of organizations,
+// magazines and placeholders a kept handle must not be («Журнал…»,
+// «Церковь», «пользователь»); handleNames are exact names, some of them
+// also the start of a handle («Терра», not «Терран»).
+var (
+	handleStems = []string{"журнал", "газет", "альманах", stemPublisher, "церков", "церкв", "пользовател"}
+	handleNames = setOf("терра", "рпц", "компьютерра", "библия", "bībele", "bibele", "bible", "bibel")
+)
