@@ -76,11 +76,12 @@ var patronymicEnding = regexp.MustCompile(`(ович|евич|ьич|овна|е
 // one-field name with it, beside a known given name, is the family.
 var familyEnding = regexp.MustCompile(`(ов|ев|ёв|ин|ын|ко|ский|цкий|ская|цкая|ова|ева|ина|ына|ук|юк|ич)$`)
 
-// givenNames are the given names of the selected credits, with the family
+// GivenNames are the given names of the selected credits, with the family
 // names each stands beside.
-type givenNames map[string]map[string]bool
+type GivenNames map[string]map[string]bool
 
-func (g givenNames) add(c *Credit) {
+// Add counts the given name of a selected person credit beside its family.
+func (g GivenNames) Add(c *Credit) {
 	if c.Kind != KindPerson || c.Given == "" || c.Family == "" {
 		return
 	}
@@ -94,15 +95,15 @@ func (g givenNames) add(c *Credit) {
 	g[first[0]][authornorm.SearchKey(c.Family)] = true
 }
 
-// known reports a given name the catalog gives several people.
-func (g givenNames) known(word string) bool {
+// Known reports a given name the catalog gives several people.
+func (g GivenNames) Known(word string) bool {
 	k := authornorm.SearchKey(word)
 	return !notGivenNames[k] && len(g[k]) >= knownGivenFamilies
 }
 
 // readAsSelected is the result an unselected credit is read as selected by
 // and the rule's name; ok is false when no rule reads it.
-func (b *builder) readAsSelected(u *Unselected, g givenNames) (res *Result, rule string, ok bool) {
+func (b *builder) readAsSelected(u *Unselected, g GivenNames) (res *Result, rule string, ok bool) {
 	if u.Kind != KindPerson || u.Tag > 0 {
 		return nil, "", false
 	}
@@ -218,12 +219,12 @@ func fixCase(part string) string {
 // readCase reads a name whose only defect is its case: given and family
 // names, words of letters, none twice, a known given name; a lower-case
 // name is lower case throughout (not a phrase: «Джек из тени»).
-func readCase(u *Unselected, g givenNames) (*Result, bool) {
+func readCase(u *Unselected, g GivenNames) (*Result, bool) {
 	if u.Given == "" || u.Family == "" || !flagsWithin(u.Flags, authornorm.FlagAllCaps, authornorm.FlagLowercase) {
 		return nil, false
 	}
 	words := strings.Fields(u.Given + " " + strings.Join(u.Additional, " ") + " " + u.Family)
-	if !distinctWords(words) || !g.known(strings.Fields(u.Given)[0]) {
+	if !distinctWords(words) || !g.Known(strings.Fields(u.Given)[0]) {
 		return nil, false
 	}
 	lower := slices.Contains(u.Flags, string(authornorm.FlagLowercase))
@@ -241,7 +242,7 @@ func readCase(u *Unselected, g givenNames) (*Result, bool) {
 
 // readLookalike reads a name whose other-script letters all have a
 // look-alike: folded, it is of one script, its given name known.
-func readLookalike(u *Unselected, g givenNames) (*Result, bool) {
+func readLookalike(u *Unselected, g GivenNames) (*Result, bool) {
 	if u.Given == "" || u.Family == "" || u.Nickname != "" || !flagsWithin(u.Flags, authornorm.FlagMixedScript) {
 		return nil, false
 	}
@@ -251,7 +252,7 @@ func readLookalike(u *Unselected, g givenNames) (*Result, bool) {
 	}
 	given, family := strings.Join(folded[0], " "), strings.Join(folded[2], " ")
 	res := readResult(given, folded[1], family, u.Suffix, "")
-	if res.Script == string(authornorm.ScriptMixed) || !g.known(folded[0][0]) {
+	if res.Script == string(authornorm.ScriptMixed) || !g.Known(folded[0][0]) {
 		return nil, false
 	}
 	for _, w := range strings.Fields(res.DisplayName) {
@@ -265,13 +266,13 @@ func readLookalike(u *Unselected, g givenNames) (*Result, bool) {
 // readNickname reads a name with a nickname: the name of one script, its
 // given name known and not the family, the nickname beside it whatever its
 // script.
-func readNickname(u *Unselected, g givenNames) (*Result, bool) {
+func readNickname(u *Unselected, g GivenNames) (*Result, bool) {
 	if u.Given == "" || u.Family == "" || u.Nickname == "" ||
 		!flagsWithin(u.Flags, authornorm.FlagMixedScript, authornorm.FlagNickname) {
 		return nil, false
 	}
 	words := strings.Fields(u.Given + " " + strings.Join(u.Additional, " ") + " " + u.Family)
-	if !distinctWords(words) || !g.known(words[0]) {
+	if !distinctWords(words) || !g.Known(words[0]) {
 		return nil, false
 	}
 	for _, w := range words {
@@ -290,7 +291,7 @@ func readNickname(u *Unselected, g givenNames) (*Result, bool) {
 // known given name and a word that is no given name, in that order, or the
 // other way round when the first word ends as a family name does; a
 // patronymic, a title or a stop word keeps it out.
-func readSingleField(u *Unselected, g givenNames) (*Result, bool) {
+func readSingleField(u *Unselected, g GivenNames) (*Result, bool) {
 	if u.Given != "" || u.Family != "" || len(u.Additional) > 0 ||
 		!flagsWithin(u.Flags, authornorm.FlagUnstructured, authornorm.FlagEmptyComponent, authornorm.FlagAllCaps) {
 		return nil, false
@@ -323,7 +324,7 @@ func (u *Unselected) oneSourceField() (field string, ok bool) {
 
 // twoWordName splits two words into a given and a family name (see
 // readSingleField).
-func twoWordName(words []string, g givenNames) (given, family string, ok bool) {
+func twoWordName(words []string, g GivenNames) (given, family string, ok bool) {
 	if len(words) != 2 || !distinctWords(words) {
 		return "", "", false
 	}
@@ -333,7 +334,7 @@ func twoWordName(words []string, g givenNames) (given, family string, ok bool) {
 			return "", "", false
 		}
 	}
-	first, second := g.known(words[0]), g.known(words[1])
+	first, second := g.Known(words[0]), g.Known(words[1])
 	switch {
 	case first && !second:
 		return words[0], words[1], true
@@ -354,7 +355,7 @@ const maxAbbreviationRunes = 3
 // readAffix reads a name with a title: the title words dropped from the
 // given and additional names, a known given name left and a family that is
 // no title.
-func readAffix(u *Unselected, g givenNames) (*Result, bool) {
+func readAffix(u *Unselected, g GivenNames) (*Result, bool) {
 	if u.Given == "" || u.Family == "" || !flagsWithin(u.Flags, authornorm.FlagAffix, authornorm.FlagNickname) {
 		return nil, false
 	}
@@ -376,7 +377,7 @@ func readAffix(u *Unselected, g givenNames) (*Result, bool) {
 	if readTitles[strings.TrimSuffix(authornorm.SearchKey(nickname), ".")] {
 		nickname = ""
 	}
-	if len(given) == 0 || readTitles[strings.TrimSuffix(authornorm.SearchKey(u.Family), ".")] || !g.known(given[0]) {
+	if len(given) == 0 || readTitles[strings.TrimSuffix(authornorm.SearchKey(u.Family), ".")] || !g.Known(given[0]) {
 		return nil, false
 	}
 	var add []string
@@ -390,7 +391,7 @@ func readAffix(u *Unselected, g givenNames) (*Result, bool) {
 // or "mul") of exactly one Wikidata item and no given name the catalog
 // knows: a name known as one person's (Вольтер, Эсхил, Платон), read as a
 // person known by it alone.
-func (b *builder) readMononym(u *Unselected, g givenNames) (*Result, bool) {
+func (b *builder) readMononym(u *Unselected, g GivenNames) (*Result, bool) {
 	ref := b.in.Reference
 	if ref == nil || !flagsWithin(u.Flags, authornorm.FlagSingleToken, authornorm.FlagEmptyComponent,
 		authornorm.FlagNickname) {
@@ -403,7 +404,7 @@ func (b *builder) readMononym(u *Unselected, g givenNames) (*Result, bool) {
 	}
 	// A given name of the catalog's people («Дарья», «Irene») may be any of
 	// them, whatever single item carries it.
-	if key == "" || len(strings.Fields(name)) != 1 || g.known(name) {
+	if key == "" || len(strings.Fields(name)) != 1 || g.Known(name) {
 		return nil, false
 	}
 	qid := ""

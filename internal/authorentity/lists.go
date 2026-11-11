@@ -98,7 +98,7 @@ func initialWord(w string) bool {
 
 // personPart reports a part shaped as a person's name (see above), and
 // whether it has a given name the catalog knows or an initial.
-func personPart(part string, g givenNames) (shaped, named bool) {
+func personPart(part string, g GivenNames) (shaped, named bool) {
 	words := strings.Fields(part)
 	if len(words) < minD2bWords || len(words) > maxListWords || strings.Contains(part, "://") ||
 		strings.ContainsAny(part, "@«»\"") {
@@ -115,7 +115,7 @@ func personPart(part string, g givenNames) (shaped, named bool) {
 			organizationWords[strings.ToLower(strings.Trim(w, ".,"))] {
 			return false, false
 		}
-		named = named || initialWord(w) || g.known(strings.TrimSuffix(w, "."))
+		named = named || initialWord(w) || g.Known(strings.TrimSuffix(w, "."))
 	}
 	// «де Ришелье» is the end of a name, not a name: «Арман Жан, де
 	// Ришелье» is one person.
@@ -154,11 +154,11 @@ func capitalized(w string) bool {
 
 // knownGivenNames are the given names of the selected credits, kept from
 // the unselected read when it made them.
-func (b *builder) knownGivenNames() givenNames {
+func (b *builder) knownGivenNames() GivenNames {
 	if b.givenKnown == nil {
-		b.givenKnown = givenNames{}
+		b.givenKnown = GivenNames{}
 		for i := range b.in.Credits[:b.selected] {
-			b.givenKnown.add(&b.in.Credits[i])
+			b.givenKnown.Add(&b.in.Credits[i])
 		}
 	}
 	return b.givenKnown

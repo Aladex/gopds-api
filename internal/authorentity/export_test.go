@@ -97,3 +97,12 @@ var (
 
 // NearWords are the pairs of words within the typo distance.
 func NearWords(words []string) [][2]string { return nearWords(words) }
+
+// ReadAsSelected is the build's read of an unselected credit (every class it
+// reads but the mononym, which needs the reference), for comparing with
+// ReadReviewRule.
+func ReadAsSelected(u *Unselected, g GivenNames) (rule string, ok bool) {
+	b := &builder{in: &Input{}}
+	_, rule, ok = b.readAsSelected(u, g)
+	return rule, ok
+}

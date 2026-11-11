@@ -209,13 +209,13 @@ func namesOf(k *nameKey) (n sameName, ok bool) {
 	return n, true
 }
 
-// particleOnly reports a proposal whose only doubt is a name particle, read
+// ParticleOnly reports a proposal whose only doubt is a name particle, read
 // as it is parsed: a particle class with no flag a selected structured name
 // would not carry, a given name that does not start with a particle — the
 // order swapped ("ван Иттерсум | Надежда"), two people ("Ван Сюаньцзе |
 // Джон Моффет") or a particle alone ("Ла | Мэр | Де") — and a family that
 // does not end in one ("Камп | Лион | Де").
-func (u *Unselected) particleOnly() bool {
+func (u *Unselected) ParticleOnly() bool {
 	if u.Kind != KindPerson || u.Class != string(authornorm.ClassParticle) || u.Given == "" || u.Family == "" {
 		return false
 	}
@@ -254,7 +254,7 @@ func (b *builder) admitUnselected() {
 			b.sameName = append(b.sameName, pendingJoin{u: u, n: n})
 			continue
 		}
-		if u.particleOnly() {
+		if u.ParticleOnly() {
 			in.Credits = append(in.Credits, u.Credit)
 			b.rep.Unselected.Particles++
 			continue
@@ -272,15 +272,15 @@ func (b *builder) admitUnselected() {
 // names, the bases of the keys and the given names of the selected credits.
 type selectedKeys struct {
 	have, bases map[string]bool
-	given       givenNames
+	given       GivenNames
 }
 
 func (b *builder) selectedNames() selectedKeys {
-	sel := selectedKeys{have: map[string]bool{}, bases: map[string]bool{}, given: givenNames{}}
+	sel := selectedKeys{have: map[string]bool{}, bases: map[string]bool{}, given: GivenNames{}}
 	cache := map[int64]keyed{}
 	for i := range b.in.Credits {
 		c := &b.in.Credits[i]
-		sel.given.add(c)
+		sel.given.Add(c)
 		k, reason := b.keyOfCredit(c, cache)
 		if reason != "" {
 			continue
