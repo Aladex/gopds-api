@@ -203,10 +203,19 @@ func mixedScript(w string) bool {
 		strings.ContainsFunc(w, func(r rune) bool { return unicode.Is(unicode.Latin, r) })
 }
 
-// initial reports one letter and a dot («B.»).
+// initial reports an initial or a run of initials: letters each followed by
+// a dot («B.», «A.B.»).
 func initial(w string) bool {
 	core, dotted := strings.CutSuffix(w, ".")
-	return dotted && utf8.RuneCountInString(core) == 1
+	if !dotted {
+		return false
+	}
+	for _, part := range strings.Split(core, ".") {
+		if r, size := utf8.DecodeRuneInString(part); size == 0 || size != len(part) || !unicode.IsLetter(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // wordPunctuation is what may stand around a name word in a display or a
@@ -258,46 +267,86 @@ func marksOnly(t string) bool {
 }
 
 // strayAfter are the words (compareKey) the source wrote a dot or comma
-// after as a word of its own.
-func strayAfter(source string) map[string]bool {
-	out := map[string]bool{}
+// after as a word of its own, each with the marks the word itself needs:
+// those the source glued to it («Б.» of «Фрэйн Б. .»), or one dot for a
+// single letter the mark set apart may belong to («J» of «J . R . R .
+// Tolkien»). Only a mark beyond those is stray.
+func strayAfter(source string) map[string]string {
+	out := map[string]string{}
 	tokens := strings.Fields(source)
 	for i := 1; i < len(tokens); i++ {
 		if !marksOnly(tokens[i]) || marksOnly(tokens[i-1]) {
 			continue
 		}
-		if words := compareWords(tokens[i-1]); len(words) > 0 {
-			out[words[len(words)-1]] = true
+		words := compareWords(tokens[i-1])
+		if len(words) == 0 {
+			continue
+		}
+		key := words[len(words)-1]
+		needs := trailingMarks(strings.TrimRight(tokens[i-1], wordPunctuationNoMarks))
+		if needs == "" && utf8.RuneCountInString(key) == 1 {
+			needs = "."
+		}
+		if have, ok := out[key]; !ok || len(needs) > len(have) {
+			out[key] = needs
 		}
 	}
 	return out
 }
 
-// cleanMarks drops from s the marks-only words and the one mark glued to a
-// word of stray («Б..» keeps its initial's dot). A comma before a suffix stays («Иванов, мл.»); in a sort
-// (sort) only the last word's comma may go: the others are the sort key's.
-func cleanMarks(s string, n *Name, stray map[string]bool, sort bool) string {
+// wordPunctuationNoMarks is wordPunctuation without the dot and the comma.
+const wordPunctuationNoMarks = ";:()[]«»\"'"
+
+// trailingMarks are the dots and commas t ends in.
+func trailingMarks(t string) string {
+	return t[len(strings.TrimRight(t, ".,")):]
+}
+
+// cleanMarks drops from s one mark glued to a word of stray beyond the marks
+// the word needs («Фрэйн Б..» → «Фрэйн Б.»; «Б.» stays), and a marks-only
+// word after a word that has the marks it needs. A field that already has
+// only what it needs keeps it («J. R. R. Tolkien»). A comma before a suffix
+// stays («Иванов, мл.»); in a sort (sort) only the last word's comma may
+// go: the others are the sort key's.
+func cleanMarks(s string, n *Name, stray map[string]string, sort bool) string {
 	var tokens []string
 	for _, t := range strings.Fields(s) {
-		if !marksOnly(t) {
-			tokens = append(tokens, t)
-		}
-	}
-	for i, t := range tokens {
-		if !strings.HasSuffix(t, ".") && !strings.HasSuffix(t, ",") {
+		if marksOnly(t) && (len(tokens) == 0 || !needsMark(tokens[len(tokens)-1], stray)) {
 			continue
 		}
-		core := t[:len(t)-1]
-		if words := compareWords(core); len(words) == 0 || !stray[words[len(words)-1]] {
+		tokens = append(tokens, t)
+	}
+	for i, t := range tokens {
+		marks := trailingMarks(t)
+		if marks == "" || marksOnly(t) {
+			continue
+		}
+		words := compareWords(t)
+		if len(words) == 0 {
+			continue
+		}
+		needs, ok := stray[words[len(words)-1]]
+		if !ok || len(marks) <= len(needs) {
 			continue
 		}
 		last := i == len(tokens)-1
 		if strings.HasSuffix(t, ",") && !last && (sort || suffixWord(tokens[i+1], n)) {
 			continue
 		}
-		tokens[i] = core
+		tokens[i] = t[:len(t)-1]
 	}
 	return strings.Join(tokens, " ")
+}
+
+// needsMark reports a word of stray that lacks the marks it needs: a mark
+// set apart after it is its own («J .»).
+func needsMark(t string, stray map[string]string) bool {
+	words := compareWords(t)
+	if len(words) == 0 {
+		return false
+	}
+	needs, ok := stray[words[len(words)-1]]
+	return ok && len(trailingMarks(t)) < len(needs)
 }
 
 // suffixes are the generational suffixes a comma may set off («Иванов,

@@ -222,11 +222,62 @@ func TestStoredAnswerGuards(t *testing.T) {
 			c:     stored(Name{Display: "Ирина Зюзина художник", Kind: KindPerson}, person("Ирина", "Зюзина")),
 			after: person("Ирина", "Зюзина"),
 		},
-		"only the mark the source set apart goes": {
+		"a dotted initial with a dot set apart after it, 30131": {
+			c: stored(Name{Display: "Фрэйн Б. .", Kind: KindPerson}, Name{Given: "Б.", Family: "Фрэйн",
+				Display: "Фрэйн Б..", Sort: "Фрэйн, Б.", Kind: KindPerson}),
+			after: Name{Given: "Б.", Family: "Фрэйн", Display: "Фрэйн Б.", Sort: "Фрэйн, Б.", Kind: KindPerson},
+			fixes: []string{FixPunctuation},
+		},
+		"a dotted initial with a dot set apart after it, 236612": {
+			c: stored(Name{Display: "Монк С. .", Kind: KindPerson}, Name{Given: "С.", Family: "Монк",
+				Display: "Монк С..", Sort: "Монк, С.", Kind: KindPerson}),
+			after: Name{Given: "С.", Family: "Монк", Display: "Монк С.", Sort: "Монк, С.", Kind: KindPerson},
+			fixes: []string{FixPunctuation},
+		},
+		"an extra dot in every field goes once from each": {
 			c: stored(Name{Display: "Фрэйн Б. .", Kind: KindPerson}, Name{Given: "Б..", Family: "Фрэйн",
 				Display: "Фрэйн Б..", Sort: "Фрэйн, Б..", Kind: KindPerson}),
 			after: Name{Given: "Б.", Family: "Фрэйн", Display: "Фрэйн Б.", Sort: "Фрэйн, Б.", Kind: KindPerson},
 			fixes: []string{FixPunctuation},
+		},
+		"initials whose dots the source set apart keep them": {
+			c: stored(Name{Display: "J . R . R . Tolkien", Kind: KindPerson}, Name{Given: "J.", Additional: "R. R.",
+				Family: "Tolkien", Display: "J. R. R. Tolkien", Sort: "Tolkien, J. R. R.", Kind: KindPerson}),
+			after: Name{Given: "J.", Additional: "R. R.", Family: "Tolkien", Display: "J. R. R. Tolkien",
+				Sort: "Tolkien, J. R. R.", Kind: KindPerson},
+		},
+		"an initial's dot the answer still sets apart stays": {
+			c: stored(Name{Display: "J . Tolkien", Kind: KindPerson}, Name{Given: "J.", Family: "Tolkien",
+				Display: "J . Tolkien", Sort: "Tolkien, J.", Kind: KindPerson}),
+			after: Name{Given: "J.", Family: "Tolkien", Display: "J . Tolkien", Sort: "Tolkien, J.", Kind: KindPerson},
+		},
+		"an abbreviation with a dot set apart after it keeps its own": {
+			c: stored(Name{Display: "Влад. . Азов", Kind: KindPerson}, Name{Given: "Влад.", Family: "Азов",
+				Display: "Влад.. Азов", Sort: "Азов, Влад.", Kind: KindPerson}),
+			after: Name{Given: "Влад.", Family: "Азов", Display: "Влад. Азов", Sort: "Азов, Влад.", Kind: KindPerson},
+			fixes: []string{FixPunctuation},
+		},
+		"a word the source writes twice keeps the larger need": {
+			c: stored(Name{Display: "Ли. . Ли , Ван", Kind: KindPerson}, Name{Given: "Ли.", Additional: "Ли",
+				Family: "Ван", Display: "Ли. Ли Ван", Sort: "Ван, Ли. Ли", Kind: KindPerson}),
+			after: Name{Given: "Ли.", Additional: "Ли", Family: "Ван", Display: "Ли. Ли Ван", Sort: "Ван, Ли. Ли",
+				Kind: KindPerson},
+		},
+		"joined Latin initials of a Cyrillic name, 196897": {
+			c: stored(Name{Display: "A.B. Ломанов", Kind: KindPerson}, Name{Given: "A.B.", Family: "Ломанов",
+				Display: "A.B. Ломанов", Sort: "Ломанов, A.B.", Kind: KindPerson}),
+			after: Name{Given: "А.В.", Family: "Ломанов", Display: "А.В. Ломанов", Sort: "Ломанов, А.В.",
+				Kind: KindPerson},
+			fixes: []string{FixLookalike},
+		},
+		"joined initials beside one of no look-alike": {
+			c: stored(Name{Display: "A.B. L. Ломанов", Kind: KindPerson}, Name{Given: "A.B.", Additional: "L.",
+				Family: "Ломанов", Display: "A.B. L. Ломанов", Sort: "Ломанов, A.B. L.", Kind: KindPerson}),
+			refusal: RefusedLookalikeWord,
+		},
+		"an undotted Latin letter stays refused": {
+			c:       stored(person("A", "Хазанов"), person("A", "Хазанов")),
+			refusal: RefusedLookalikeWord,
 		},
 		"Latin initials of which one has no look-alike": {
 			c: stored(Name{Display: "E. L. Джеймс", Kind: KindPerson}, Name{Given: "E.", Additional: "L.",
@@ -364,6 +415,13 @@ func TestJudgesOnlyAnswerIsGuarded(t *testing.T) {
 	d := Decide(c, testEnv())
 	assert.Equal(t, RefusedLostToken, d.Refusal)
 	assert.Equal(t, StepJudgesOnly, d.Evidence.RefusedStep)
+
+	c = candidate("unusual_characters", Name{Display: "Монк С. .", Kind: KindPerson})
+	c.Answers = judgesOnly(&Name{Given: "С.", Family: "Монк", Display: "Монк С..", Sort: "Монк, С.",
+		Kind: KindPerson}, "person")
+	d = Decide(c, testEnv())
+	assert.Equal(t, StepJudgesOnly, d.Step)
+	assert.Equal(t, Name{Given: "С.", Family: "Монк", Display: "Монк С.", Sort: "Монк, С.", Kind: KindPerson}, d.After)
 
 	c = candidate("mixed_script", person("Аpтуp", "Хинеман"))
 	c.Answers = judgesOnly(ptrName(person("Аpтуp", "Хинеман")), "person")
