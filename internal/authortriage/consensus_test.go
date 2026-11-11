@@ -40,7 +40,7 @@ func TestJudgesConsensusGroups(t *testing.T) {
 		assert.True(t, JudgesConsensus(append(a, b...)).Conflict, "batch sizes")
 	})
 
-	t.Run("the pair counts only inside the group the judges agree in", func(t *testing.T) {
+	t.Run("the pair counts only inside the run the judges agree in", func(t *testing.T) {
 		judged := answers(14, "c1", "c2", "person", n)
 		// Run 27: the pair gives c1, the judges did not answer.
 		pair := answers(27, "c1", "c1", "person", n)[:2]
@@ -55,6 +55,38 @@ func TestJudgesConsensusGroups(t *testing.T) {
 		refused := answers(14, "c1", "c1", "person", n)
 		refused[1].Refused = true
 		assert.False(t, JudgesConsensus(refused).FourModel)
+	})
+
+	t.Run("the pair counts in any arm and batch size of the run the judges agree in", func(t *testing.T) {
+		// The stored shape of an eval run: the judges once, with no arm and a
+		// batch of one; the production pair per arm and batch size.
+		stored := func(run int64, judges, pairA, pairB string) []Answer {
+			out := []Answer{
+				{RunID: run, Arm: "-", BatchSize: 1, Slot: SlotJudgeA, Canonical: judges, Form: "person", Name: n},
+				{RunID: run, Arm: "-", BatchSize: 1, Slot: SlotJudgeB, Canonical: judges, Form: "person", Name: n},
+			}
+			for _, g := range []struct {
+				arm   string
+				batch int
+				c     string
+			}{{"A", 10, pairA}, {"B", 1, pairB}} {
+				out = append(out,
+					Answer{RunID: run, Arm: g.arm, BatchSize: g.batch, Slot: SlotProductionA, Canonical: g.c},
+					Answer{RunID: run, Arm: g.arm, BatchSize: g.batch, Slot: SlotProductionB, Canonical: g.c})
+			}
+			return out
+		}
+		got := JudgesConsensus(stored(14, "c1", "c1", "c9"))
+		require.NotNil(t, got.Agreed)
+		assert.Equal(t, "-", got.Agreed.Arm)
+		assert.True(t, got.FourModel, "the pair agrees with the judges in arm A of the same run")
+		assert.False(t, JudgesConsensus(stored(14, "c1", "c9", "c9")).FourModel, "the pair never gives c1")
+
+		judgesOnlyRun := stored(14, "c1", "c9", "c9")
+		pairOnlyRun := stored(27, "c5", "c1", "c1")
+		got = JudgesConsensus(append(judgesOnlyRun, pairOnlyRun[2:]...))
+		require.NotNil(t, got.Agreed)
+		assert.False(t, got.FourModel, "the pair of another run, whose judges did not answer, does not count")
 	})
 
 	t.Run("judges who disagree or refuse give nothing", func(t *testing.T) {

@@ -10,7 +10,8 @@ type Consensus struct {
 	// Agreed is the judge_a answer of the lowest run whose judges both gave
 	// the single canonical; nil when there is none.
 	Agreed *Answer
-	// FourModel: in some group the production pair gave that canonical too.
+	// FourModel: in some group of a run whose judges agree, the production
+	// pair gave that canonical too.
 	FourModel bool
 	// Conflict: the groups' judges named more than one canonical. A conflict
 	// across runs is no consensus.
@@ -27,7 +28,8 @@ type group struct {
 // JudgesConsensus reads the answers grouped by (RunID, Arm, BatchSize). A
 // group's judge answer is the canonical both judge_a and judge_b gave, neither
 // refused. One canonical across every group that has a judge answer is the
-// consensus; more than one is a conflict.
+// consensus; more than one is a conflict. Four models agree when the
+// production pair gave it in some group of a run whose judges agree.
 func JudgesConsensus(answers []Answer) Consensus {
 	bySlot := map[group]map[string][]*Answer{}
 	var groups []group
@@ -59,13 +61,24 @@ func JudgesConsensus(answers []Answer) Consensus {
 	}
 
 	var c Consensus
+	agreedRuns := map[int64]string{}
 	for _, g := range groups {
 		canonical, ok := judged[g]
 		if !ok {
 			continue
 		}
+		agreedRuns[g.run] = canonical
 		if c.Agreed == nil {
 			c.Agreed, _ = slotAnswer(bySlot[g][SlotJudgeA])
+		}
+	}
+	// An eval run asks the judges once (no arm, a batch of one) and the
+	// production pair per arm and batch size: the pair counts in any group of
+	// a run whose judges agree.
+	for _, g := range groups {
+		canonical, ok := agreedRuns[g.run]
+		if !ok {
+			continue
 		}
 		pa, paOK := slotAnswer(bySlot[g][SlotProductionA])
 		pb, pbOK := slotAnswer(bySlot[g][SlotProductionB])
