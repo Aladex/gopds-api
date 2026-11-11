@@ -29,6 +29,7 @@ import { useWebSocket, WSMessage } from '@/context/WebSocketContext';
 import AuthorMetadataCard from '@/features/admin/AuthorMetadataCard';
 import AuthorReviewQueue from '@/features/admin/AuthorReviewQueue';
 import { AUTHORS_TAB } from '@/features/admin/AuthorReviewDetail';
+import { ScanSourcesProvider } from '@/features/admin/scan/ScanSources';
 
 interface ScanStatusResponse {
     is_running: boolean;
@@ -1364,4 +1365,14 @@ const BookScanning: React.FC = () => {
     );
 };
 
-export default BookScanning;
+/**
+ * The tab under one set of data sources, so every block reading the same
+ * status shares one request and one poll.
+ */
+const BookScanningTab: React.FC = () => (
+    <ScanSourcesProvider>
+        <BookScanning />
+    </ScanSourcesProvider>
+);
+
+export default BookScanningTab;

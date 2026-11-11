@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
@@ -8,10 +8,10 @@ import type {
     AuthorLLMAdversarialItem,
     AuthorLLMAdversarialSide,
     AuthorLLMRun,
-    AuthorLLMStatus,
     AuthorLLMStep,
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
+import { useScanSource } from '@/features/admin/scan/ScanSources';
 
 /**
  * The LLM block of the author metadata card. It shows one chain — check
@@ -32,9 +32,6 @@ import { closedErrorCode } from '@/api/admin';
  * With merge set, the block is the merge configuration's (E4c): the same
  * block on its own routes, whose one step is the merge pilot.
  */
-
-/** How often the block re-reads while a run is active. */
-const POLL_INTERVAL_MS = 5000;
 
 const ACTIVE = new Set(['pending', 'running', 'paused']);
 
@@ -251,7 +248,6 @@ const tokensLine = (t: T, run: AuthorLLMRun): string =>
 const llmApi = (base?: string) => {
     const on = base === undefined ? [] : [base];
     return {
-        status: () => adminApi.getAuthorLLMStatus(...on),
         start: (kind: string, mode: string) => adminApi.startAuthorLLMRun(kind, mode, ...on),
         pause: (id: number) => adminApi.pauseAuthorLLMRun(id, ...on),
         resume: (id: number) => adminApi.resumeAuthorLLMRun(id, ...on),
@@ -406,38 +402,17 @@ interface AuthorLLMBlockProps {
 const AuthorLLMBlock: React.FC<AuthorLLMBlockProps> = ({ merge = false }) => {
     const { t } = useTranslation();
     const api = useMemo(() => llmApi(merge ? adminApi.llmMergeBase : undefined), [merge]);
-    const [status, setStatus] = useState<AuthorLLMStatus | null>(null);
-    const [loadFailed, setLoadFailed] = useState(false);
+    // The status, its failed read and its 5 s poll while a run is active
+    // come from the tab's shared source.
+    const source = useScanSource(merge ? 'llmMerge' : 'llmNames');
+    const status = source.data;
+    const loadFailed = source.failed;
+    const load = source.reload;
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
-    const generation = useRef(0);
-
-    const load = useCallback(async () => {
-        const current = ++generation.current;
-        try {
-            const response = await api.status();
-            if (current === generation.current) {
-                setStatus(response.status);
-                setLoadFailed(false);
-            }
-        } catch {
-            if (current === generation.current) {
-                setLoadFailed(true);
-            }
-        }
-    }, [api]);
-
-    useEffect(() => {
-        load();
-    }, [load]);
 
     const run = status?.run ?? null;
     const active = run !== null && ACTIVE.has(run.status);
-    useEffect(() => {
-        if (!active) return undefined;
-        const timer = window.setInterval(load, POLL_INTERVAL_MS);
-        return () => window.clearInterval(timer);
-    }, [active, load]);
 
     const act = async (action: () => Promise<unknown>) => {
         setBusy(true);

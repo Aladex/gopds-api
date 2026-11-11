@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
@@ -22,6 +22,8 @@ import type {
 import { closedErrorCode } from '@/api/admin';
 import AuthorEntityBlock from '@/features/admin/AuthorEntityBlock';
 import AuthorLLMBlock from '@/features/admin/AuthorLLMBlock';
+import { ACTIVE_METADATA, isUsableRun, runErrors } from '@/features/admin/scan/metadataRun';
+import { useScanSource } from '@/features/admin/scan/ScanSources';
 
 /**
  * The author metadata card of the scanning section: one pass over the
@@ -48,36 +50,13 @@ import AuthorLLMBlock from '@/features/admin/AuthorLLMBlock';
  * book records" (confirmed first). A run the volume paused says why.
  */
 
-/** How often the card re-reads an active run; every read it makes is cheap. */
-const POLL_INTERVAL_MS = 5000;
+const ACTIVE = ACTIVE_METADATA;
 
-const ACTIVE = new Set(['pending', 'running', 'paused']);
+/** A stable empty list, so a card without problem archives keeps one identity. */
+const NO_ARCHIVES: AuthorMetadataProblemArchive[] = [];
 
-const KNOWN_STATUSES: ReadonlySet<string> = new Set([...ACTIVE, 'completed', 'failed_systemic']);
-
-const KNOWN_MODES: ReadonlySet<string> = new Set(['smoke', 'pilot_archive', 'full']);
-
-/** Only a run whose id JSON parsing has not rounded, with a known status and mode, may be acted on. */
-export const isUsableRun = (run: AuthorMetadataRun): boolean =>
-    Number.isSafeInteger(run.id) &&
-    run.id > 0 &&
-    KNOWN_STATUSES.has(run.status) &&
-    KNOWN_MODES.has(run.mode);
-
-/** The extraction statuses that count as a book the pass could not read. */
-const EXTRACTION_FAILURES = [
-    'entry_missing',
-    'invalid_fb2',
-    'unsupported_encoding',
-    'metadata_parse_failed',
-    'archive_missing',
-    'archive_unreadable',
-] as const;
-
-/** Books in archives the pass found missing or unreadable. */
-const archiveFailures = (run: AuthorMetadataRun): number =>
-    (run.stages.extraction.by_status.archive_missing ?? 0) +
-    (run.stages.extraction.by_status.archive_unreadable ?? 0);
+// Re-exported: the card's tests and callers have always read them from here.
+export { isUsableRun, runErrors };
 
 /** Fallbacks for the closed reasons of a problem archive. */
 const ARCHIVE_REASON_FALLBACKS: ReadonlyMap<string, string> = new Map([
@@ -110,15 +89,6 @@ export function pilotArchive(archives: ArchiveInfo[]): string | null {
         .filter((a) => a.books_count > 0)
         .sort((a, b) => a.books_count - b.books_count || a.name.localeCompare(b.name));
     return candidates.length > 0 ? candidates[0].name : null;
-}
-
-/** Books the run could not read, in either stage. */
-export function runErrors(run: AuthorMetadataRun): number {
-    const byStatus = run.stages.extraction.by_status;
-    return (
-        EXTRACTION_FAILURES.reduce((sum, status) => sum + (byStatus[status] ?? 0), 0) +
-        run.stages.local.failed
-    );
 }
 
 /**
@@ -199,17 +169,28 @@ const formatBytes = (bytes: number): string => {
 
 const AuthorMetadataCard: React.FC = () => {
     const { t } = useTranslation();
-    const [run, setRun] = useState<AuthorMetadataRun | null>(null);
-    const [report, setReport] = useState<AuthorMetadataReport | null>(null);
-    const [phase, setPhase] = useState<'loading' | 'ready' | 'failed'>('loading');
+    // The newest run, its report and its problem archives come from the
+    // tab's shared source, which re-reads every 5 s while anything is on its
+    // way: an active pass, a completed run's final figures, a deletion of an
+    // archive's records.
+    const source = useScanSource('metadataRun');
+    const run = source.data?.run ?? null;
+    const report = source.data?.report ?? null;
+    const archives = source.data?.archives ?? NO_ARCHIVES;
+    const load = source.reload;
+    const phase: 'loading' | 'ready' | 'failed' = source.failed
+        ? 'failed'
+        : source.data !== null
+          ? 'ready'
+          : 'loading';
+    const loadErrorText = source.failed
+        ? t('authorMetadataCard.loadFailed', 'Could not load the author metadata status.')
+        : null;
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
-    const [loadErrorText, setLoadErrorText] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [outdatedPilot, setOutdatedPilot] = useState<number | null>(null);
-    const [archives, setArchives] = useState<AuthorMetadataProblemArchive[]>([]);
     const [pendingDelete, setPendingDelete] = useState<AuthorMetadataProblemArchive | null>(null);
-    const generation = useRef(0);
 
     const describeError = useCallback(
         (error: unknown): string => {
@@ -230,59 +211,9 @@ const AuthorMetadataCard: React.FC = () => {
         [t],
     );
 
-    /** Reads the newest run and, for a finished usable one, its report. */
-    const load = useCallback(async () => {
-        const current = ++generation.current;
-        try {
-            const { run: latest } = await adminApi.getLatestAuthorMetadataRun();
-            let latestReport: AuthorMetadataReport | null = null;
-            let latestArchives: AuthorMetadataProblemArchive[] = [];
-            if (latest !== null && isUsableRun(latest)) {
-                if (!ACTIVE.has(latest.status)) {
-                    latestReport = (await adminApi.getAuthorMetadataRunReport(latest.id)).report;
-                }
-                if (archiveFailures(latest) > 0) {
-                    latestArchives = (await adminApi.getAuthorMetadataRunArchives(latest.id))
-                        .archives;
-                }
-            }
-            if (current !== generation.current) {
-                return;
-            }
-            setRun(latest);
-            setReport(latestReport);
-            setArchives(latestArchives);
-            setLoadErrorText(null);
-            setPhase('ready');
-        } catch {
-            if (current !== generation.current) {
-                return;
-            }
-            setLoadErrorText(
-                t('authorMetadataCard.loadFailed', 'Could not load the author metadata status.'),
-            );
-            setPhase('failed');
-        }
-    }, [t]);
-
-    useEffect(() => {
-        load();
-    }, [load]);
-
     const invalid = run !== null && !isUsableRun(run);
     const state = invalid ? ({ kind: 'idle' } as const) : cardState(run, report, outdatedPilot);
     const active = state.kind === 'active';
-    // Read again while anything is still on its way: an active pass, a
-    // completed run's final figures, a deletion of an archive's records.
-    const following =
-        active || state.kind === 'finalizing' || archives.some((a) => a.deletion !== null);
-    useEffect(() => {
-        if (!following) {
-            return undefined;
-        }
-        const timer = window.setInterval(load, POLL_INTERVAL_MS);
-        return () => window.clearInterval(timer);
-    }, [following, load]);
 
     /**
      * Runs one action, then reads the state again; the controls stay disabled

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Alert, AlertDescription } from '@/shared/ui/alert';
@@ -15,15 +15,14 @@ import type {
     AuthorMergeRegistration,
     AuthorMergeVeto,
     AuthorMergeVetoEntity,
-    AuthorMerges,
     AuthorEntityReport,
     AuthorEntityRun,
-    AuthorEntityStatus,
     AuthorEntityWikidataReport,
     WikidataExtract,
     WikidataStatus,
 } from '@/api/admin';
 import { closedErrorCode } from '@/api/admin';
+import { useScanSource } from '@/features/admin/scan/ScanSources';
 
 /**
  * The author entity block of the author metadata card (design E, phase E1):
@@ -57,15 +56,6 @@ import { closedErrorCode } from '@/api/admin';
  * decisions — and withdrawn, or one script of it blocked, to split its merges
  * at the next pass.
  */
-
-/** How often the block re-reads while a pass is active. */
-const POLL_INTERVAL_MS = 5000;
-
-/**
- * How often it re-reads while the autopilot is on and nothing runs: a scan
- * settles and a cycle starts on its own, so the block looks for it.
- */
-const IDLE_POLL_INTERVAL_MS = 15000;
 
 const ACTIVE = new Set(['pending', 'running']);
 
@@ -562,7 +552,10 @@ const MERGE_KINDS: Record<string, [string, string]> = {
     swap_mixed: ['authorEntity.merges.kind.swap_mixed', 'swapped name parts, two scripts'],
     initials_mixed: ['authorEntity.merges.kind.initials_mixed', 'initials, two scripts'],
     translit_mixed: ['authorEntity.merges.kind.translit_mixed', 'transliteration, two scripts'],
-    variant_mixed: ['authorEntity.merges.kind.variant_mixed', 'one name spelled two ways, two scripts'],
+    variant_mixed: [
+        'authorEntity.merges.kind.variant_mixed',
+        'one name spelled two ways, two scripts',
+    ],
 };
 
 const mergeKind = (t: T, kind: string): string => {
@@ -592,7 +585,10 @@ const MERGE_REASONS: Record<string, [string, string]> = {
     pseudonym_key: ['authorEntity.merges.reason.pseudonym_key', 'a pen name'],
     partner_cap: ['authorEntity.merges.reason.partner_cap', 'too many similar names'],
     initials_side_gt10: ['authorEntity.merges.reason.initials_side_gt10', 'too many books'],
-    initials_hub_too_long: ['authorEntity.merges.reason.initials_hub_too_long', 'every book does not fit one question'],
+    initials_hub_too_long: [
+        'authorEntity.merges.reason.initials_hub_too_long',
+        'every book does not fit one question',
+    ],
     mixed_script: ['authorEntity.merges.reason.mixed_script', 'mixed scripts'],
     no_family_or_given: ['authorEntity.merges.reason.no_family_or_given', 'no surname or name'],
     loose_script_only: ['authorEntity.merges.reason.loose_script_only', 'a loose transliteration'],
@@ -967,23 +963,18 @@ const applyLine = (t: T, a: AuthorMergeApplyReport): string =>
 /** The merges section: the model's decisions and the vetoes of revokes. */
 const MergesSection: React.FC<{ onChanged: () => Promise<void> }> = ({ onChanged }) => {
     const { t } = useTranslation();
-    const [merges, setMerges] = useState<AuthorMerges | null>(null);
+    // The merges come from the tab's shared source, read once on mount.
+    const source = useScanSource('merges');
+    const merges = source.data;
+    const load = source.reload;
     const [busy, setBusy] = useState(false);
-    const [errorText, setErrorText] = useState<string | null>(null);
+    const [actionErrorText, setErrorText] = useState<string | null>(null);
     const [applied, setApplied] = useState<AuthorMergeApplyReport | null>(null);
-
-    const load = useCallback(async () => {
-        try {
-            const response = await adminApi.getAuthorMerges();
-            setMerges(response.merges);
-        } catch {
-            setErrorText(t('authorEntity.merges.loadFailed', 'Could not read the merges.'));
-        }
-    }, [t]);
-
-    useEffect(() => {
-        load();
-    }, [load]);
+    // A failed read wins over an action's error, as it did when the read
+    // after an action overwrote it.
+    const errorText = source.failed
+        ? t('authorEntity.merges.loadFailed', 'Could not read the merges.')
+        : actionErrorText;
 
     const act = async (action: () => Promise<unknown>) => {
         setBusy(true);
@@ -1176,41 +1167,18 @@ const reportLines = (t: T, r: AuthorEntityReport): string[] => {
 
 const AuthorEntityBlock: React.FC = () => {
     const { t } = useTranslation();
-    const [status, setStatus] = useState<AuthorEntityStatus | null>(null);
-    const [loadFailed, setLoadFailed] = useState(false);
+    // The status, its failed read and its polls (5 s while a pass or a
+    // Wikidata fetch runs, 15 s while the autopilot is on) come from the
+    // tab's shared source.
+    const source = useScanSource('entity');
+    const status = source.data;
+    const loadFailed = source.failed;
+    const load = source.reload;
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
-    const generation = useRef(0);
-
-    const load = useCallback(async () => {
-        const current = ++generation.current;
-        try {
-            const response = await adminApi.getAuthorEntityStatus();
-            if (current === generation.current) {
-                setStatus(response.status);
-                setLoadFailed(false);
-            }
-        } catch {
-            if (current === generation.current) {
-                setLoadFailed(true);
-            }
-        }
-    }, []);
-
-    useEffect(() => {
-        load();
-    }, [load]);
 
     const run = status?.run ?? null;
-    const active =
-        (run !== null && ACTIVE.has(run.status)) || status?.wikidata?.latest?.status === 'fetching';
     const building = run !== null && ACTIVE.has(run.status);
-    const watching = status?.autopilot?.enabled === true;
-    useEffect(() => {
-        if (!active && !watching) return undefined;
-        const timer = window.setInterval(load, active ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
-        return () => window.clearInterval(timer);
-    }, [active, watching, load]);
 
     const start = async () => {
         setBusy(true);
