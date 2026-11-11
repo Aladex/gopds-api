@@ -171,6 +171,8 @@ var labeledErrors = map[int64]labeledFix{
 	244413: fixedName("Джильберто", "", "Виллаэрмоза", "Джильберто Виллаэрмоза", "Виллаэрмоза, Джильберто"),
 	314096: fixedName("Александр", "", "Райн", "Александр Райн", "Райн, Александр"),
 	317181: fixedName("Роберт", "", "Блох", "Роберт Блох", "Блох, Роберт"),
+	// Step 1: a word of the display missing from the parts.
+	297402: refused(RefusedUnparsedWord), // «Kelley St. John»: St. in the display, family «John»
 	// Step 1: a word of the display lost to the nickname.
 	41864:  refused(RefusedLostToken), // «Игорь Numus» → «Игорь»
 	303542: refused(RefusedLostToken), // «Константин СИшный» → «Константин»
@@ -218,9 +220,8 @@ var labeledErrors = map[int64]labeledFix{
 // labeledUnguarded are the rows called different that no guard of
 // triage-v2 is meant for, and why.
 var labeledUnguarded = map[int64]string{
-	161480: "an empty sort name: the credit sorts by the file's last name (creditSortKey), not an error",
-	46814:  "an empty sort name: the credit sorts by the file's last name (creditSortKey), not an error",
-	297402: "«Kelley St. John»: St. leaves the parts but stays in the display and the sort",
+	161480: "an empty sort name: no error, the credit sorts by the file's last name (creditSortKey; coordinator ruling)",
+	46814:  "an empty sort name: no error, the credit sorts by the file's last name (creditSortKey; coordinator ruling)",
 	319117: "«Папа Римский Франциск»: the name only in the display and the sort",
 	311558: "«Махант Аведьянатх»: the name only in the display and the sort",
 	47904:  "«Онкен-мл.»: the generational suffix kept inside the family name",
@@ -265,10 +266,8 @@ func TestTriageV2FixesOrRefusesTheLabeledErrors(t *testing.T) {
 
 // Why a row labeled same changes under triage-v2.
 const (
-	whyNickname = "lost token as the brief words it: the nickname left the display, " +
-		"though both labelers accept that beside a full name"
+	whyNickname    = "lost token: a nickname of more than one word, or with a bare number, left the display"
 	whyAside       = "lost token: a part in parentheses or quotes left the display"
-	whyRole        = "lost token: a role or clerical title dropped, not moved to the prefix"
 	whyPunctuation = "a stray dot or comma dropped: the display the parts give"
 	whyLookalike   = "Cyrillic initials of a Latin name folded to Latin"
 	whyTitleShape  = "a pair with a lower-case word reads as a title: refused to the people"
@@ -282,59 +281,26 @@ var labeledSameChanged = map[int64]struct {
 	fix    labeledFix
 	reason string
 }{
-	309:    {refused(RefusedLostToken), whyNickname}, // "Владислав Семеренко Wolf"
-	9328:   {refused(RefusedLostToken), whyNickname}, // "Ганс Бандильерос Bandileros"
-	9535:   {refused(RefusedLostToken), whyNickname}, // "Александр Владимирович Афанасьев Werewolf"
-	12207:  {refused(RefusedLostToken), whyAside},    // "Г. А. Тюньдешев (Харамоос)"
+	12207:  {refused(RefusedLostToken), whyAside}, // "Г. А. Тюньдешев (Харамоос)"
 	12764:  {fixedName("James", "Wesley", "Rawles", "James Wesley Rawles", "Rawles, James Wesley"), whyPunctuation},
-	13906:  {refused(RefusedLostToken), whyNickname}, // "Александр Маркьянов Werewolf"
-	31321:  {refused(RefusedLostToken), whyNickname}, // "Руслан Балабеков Lorgar666"
 	37767:  {fixedName("C.", "A.", "Ekshut", "C. A. Ekshut", "Ekshut, C. A."), whyLookalike},
 	46730:  {fixedName("Алексей", "Кузьмич", "Югов", "Алексей Кузьмич Югов", "Югов, Алексей Кузьмич"), whyPunctuation},
 	57332:  {refused(RefusedLostToken), whyNickname}, // "Михаил Валерин August Flieger"
-	62117:  {refused(RefusedLostToken), whyNickname}, // "Сергей Баландин balandin"
-	72913:  {refused(RefusedLostToken), whyNickname}, // "Елена Филон Helena_fi"
 	73567:  {refused(RefusedLostToken), whyNickname}, // "Doris May Lessing Little Dorrit"
-	80549:  {refused(RefusedLostToken), whyNickname}, // "Лев Вершинин putnik1"
 	88211:  {fixedName("Atk", "", "Butterfly", "Atk Butterfly", "Butterfly, Atk"), whyPunctuation},
 	92441:  {fixedName("Андрей", "", "Битов", "Андрей Битов", "Битов, Андрей"), whyPunctuation},
-	93120:  {refused(RefusedLostToken), whyNickname}, // "Игорь Николаевич Кощиенко Tig@r"
-	95003:  {refused(RefusedLostToken), whyNickname}, // "Robert Forrest-Webb Bob"
 	95444:  {refused(RefusedLostToken), whyNickname}, // "Николай Александрович Романов Николай II"
 	101587: {refused(RefusedLostToken), whyNickname}, // "Отем Грей Grey Autumn"
 	102622: {refused(RefusedLostToken), whyNickname}, // "Александр Михайлович Гуков Карась 72"
-	103340: {refused(RefusedLostToken), whyNickname}, // "Чарльз Дыкенс 9cbka"
-	126219: {refused(RefusedLostToken), whyRole},     // "Иоанн Лествичник преподобный"
-	152603: {refused(RefusedLostToken), whyNickname}, // "Павел Михайлович Ершов Oldschoolman"
-	159170: {refused(RefusedLostToken), whyRole},     // "Рафаил Нойка иеромонах"
 	189511: {fixedName("Денис", "", "Гуцко", "Денис Гуцко", "Гуцко, Денис"), whyPunctuation},
-	207439: {refused(RefusedLostToken), whyNickname}, // "Наталья Эдуардовна Манусаджян manila"
-	208603: {refused(RefusedLostToken), whyAside},    // "Вильям (Уильям) Виллис (Уиллис)"
-	235434: {refused(RefusedLostToken), whyNickname}, // "Евгений Борисович Коваленко Coma"
-	237641: {refused(RefusedLostToken), whyNickname}, // "Надежда Марковна Борзакова elpise269"
-	241674: {refused(RefusedLostToken), whyRole},     // "Анна Мудрова (сост.)"
-	241808: {refused(RefusedLostToken), whyAside},    // "Хардин Джесси «Волк»"
-	244701: {refused(RefusedLostToken), whyNickname}, // "Александра Лосева iefa"
+	208603: {refused(RefusedLostToken), whyAside}, // "Вильям (Уильям) Виллис (Уиллис)"
+	241808: {refused(RefusedLostToken), whyAside}, // "Хардин Джесси «Волк»"
 	271018: {fixedName("Августин", "", "", "Августин Блаженный", ""), whyPunctuation},
-	295993: {refused(RefusedLostToken), whyNickname}, // "Алексей Вадимович Гавриленко Myqualia"
-	297493: {refused(RefusedLostToken), whyNickname}, // "Марк Твен Twain"
-	300130: {refused(RefusedLostToken), whyRole},     // "Василий Ермаков протоиерей"
-	307509: {refused(RefusedLostToken), whyNickname}, // "Charles Lincoln Neal Link"
-	310575: {refused(RefusedLostToken), whyNickname}, // "Алексей Акданин B0oka"
-	310706: {refused(RefusedLostToken), whyRole},     // "Михаил Георгиевич Аксенов-Меерсон протоиерей"
-	311597: {refused(RefusedLostToken), whyNickname}, // "Александра Питкевич Samum"
-	314083: {refused(RefusedLostToken), whyNickname}, // "Дарья Кей Mista"
 	314735: {refused(RefusedLostToken), whyNickname}, // "Алексис Опсокополос Alexis Opsokopolos"
-	315359: {refused(RefusedLostToken), whyNickname}, // "Андрей Эдуардович Малышев Rakot"
 	316073: {fixedName("Иван", "", "Трушков", "Иван Трушков", "Трушков, Иван"), whyPunctuation},
 	317670: {fixedName("Jāzeps", "", "Osmanis", "Jāzeps Osmanis", "Osmanis, Jāzeps"), whyPunctuation},
 	318676: {refused(RefusedLostToken), whyAside},       // "Сатеник (Сати) Жоровна Епремян"
 	320685: {refused(RefusedLostToken), whyNickname},    // "Константин Владимирович Ткаченко К. и Т. Енко"
-	225:    {refused(RefusedLostToken), whyNickname},    // "Сергей Юрьевич Трухачев SETR"
-	15993:  {refused(RefusedLostToken), whyNickname},    // "Макс Роуд maxroud"
-	44881:  {refused(RefusedLostToken), whyRole},        // "Лев Великий святитель"
-	183879: {refused(RefusedLostToken), whyNickname},    // "Виктория Яковлевна Райхер neivid"
-	185042: {refused(RefusedLostToken), whyNickname},    // "Dario Corno rIo"
 	311449: {refused(RefusedLostToken), whyAside},       // "Марк «Всплеск» Астон"
 	321055: {refused(RefusedTitleShape), whyTitleShape}, // "Материалы православных и светских СМИ"
 	321069: {refused(RefusedTitleShape), whyTitleShape}, // "Волкова Дарья и whiterose"

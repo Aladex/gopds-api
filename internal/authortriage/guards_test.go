@@ -31,6 +31,14 @@ func TestTriageV2DropsSameNameAndParticleOnly(t *testing.T) {
 	assert.Equal(t, "triage-v2", RuleVersion)
 }
 
+// withNickname is n with a nickname the display does not show.
+//
+//nolint:gocritic // a fixture takes its name by value, as the table rows spell it
+func withNickname(n Name, nickname string) Name {
+	n.Nickname = nickname
+	return n
+}
+
 // stored is an item whose four models agree on after.
 //
 //nolint:gocritic // a fixture takes its names by value, as the table rows spell them
@@ -109,6 +117,64 @@ func TestStoredAnswerGuards(t *testing.T) {
 			c: stored(Name{Given: "Игорь", Family: "Numus", Display: "Игорь Numus", Kind: KindPerson},
 				Name{Given: "Игорь", Nickname: "Numus", Display: "Игорь", Sort: "Игорь", Kind: KindPerson}),
 			refusal: RefusedLostToken,
+		},
+		"a one-word nickname beside a full display": {
+			c: stored(Name{Display: "Руслан Балабеков Lorgar666", Kind: KindPerson},
+				withNickname(person("Руслан", "Балабеков"), "Lorgar666")),
+			after: withNickname(person("Руслан", "Балабеков"), "Lorgar666"),
+		},
+		"a one-word nickname in parentheses": {
+			c: stored(Name{Display: "Мария Капилина (Пичугина)", Kind: KindPerson},
+				withNickname(person("Мария", "Капилина"), "Пичугина")),
+			refusal: RefusedLostToken,
+		},
+		"a one-word nickname in quotes": {
+			c: stored(Name{Display: "Хардин Джесси «Волк»", Kind: KindPerson},
+				withNickname(person("Хардин", "Джесси"), "Волк")),
+			refusal: RefusedLostToken,
+		},
+		"a nickname of two words": {
+			c: stored(Name{Display: "Михаил Валерин August Flieger", Kind: KindPerson},
+				withNickname(person("Михаил", "Валерин"), "August Flieger")),
+			refusal: RefusedLostToken,
+		},
+		"a bare number is a namesake's tag, no nickname": {
+			c: stored(Name{Display: "Евгений Александров 2", Kind: KindPerson},
+				withNickname(person("Евгений", "Александров"), "2")),
+			refusal: RefusedLostToken,
+		},
+		"a lost word that is no nickname": {
+			c:       stored(Name{Display: "Анна Мудрова Петровна", Kind: KindPerson}, person("Анна", "Мудрова")),
+			refusal: RefusedLostToken,
+		},
+		"a clerical title dropped": {
+			c:     stored(Name{Display: "Рафаил Нойка иеромонах", Kind: KindPerson}, person("Рафаил", "Нойка")),
+			after: person("Рафаил", "Нойка"),
+		},
+		"a role in parentheses dropped": {
+			c:     stored(Name{Display: "Анна Мудрова (сост.)", Kind: KindPerson}, person("Анна", "Мудрова")),
+			after: person("Анна", "Мудрова"),
+		},
+		"a display word in no part": {
+			c: stored(Name{Given: "Kelley", Additional: "St.", Family: "John", Display: "Kelley St. John",
+				Kind: KindPerson}, Name{Given: "Kelley", Family: "John", Display: "Kelley St. John",
+				Sort: "St. John, Kelley", Kind: KindPerson}),
+			refusal: RefusedUnparsedWord,
+		},
+		"a sort word in no part": {
+			c: stored(Name{Display: "Kelley John", Kind: KindPerson}, Name{Given: "Kelley", Family: "John",
+				Display: "Kelley John", Sort: "St. John, Kelley", Kind: KindPerson}),
+			refusal: RefusedUnparsedWord,
+		},
+		"a mononym has no parts to hold its display": {
+			c:     stored(handle("Басё"), Name{Display: "Басё", Sort: "Басё", Kind: KindPerson}),
+			after: Name{Display: "Басё", Sort: "Басё", Kind: KindPerson},
+		},
+		"a title off the role lists moved to the prefix": {
+			c: stored(Name{Display: "Доктор Иван Петров", Kind: KindPerson}, Name{Given: "Иван", Family: "Петров",
+				Prefix: "Доктор", Display: "Иван Петров", Sort: "Петров, Иван", Kind: KindPerson}),
+			after: Name{Given: "Иван", Family: "Петров", Prefix: "Доктор", Display: "Иван Петров",
+				Sort: "Петров, Иван", Kind: KindPerson},
 		},
 		"a word moved to a role prefix": {
 			c: stored(Name{Given: "Лука", Family: "Войно-Ясенецкий", Display: "святитель Лука Войно-Ясенецкий",

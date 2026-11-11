@@ -31,7 +31,8 @@ const (
 // storedAnswerGuard guards a stored answer the judges agree on (steps 1 and
 // 2). A person's look-alike letters are folded and a stray dot or comma
 // dropped; then the answer is refused when it loses a word of the
-// proposal's display, or keeps a role as a name.
+// proposal's display, shows a word none of its parts holds, or keeps a role
+// as a name.
 func storedAnswerGuard(c *Candidate, after *Name, ev *Evidence) Refusal {
 	if after.Kind == KindPerson {
 		if folded := foldNameLookalikes(after); folded != *after {
@@ -45,6 +46,9 @@ func storedAnswerGuard(c *Candidate, after *Name, ev *Evidence) Refusal {
 	}
 	if lostWord(c.Proposal.Display, after) {
 		return RefusedLostToken
+	}
+	if unparsedWord(after) {
+		return RefusedUnparsedWord
 	}
 	if roleAsName(after) {
 		return RefusedRoleAsName
@@ -267,23 +271,26 @@ func suffixWord(w string, n *Name) bool {
 	return len(first) > 0 && strings.Trim(first[0], wordPunctuation) == core
 }
 
-// compareWords are the words of s as the lost-word test compares them:
-// letters and digits only, in capitals, look-alike letters read as
-// Cyrillic, «Ё» as «Е», a Latin or Ukrainian «I» as «И».
+// compareWords are the words of s as the lost-word test compares them
+// (compareKey).
 func compareWords(s string) []string {
-	var out []string
-	var b strings.Builder
-	flush := func() {
-		if b.Len() > 0 {
-			out = append(out, b.String())
-			b.Reset()
-		}
+	words := rawWords(s)
+	for i, w := range words {
+		words[i] = compareKey(w)
 	}
-	for _, r := range s {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-			flush()
-			continue
-		}
+	return words
+}
+
+// rawWords are the runs of letters and digits of s.
+func rawWords(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+}
+
+// compareKey is a word in capitals, its look-alike letters read as
+// Cyrillic, «Ё» as «Е», a Latin or Ukrainian «I» as «И».
+func compareKey(w string) string {
+	var b strings.Builder
+	for _, r := range w {
 		r = unicode.ToUpper(r)
 		if folded, ok := authorentity.FoldLookalikeWord(string(r), true); ok {
 			r, _ = utf8.DecodeRuneInString(folded)
@@ -293,21 +300,54 @@ func compareWords(s string) []string {
 		}
 		b.WriteRune(r)
 	}
-	flush()
-	return out
+	return b.String()
 }
 
 // compareLetters are the letters the lost-word test reads as one.
 var compareLetters = map[rune]rune{'Ё': 'Е', 'I': 'И', 'І': 'И'}
 
-// lostWord reports a word of the proposal's display that the answer's
-// display does not show, unless the answer moved it to the prefix.
-func lostWord(source string, after *Name) bool {
-	have := map[string]bool{}
-	for _, w := range compareWords(after.Display + " " + after.Prefix) {
-		have[w] = true
+// wordSet is the compared words of s.
+func wordSet(s string) map[string]bool {
+	set := map[string]bool{}
+	for _, w := range compareWords(s) {
+		set[w] = true
 	}
-	return slices.ContainsFunc(compareWords(source), func(w string) bool { return !have[w] })
+	return set
+}
+
+// quoteMarks are the parentheses and quotes that set a nickname apart
+// («Мария Капилина (Пичугина)», «Хардин Джесси «Волк»»).
+const quoteMarks = "()«»\"„“”"
+
+// lostWord reports a word of the proposal's display that the answer's
+// display and prefix do not show. A role or clerical title may go
+// («Рафаил Нойка иеромонах»), and so may the word of a one-word nickname
+// beside a display of two words or more, when the proposal sets nothing
+// apart in parentheses or quotes and the nickname is no bare number
+// («Руслан Балабеков Lorgar666»; not «Евгений Александров 2»).
+func lostWord(source string, after *Name) bool {
+	have := wordSet(after.Display + " " + after.Prefix)
+	var nickname map[string]bool
+	if len(strings.Fields(after.Nickname)) == 1 && len(strings.Fields(after.Display)) >= 2 &&
+		!strings.ContainsAny(source, quoteMarks) && strings.ContainsFunc(after.Nickname, unicode.IsLetter) {
+		nickname = wordSet(after.Nickname)
+	}
+	return slices.ContainsFunc(rawWords(source), func(w string) bool {
+		key := compareKey(w)
+		return !have[key] && !nickname[key] && !personRoles[strings.ToLower(w)] && !clericalTitles[strings.ToLower(w)]
+	})
+}
+
+// unparsedWord reports a person answer with name parts whose display or
+// sort shows a word none of the parts holds («Kelley St. John» with the
+// family «John»). A name with no parts, a mononym's display only, is not
+// read.
+func unparsedWord(n *Name) bool {
+	if n.Kind != KindPerson || strings.TrimSpace(n.Given+n.Additional+n.Family+n.Nickname) == "" {
+		return false
+	}
+	parts := wordSet(strings.Join([]string{n.Given, n.Additional, n.Family, n.Nickname, n.Prefix, n.Suffix}, " "))
+	return slices.ContainsFunc(compareWords(n.Display+" "+n.Sort), func(w string) bool { return !parts[w] })
 }
 
 // roleKey is a word as the role lists hold it.

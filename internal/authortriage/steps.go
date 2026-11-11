@@ -94,8 +94,12 @@ type Refusal string
 
 const (
 	// RefusedLostToken: a word of the proposal's display is missing from
-	// the answer's display and is not a role prefix.
+	// the answer's display: not moved to the prefix, not a role or clerical
+	// title, and not a one-word nickname beside a full display.
 	RefusedLostToken Refusal = "lost_token"
+	// RefusedUnparsedWord: a word of a person's display or sort that none
+	// of the name parts holds («Kelley St. John» with the family «John»).
+	RefusedUnparsedWord Refusal = "display_word_not_in_parts"
 	// RefusedRoleAsName: a role or clerical title kept as a name part, or a
 	// prefix in capitals; a person's role inside a collective's name.
 	RefusedRoleAsName Refusal = "role_as_name"
