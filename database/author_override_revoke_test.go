@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"gopds-api/internal/authornorm"
+	"gopds-api/models"
 
 	"github.com/go-pg/pg/v10"
 	"github.com/stretchr/testify/assert"
@@ -170,16 +171,7 @@ func TestSwapSourcesIgnoreRevokedOverrides(t *testing.T) {
 	f.finishJob(&r, resultID)
 	f.resolve(&r, decide(t, registeredPolicy(t, f), &r, resultID))
 
-	swapSources := func() [][]byte {
-		t.Helper()
-		rows, err := AuthorLLMSwapSources(context.Background(), f.tx)
-		require.NoError(t, err)
-		var fps [][]byte
-		for _, row := range rows {
-			fps = append(fps, row.SourceFingerprint)
-		}
-		return fps
-	}
+	swapSources := f.swapSourceFingerprints
 	require.Equal(t, [][]byte{fp[:]}, swapSources(), "an automatic input with no manual decision is a source")
 
 	override := f.fingerprintOverride(fp[:], f.manualResultFor(fp[:], admin), admin)
@@ -187,6 +179,82 @@ func TestSwapSourcesIgnoreRevokedOverrides(t *testing.T) {
 
 	f.revoke(override, admin)
 	assert.Equal(t, [][]byte{fp[:]}, swapSources(), "a revoked override counts as none")
+}
+
+// A superseded snapshot keeps its credit's selection through the override
+// after the override is revoked: the undo re-resolves only current credits.
+// That historical row must not keep the fingerprint out of the swap sources
+// once the current credit is selected automatically again.
+func TestSwapSourcesIgnoreAHistoricalSelectionThroughARevokedOverride(t *testing.T) {
+	f := withScratchTx(t)
+	admin := f.user()
+	source := structuredSource(t)
+	fp := authornorm.SourceFingerprint(source)
+	book, old := f.persistBook(authorCredit(source))
+	r := normalizedAs(t, source, authornorm.ClassStructuredPerson)
+	resultID := f.storeResult(&r)
+	f.finishJob(&r, resultID)
+	policy := registeredPolicy(t, f)
+
+	override := f.fingerprintOverride(fp[:], f.manualResultFor(fp[:], admin), admin)
+	f.resolve(&r, decide(t, policy, &r, resultID))
+	oldSel := f.selection(old[0])
+	require.NotNil(t, oldSel)
+	require.NotNil(t, oldSel.OverrideID)
+	require.Equal(t, override, *oldSel.OverrideID, "the first snapshot's credit is selected through the override")
+
+	current := f.persistVersion(book, bookMD5(book+1_000_000), authorCredit(source))
+	require.Zero(t, f.count(`SELECT count(*) FROM book_contributor_credit c
+		JOIN book_metadata_snapshot s ON s.id = c.snapshot_id AND s.is_current WHERE c.id = ?`, old[0]),
+		"the rescan superseded the first snapshot")
+	f.revoke(override, admin)
+	f.resolve(&r, decide(t, policy, &r, resultID))
+	cur := f.selection(current[0])
+	require.NotNil(t, cur)
+	require.Equal(t, models.CreditSelectionSelected, cur.State)
+	require.Nil(t, cur.OverrideID, "the current credit is selected automatically")
+	oldSel = f.selection(old[0])
+	require.NotNil(t, oldSel.OverrideID, "the superseded selection still names the revoked override")
+
+	assert.Equal(t, [][]byte{fp[:]}, f.swapSourceFingerprints(),
+		"a historical selection through a revoked override counts as none")
+}
+
+// The admin's own decision stays independent of revocation: left unresolved
+// on a superseded snapshot, it keeps the fingerprint out even though the
+// current credit is selected automatically and no override exists.
+func TestSwapSourcesKeepOutAHistoricalAdminDecision(t *testing.T) {
+	f := withScratchTx(t)
+	admin := f.user()
+	source := structuredSource(t)
+	fp := authornorm.SourceFingerprint(source)
+	book, old := f.persistBook(authorCredit(source))
+	r := normalizedAs(t, source, authornorm.ClassStructuredPerson)
+	resultID := f.storeResult(&r)
+	f.finishJob(&r, resultID)
+	policy := registeredPolicy(t, f)
+	f.exec(leaveUnresolvedSQL, old[0], fp[:], admin)
+
+	current := f.persistVersion(book, bookMD5(book+1_000_000), authorCredit(source))
+	f.resolve(&r, decide(t, policy, &r, resultID))
+	cur := f.selection(current[0])
+	require.NotNil(t, cur)
+	require.Equal(t, models.CreditSelectionSelected, cur.State)
+	require.Nil(t, cur.DecidedByUserID, "the current credit is selected automatically")
+
+	assert.Empty(t, f.swapSourceFingerprints(), "a superseded admin decision still keeps the fingerprint out")
+}
+
+// swapSourceFingerprints lists the fingerprints AuthorLLMSwapSources returns.
+func (f *authorSchemaFixture) swapSourceFingerprints() [][]byte {
+	f.t.Helper()
+	rows, err := AuthorLLMSwapSources(context.Background(), f.tx)
+	require.NoError(f.t, err)
+	var fps [][]byte
+	for i := range rows {
+		fps = append(fps, rows[i].SourceFingerprint)
+	}
+	return fps
 }
 
 func TestIncompatibleSchemaFlagsSkipRevoked(t *testing.T) {
