@@ -48,7 +48,7 @@ func TestFingerprintLearnsIDsAndReferences(t *testing.T) {
 
 func TestFingerprintFailures(t *testing.T) {
 	cases := map[string]func([]FingerprintMeasurement) []FingerprintMeasurement{
-		"unstable": func(ms []FingerprintMeasurement) []FingerprintMeasurement { ms[1].PromptTokens = 701; return ms },
+		"unstable": func(ms []FingerprintMeasurement) []FingerprintMeasurement { ms[1].PromptTokens = 702; return ms },
 		"unanswered": func(ms []FingerprintMeasurement) []FingerprintMeasurement {
 			ms[10].Answered = false
 			return ms

@@ -28,7 +28,7 @@ func TestRelearnFingerprintKeepsTheStageRule(t *testing.T) {
 	}
 
 	unstable := append([]FingerprintMeasurement(nil), ms...)
-	unstable[1].PromptTokens = 951
+	unstable[1].PromptTokens = 952
 	if _, reason = RelearnFingerprint("judge_b", unstable, false, others); !strings.HasPrefix(reason, "unstable:") {
 		t.Errorf("disagreeing calls: %q", reason)
 	}

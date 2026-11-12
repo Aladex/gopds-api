@@ -212,7 +212,7 @@ func TestAuthorLLMRelearnThatDoesNotSettleStaysPaused(t *testing.T) {
 		reply := answer(req)
 		if isFingerprint(req) && req.Model == "claude-opus-5" && flip.Load() {
 			// The provider is still moving: every count differs.
-			reply.Prompt = checkPrompt + 50 + prompt.Add(1)
+			reply.Prompt = checkPrompt + 50 + prompt.Add(2)
 		}
 		return reply
 	})

@@ -18,6 +18,7 @@ import (
 	"gopds-api/database"
 	"gopds-api/internal/authorentity"
 	"gopds-api/internal/authornorm"
+	"gopds-api/internal/authornorm/llmeval"
 	"gopds-api/internal/authornorm/llmreq"
 	"gopds-api/internal/authornorm/llmres"
 	"gopds-api/internal/safepath"
@@ -470,12 +471,14 @@ func (w *AuthorLLMWorker) answered(claim *database.AuthorLLMClaim, resp *llm.Str
 }
 
 // fingerprintPassed compares a fingerprint response with the reference: the
-// model id V0 accepts, the exact prompt tokens of the fixed request, and for a
-// reasoning participant a reasoning (or, when the endpoint reports none,
-// completion) token count at least the floor.
+// model id V0 accepts, the prompt tokens of the fixed request up to
+// llmeval.PromptTokenTolerance (a provider's count of the same model jitters
+// by one; that is not drift), and for a reasoning participant a reasoning
+// (or, when the endpoint reports none, completion) token count at least the
+// floor.
 func fingerprintPassed(claim *database.AuthorLLMClaim, resp *llm.StructuredResponse, mismatch bool) bool {
 	ref := claim.Reference
-	if ref == nil || mismatch || !resp.Usage.Present || resp.Usage.PromptTokens != ref.PromptTokens {
+	if ref == nil || mismatch || !resp.Usage.Present || !llmeval.PromptTokensMatch(resp.Usage.PromptTokens, ref.PromptTokens) {
 		return false
 	}
 	if ref.ReasoningFloor > 0 {

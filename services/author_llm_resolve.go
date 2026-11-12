@@ -210,7 +210,9 @@ func sameParticipants(a, b *database.AuthorLLMEvalEvidence) (bool, error) {
 
 // sameReferences reports whether two evals learned the same fingerprint
 // reference — prompt tokens, reasoning floor and output mode — for every
-// participant.
+// participant. The prompt tokens are the same up to
+// llmeval.PromptTokenTolerance, as the worker's fingerprint check takes them:
+// a provider's one-token jitter at the fingerprint stage is the same model.
 func sameReferences(a, b json.RawMessage) (bool, error) {
 	read := func(raw json.RawMessage) (map[string]database.AuthorLLMFingerprintReference, error) {
 		out := map[string]database.AuthorLLMFingerprintReference{}
@@ -230,7 +232,10 @@ func sameReferences(a, b json.RawMessage) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return maps.Equal(x, y), nil
+	return maps.EqualFunc(x, y, func(r, q database.AuthorLLMFingerprintReference) bool {
+		return llmeval.PromptTokensMatch(r.PromptTokens, q.PromptTokens) &&
+			r.ReasoningFloor == q.ReasoningFloor && r.OutputMode == q.OutputMode
+	}), nil
 }
 
 // sameModels reports whether two evals learned the same model ids for every

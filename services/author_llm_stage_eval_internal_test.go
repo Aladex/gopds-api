@@ -174,22 +174,27 @@ func setReference(t *testing.T, ev *database.AuthorLLMEvalEvidence, prompt, floo
 func TestPlanAuthorLLMResolveFromRefusesADriftedReference(t *testing.T) {
 	const ids = `{"production_a":["a"],"production_b":["b"],"judge_a":["c"],"judge_b":["d"]}`
 	cases := []struct {
-		name          string
-		prompt, floor int64
-		mode          string
-		stale         bool
+		name                   string
+		primary, prompt, floor int64
+		mode                   string
+		stale                  bool
 	}{
-		{"the same reference", 1126, 0, "json_schema", false},
-		{"prompt tokens 1126 → 1200", 1126, 0, "json_schema", true},
-		{"another output mode", 1200, 0, "tool", true},
-		{"another reasoning floor", 1200, 64, "json_schema", true},
+		{"the same reference", 1126, 1126, 0, "json_schema", false},
+		{"prompt tokens 1126 → 1200", 1200, 1126, 0, "json_schema", true},
+		// A one-token difference is the provider's count jitter, which the
+		// worker's check tolerates; two tokens are not.
+		{"prompt tokens 1126 → 1127", 1127, 1126, 0, "json_schema", false},
+		{"prompt tokens 1126 → 1125", 1125, 1126, 0, "json_schema", false},
+		{"prompt tokens 1126 → 1128", 1128, 1126, 0, "json_schema", true},
+		{"prompt tokens 1126 → 1124", 1124, 1126, 0, "json_schema", true},
+		{"another output mode", 1200, 1200, 0, "tool", true},
+		{"another output mode, prompt tokens ±1", 1201, 1200, 0, "tool", true},
+		{"another reasoning floor", 1200, 1200, 64, "json_schema", true},
+		{"another reasoning floor, prompt tokens ±1", 1201, 1200, 64, "json_schema", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			primaryPrompt := int64(1126)
-			if c.stale {
-				primaryPrompt = 1200
-			}
+			primaryPrompt := c.primary
 			evs := []database.AuthorLLMEvalEvidence{
 				evidenceOf(t, 2, true, ids, passed("particle.cyrl")),
 				evidenceOf(t, 1, true, ids, passed("initials.cyrl")),
