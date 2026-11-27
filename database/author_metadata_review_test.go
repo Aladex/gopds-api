@@ -372,11 +372,18 @@ func reviewTransitionsClosed(t *testing.T) {
 	t.Run("unresolved is a terminal human decision", func(t *testing.T) {
 		f := withReviewTx(t)
 		item, credit, _ := seedReviewItem(t, f)
+		var open models.ContributorReviewItem
+		require.NoError(t, f.tx.Model(&open).Where("id = ?", item).Select())
+		require.NotNil(t, open.ProposalResultID)
 		_, err := ApplyReviewAction(ctx, f.tx, item, 1, ReviewDecision{Action: ReviewLeaveUnresolved})
 		require.NoError(t, err)
 		selected := f.selection(credit)
 		require.NotNil(t, selected)
 		assert.Equal(t, models.CreditSelectionUnresolved, selected.State)
+		// The entity build reads an unresolved credit through its result: the
+		// verdict keeps the proposal, or the credit would name no entity.
+		require.NotNil(t, selected.ResultID, "the unresolved credit keeps the item's proposal")
+		assert.Equal(t, *open.ProposalResultID, *selected.ResultID)
 		require.NotNil(t, selected.UnresolvedReason)
 		assert.Equal(t, models.UnresolvedReviewLeftUnresolved, *selected.UnresolvedReason)
 		assert.Nil(t, selected.Basis)

@@ -490,14 +490,26 @@ func stringPtr(s string) *string { return &s }
 // order: that is the order of the writes under the credit lock. The
 // DISTINCT FROM predicate keeps a repeat from writing an audit record for no
 // change.
+//
+// The verdict keeps the item's proposal (?3) as the credit's result, as an
+// unresolved model resolve keeps its own: the entity build's fallback reads an
+// unresolved credit through its result, so a credit left without one names no
+// entity at all, and a pair the build split into its two people loses both.
+// Only a proposal the selection may rest on is kept (a manual result, or one
+// of the credit's own extractor version); otherwise the result stays NULL.
 const leaveUnresolvedSQL = `INSERT INTO book_contributor_credit_selection AS s
-	(credit_id, source_fingerprint, state, unresolved_reason, decided_by_user_id)
-VALUES (?0, ?1, 'unresolved', 'review_left_unresolved', ?2)
+	(credit_id, source_fingerprint, state, result_id, unresolved_reason, decided_by_user_id)
+VALUES (?0, ?1, 'unresolved', (
+	SELECT r.id FROM contributor_normalization_result r
+	WHERE r.id = ?3 AND (r.method = 'manual' OR r.extractor_version = (
+		SELECT snap.extractor_version FROM book_contributor_credit c
+		JOIN book_metadata_snapshot snap ON snap.id = c.snapshot_id WHERE c.id = ?0))),
+	'review_left_unresolved', ?2)
 ON CONFLICT (credit_id) DO UPDATE
-SET state = 'unresolved', result_id = NULL, basis = NULL, override_id = NULL, policy_version = NULL,
+SET state = 'unresolved', result_id = EXCLUDED.result_id, basis = NULL, override_id = NULL, policy_version = NULL,
 	unresolved_reason = 'review_left_unresolved', decided_by_user_id = EXCLUDED.decided_by_user_id, decided_at = now()
 WHERE (s.state, s.result_id, s.basis, s.override_id, s.policy_version, s.unresolved_reason, s.decided_by_user_id)
-	IS DISTINCT FROM ('unresolved', NULL, NULL, NULL, NULL, 'review_left_unresolved', EXCLUDED.decided_by_user_id)
+	IS DISTINCT FROM ('unresolved', EXCLUDED.result_id, NULL, NULL, NULL, 'review_left_unresolved', EXCLUDED.decided_by_user_id)
 RETURNING s.credit_id`
 
 // retryExtractor recovers the extractor version a retry's normalization key
@@ -761,7 +773,7 @@ func applyLeaveUnresolved(
 	for i := range credits {
 		var written []int64
 		if _, err := tx.QueryContext(ctx, &written, leaveUnresolvedSQL,
-			credits[i].ID, credits[i].SourceFingerprint, admin); err != nil {
+			credits[i].ID, credits[i].SourceFingerprint, admin, item.ProposalResultID); err != nil {
 			return fmt.Errorf("leaving the credit unresolved: %w", err)
 		}
 		marks.add(written...)

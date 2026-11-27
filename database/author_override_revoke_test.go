@@ -233,7 +233,7 @@ func TestSwapSourcesKeepOutAHistoricalAdminDecision(t *testing.T) {
 	resultID := f.storeResult(&r)
 	f.finishJob(&r, resultID)
 	policy := registeredPolicy(t, f)
-	f.exec(leaveUnresolvedSQL, old[0], fp[:], admin)
+	f.exec(leaveUnresolvedSQL, old[0], fp[:], admin, nil)
 
 	current := f.persistVersion(book, bookMD5(book+1_000_000), authorCredit(source))
 	f.resolve(&r, decide(t, policy, &r, resultID))
