@@ -374,7 +374,9 @@ describe('AuthorSearch', () => {
 
         expect(screen.getByTestId('landing')).toHaveTextContent('/author/1');
 
-        expect(authorState.setAuthorName).toHaveBeenCalledWith('Достоевский Федор');
+        expect(authorState.setAuthorName).toHaveBeenCalledWith(
+            expect.objectContaining({ full_name: 'Достоевский Федор' }),
+        );
         // A stale query in the box would fight the filter on the next page.
         expect(searchBarState.setSearchItem).toHaveBeenCalledWith('');
     });

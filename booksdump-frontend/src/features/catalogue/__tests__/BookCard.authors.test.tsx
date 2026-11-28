@@ -125,15 +125,16 @@ describe('the authors of a book', () => {
         renderCard({ authors_display: [{ name: 'Иван Петрович Петров', legacy_author_id: 7 }] });
 
         fireEvent.click(authorsRow().getByRole('link'));
-        expect(setAuthorName).toHaveBeenCalledWith('Иван Петрович Петров');
+        expect(setAuthorName).toHaveBeenCalledWith({ full_name: 'Иван Петрович Петров' });
     });
 });
 
 /*
  * Under the entity identity a name links to the author entity its credit
  * names, by the entity's UUID, and the scope is named as the entity's page
- * names it — the name with its namesake label — so a reload says the same.
- * A name of several people opens a short menu of each of them.
+ * names it — the entity, with its namesake label — so a reload says the same.
+ * A Russian book writes the name as the entity's short name. A name of
+ * several people opens a short menu of each of them, named with their labels.
  */
 describe('the authors of a book under the entity identity', () => {
     const king = '01a168d0-a113-741a-b69d-53b91f3c7eb9';
@@ -154,9 +155,12 @@ describe('the authors of a book under the entity identity', () => {
             ],
         });
 
-        expect(linkTargets()).toEqual([['С. Кинг', `/author/${king}`]]);
+        // A Russian book: the entity's name, not the book's «С. Кинг».
+        expect(linkTargets()).toEqual([['Стивен Кинг', `/author/${king}`]]);
         fireEvent.click(authorsRow().getByRole('link'));
-        expect(setAuthorName).toHaveBeenCalledWith('Стивен Кинг · Ужасы');
+        expect(setAuthorName).toHaveBeenCalledWith(
+            expect.objectContaining({ id: king, full_name: 'Стивен Кинг', label: 'Ужасы' }),
+        );
         expect(authorsRow().getByText('Мастер').closest('a')).toBeNull();
     });
 
@@ -172,9 +176,9 @@ describe('the authors of a book under the entity identity', () => {
         });
 
         fireEvent.click(authorsRow().getByRole('link'));
-        // The test translator answers with the key: the count goes through
-        // the book-count phrase.
-        expect(setAuthorName).toHaveBeenCalledWith('Стивен Кинг · bookCount');
+        expect(setAuthorName).toHaveBeenCalledWith(
+            expect.objectContaining({ full_name: 'Стивен Кинг', label_books: 83 }),
+        );
     });
 
     it('open a menu of every person a name of several people names', async () => {
@@ -184,8 +188,12 @@ describe('the authors of a book under the entity identity', () => {
                 {
                     name: 'Аркадий и Борис Стругацкие',
                     entities: [
-                        { id: arkady, full_name: 'Аркадий Стругацкий' },
-                        { id: boris, full_name: 'Борис Стругацкий' },
+                        {
+                            id: arkady,
+                            full_name: 'Аркадий Натанович Стругацкий',
+                            short_name: 'Аркадий Стругацкий',
+                        },
+                        { id: boris, full_name: 'Борис Стругацкий', label: 'Фантастика' },
                     ],
                 },
             ],
@@ -196,12 +204,15 @@ describe('the authors of a book under the entity identity', () => {
             authorsRow().getByRole('button', { name: 'Аркадий и Борис Стругацкие' }),
         );
         const items = await screen.findAllByRole('menuitem');
+        // Each person by the short name, a namesake with its label after it.
         expect(items.map((item) => [item.textContent, item.getAttribute('href')])).toEqual([
             ['Аркадий Стругацкий', `/author/${arkady}`],
-            ['Борис Стругацкий', `/author/${boris}`],
+            ['Борис Стругацкий · Фантастика', `/author/${boris}`],
         ]);
         await userEvent.click(items[1]);
-        expect(setAuthorName).toHaveBeenCalledWith('Борис Стругацкий');
+        expect(setAuthorName).toHaveBeenCalledWith(
+            expect.objectContaining({ id: boris, full_name: 'Борис Стругацкий' }),
+        );
     });
 });
 

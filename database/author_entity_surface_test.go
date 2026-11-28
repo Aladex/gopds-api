@@ -6,6 +6,7 @@ import (
 
 	"gopds-api/models"
 
+	"github.com/go-pg/pg/v10"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,10 +72,11 @@ func TestTheEntityLookupLabelsNamesakesByTheirGenre(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[uuid.UUID]models.AuthorEntity{
 		// Both mostly science fiction: told apart by their books.
-		p.EntityOf(kingSF):   {ID: p.EntityOf(kingSF), FullName: "Стивен Кинг", LabelBooks: 4},
-		p.EntityOf(kingTwin): {ID: p.EntityOf(kingTwin), FullName: "Стивен Кинг", LabelBooks: 2},
-		p.EntityOf(kingDet):  {ID: p.EntityOf(kingDet), FullName: "Стивен Кинг", Label: "e3_detective"},
-		p.EntityOf(alone):    {ID: p.EntityOf(alone), FullName: "Пётр Одинокий"},
+		p.EntityOf(kingSF):   {ID: p.EntityOf(kingSF), FullName: "Стивен Кинг", ShortName: "Стивен Кинг", LabelBooks: 4},
+		p.EntityOf(kingTwin): {ID: p.EntityOf(kingTwin), FullName: "Стивен Кинг", ShortName: "Стивен Кинг", LabelBooks: 2},
+		p.EntityOf(kingDet): {ID: p.EntityOf(kingDet), FullName: "Стивен Кинг", ShortName: "Стивен Кинг",
+			Label: "e3_detective"},
+		p.EntityOf(alone): {ID: p.EntityOf(alone), FullName: "Пётр Одинокий", ShortName: "Пётр Одинокий"},
 	}, got)
 
 	one, err := AuthorEntityByID(ctx, f.tx, p.EntityOf(kingDet))
@@ -88,6 +90,80 @@ func TestTheEntityLookupLabelsNamesakesByTheirGenre(t *testing.T) {
 	none, err := LiveAuthorEntities(ctx, f.tx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, none)
+}
+
+// Namesakes follow the short name (design/author-display, rule 4): two
+// entities whose names differ only by a patronymic are both «Михаил Игнатов»
+// on a book list, so both are labeled, and so is the one written without a
+// patronymic at all; an entity whose short name no other live entity shares
+// is not, though its full name has a patronymic too.
+func TestNamesakesAreEntitiesOfOneShortName(t *testing.T) {
+	f := entitySchema(t)
+	pavlovich, _ := f.entityWithBooks(0x81, "Игнатов", "Михаил", "e3_sf", "e3_sf")
+	vasilievich, _ := f.entityWithBooks(0x82, "Игнатович", "Михаил", "e3_detective")
+	bare, _ := f.entityWithBooks(0x83, "Игнатовский", "Михаил", "e3_sf")
+	alone, _ := f.entityWithBooks(0x84, "Семенова", "Мария", "e3_sf")
+	f.exec(`UPDATE opds_catalog_book SET approved = true`)
+	p, _, _ := f.pass()
+	f.drain()
+	f.exec(`UPDATE author_entity SET display_name = 'Михаил Павлович Игнатов' WHERE id = ?`, p.EntityOf(pavlovich))
+	f.exec(`UPDATE author_entity SET display_name = 'Михаил Васильевич Игнатов' WHERE id = ?`,
+		p.EntityOf(vasilievich))
+	f.exec(`UPDATE author_entity SET display_name = 'Михаил Игнатов' WHERE id = ?`, p.EntityOf(bare))
+	f.exec(`UPDATE author_entity SET display_name = 'Мария Васильевна Семенова' WHERE id = ?`, p.EntityOf(alone))
+
+	ids := []uuid.UUID{p.EntityOf(pavlovich), p.EntityOf(vasilievich), p.EntityOf(bare), p.EntityOf(alone)}
+	got, err := LiveAuthorEntities(context.Background(), f.tx, ids)
+	require.NoError(t, err)
+	assert.Equal(t, map[uuid.UUID]models.AuthorEntity{
+		// Two of science fiction told apart by their books, the detective by its genre.
+		p.EntityOf(pavlovich): {ID: p.EntityOf(pavlovich), FullName: "Михаил Павлович Игнатов",
+			ShortName: "Михаил Игнатов", LabelBooks: 2},
+		p.EntityOf(bare): {ID: p.EntityOf(bare), FullName: "Михаил Игнатов", ShortName: "Михаил Игнатов",
+			LabelBooks: 1},
+		p.EntityOf(vasilievich): {ID: p.EntityOf(vasilievich), FullName: "Михаил Васильевич Игнатов",
+			ShortName: "Михаил Игнатов", Label: "e3_detective"},
+		p.EntityOf(alone): {ID: p.EntityOf(alone), FullName: "Мария Васильевна Семенова",
+			ShortName: "Мария Семенова"},
+	}, got)
+
+	// A merged namesake is no one's namesake.
+	f.exec(`UPDATE author_entity SET merged_into = ? WHERE id IN (?, ?)`,
+		p.EntityOf(pavlovich), p.EntityOf(vasilievich), p.EntityOf(bare))
+	got, err = LiveAuthorEntities(context.Background(), f.tx, ids)
+	require.NoError(t, err)
+	assert.Equal(t, map[uuid.UUID]models.AuthorEntity{
+		p.EntityOf(pavlovich): {ID: p.EntityOf(pavlovich), FullName: "Михаил Павлович Игнатов",
+			ShortName: "Михаил Игнатов"},
+		p.EntityOf(alone): {ID: p.EntityOf(alone), FullName: "Мария Васильевна Семенова",
+			ShortName: "Мария Семенова"},
+	}, got)
+}
+
+// public.author_short_name (migration 86), which the namesake check groups
+// by, says what models.ShortAuthorName says, on the cases of the rule and on
+// the ways a name can be spaced.
+func TestTheShortNameInSQLAgreesWithGo(t *testing.T) {
+	f := entitySchema(t)
+	names := []string{
+		"Владимир Дмитриевич Михайлов", "Мария Васильевна Семенова", "Михаил Павлович Игнатов",
+		"Елена Владимировна Хаецкая", "Павло Архипович Загребельний", "Урсула Крёбер Ле Гуин",
+		"Джордж Р. Р. Мартин", "Артур Конан Дойл", "Эрнст Теодор Амадей Гофман", "Архимандрит Иоанн (Крестьянкин)",
+		"Аркадий и Борис Стругацкие", "Agatha Christie", "Борис Акунин", "Сапфо", "Людмила Никитична Иванова",
+		"Вера Ильинична Петрова", "Леся Андріївна Українка", "Оксана Іванівна Забужко", "Владимир Ильич Ленин",
+		"Иван Кузьмич Андрощук", "Сергей Никитич Ашихманов", "Алексей Савич Корюков", "Синтия Лейтич Смит",
+		"Сергей Милич Рафальский", "ВЛАДИМИР ДМИТРИЕВИЧ МИХАЙЛОВ", "Иван Петрович (Сидоров)", "[Иван] Петрович Сидоров",
+		"Иван Бич Петров", "Анна Вич Ли", "Анна Ична Ли", "Mary Ivanovich Smith", "Анна Ahmetovna Ли",
+		"Иван Иванович", "Толстой Лев Николаевич", "Анна Петровна Ивановна Смит", "Михаил Евграфович Салтыков-Щедрин",
+		"", " ", "  Мария\u00a0Васильевна   Семенова ", "Мария\tВасильевна\nСеменова", "Мария\u3000Васильевна\u2009Семенова",
+		"Мария\u200bВасильевна Семенова", "Мария Василье\u0301вна Семенова", "Мария Васильевна\u00ad Семенова",
+	}
+	for _, name := range names {
+		var got string
+		_, err := f.tx.QueryOne(pg.Scan(&got), `SELECT public.author_short_name(?)`, name)
+		require.NoError(t, err, "%q", name)
+		assert.Equal(t, models.ShortAuthorName(name), got, "%q", name)
+	}
 }
 
 // An entity's books are the books whose author line names it; the entity's
@@ -163,7 +239,8 @@ func TestTheAuthorLineCarriesTheEntitiesOfItsNames(t *testing.T) {
 
 	linked, err := EntityLines(ctx, f.tx, [][]models.AuthorDisplay{line.Authors})
 	require.NoError(t, err)
-	assert.Equal(t, []models.AuthorEntity{{ID: p.EntityOf(credit), FullName: "Иван Строчный"}}, linked[0][0].Entities)
+	assert.Equal(t, []models.AuthorEntity{{ID: p.EntityOf(credit), FullName: "Иван Строчный", ShortName: "Иван Строчный"}},
+		linked[0][0].Entities)
 	assert.Nil(t, linked[0][0].LegacyAuthorID)
 
 	f.exec(`UPDATE author_entity SET merged_into = ? WHERE id = ?`, p.EntityOf(survivor), p.EntityOf(credit))
@@ -254,8 +331,8 @@ func TestTheEntityIdentityOffersEntitiesForAuthors(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, page.Authors, "no legacy author")
 	require.NotEmpty(t, page.Entities)
-	assert.Equal(t, models.AuthorEntity{ID: c.tolstoy, FullName: "Лев Толстойсков", Label: "e3_prose", BooksCount: 1},
-		page.Entities[0])
+	assert.Equal(t, models.AuthorEntity{ID: c.tolstoy, FullName: "Лев Толстойсков", ShortName: "Лев Толстойсков",
+		Label: "e3_prose", BooksCount: 1}, page.Entities[0])
 	assert.Equal(t, len(page.Entities), page.Total)
 	assert.NotEmpty(t, page.QueryHash)
 
@@ -263,8 +340,8 @@ func TestTheEntityIdentityOffersEntitiesForAuthors(t *testing.T) {
 		Limit: 15})
 	require.NoError(t, err)
 	require.NotEmpty(t, picked.Suggestions)
-	assert.Equal(t, models.AutocompleteSuggestion{Value: "Лев Толстойсков", Type: "author", EntityID: c.tolstoy,
-		BooksCount: 1, Label: "e3_prose"}, picked.Suggestions[0])
+	assert.Equal(t, models.AutocompleteSuggestion{Value: "Лев Толстойсков", ShortName: "Лев Толстойсков", Type: "author",
+		EntityID: c.tolstoy, BooksCount: 1, Label: "e3_prose"}, picked.Suggestions[0])
 	for _, s := range picked.Suggestions {
 		assert.NotEqual(t, uuid.Nil, s.EntityID, "an author shelf of entities only: %+v", s)
 		assert.Zero(t, s.ID)

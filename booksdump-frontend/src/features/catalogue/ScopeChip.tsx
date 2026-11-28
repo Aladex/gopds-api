@@ -3,7 +3,23 @@ import { useTranslation } from 'react-i18next';
 import { Plus, X } from 'lucide-react';
 
 import { cn } from '@/shared/lib/utils';
+import NamesakeName from '@/shared/components/NamesakeName';
 import { useCatalogueSearchContext } from '@/features/catalogue/CatalogueSearchContext';
+import type { SearchScope } from '@/features/catalogue/hooks/useSearchScope';
+
+/**
+ * The chip's words: an author by name and namesake label, as every entity is
+ * named (NamesakeName); any other scope by its label.
+ */
+const ScopeText: React.FC<{ scope: SearchScope }> = ({ scope }) => {
+    const { t } = useTranslation();
+    if (!scope.author) return <>{scope.label}</>;
+    return (
+        <>
+            {t('searchWithinAuthorLead')} <NamesakeName author={scope.author} />
+        </>
+    );
+};
 
 /**
  * ScopeChip says which list a search is confined to.
@@ -33,7 +49,7 @@ const ScopeChip: React.FC<{ className?: string }> = ({ className }) => {
                 {/* A long label is cut on a narrow screen, so the whole of it
                     stays reachable. */}
                 <span className="truncate" title={scope.label}>
-                    {scope.label}
+                    <ScopeText scope={scope} />
                 </span>
                 {/* The chip is 28px and the cross 40: it hangs over the chip's
                     edges, so the target is a thumb's and the shape stays small. */}
@@ -75,7 +91,9 @@ const ScopeChip: React.FC<{ className?: string }> = ({ className }) => {
                 )}
             >
                 <Plus className="size-3.5 flex-none" />
-                <span className="truncate">{scope.label}</span>
+                <span className="truncate">
+                    <ScopeText scope={scope} />
+                </span>
             </span>
         </button>
     );

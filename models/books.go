@@ -416,7 +416,10 @@ type BookUpdateRequest struct {
 
 // AutocompleteSuggestion struct for autocomplete suggestions
 type AutocompleteSuggestion struct {
-	Value      string `json:"value"`
+	Value string `json:"value"`
+	// ShortName is an author entity's name without a patronymic, as the site
+	// shows it (AuthorEntity.ShortName); Value keeps the full name.
+	ShortName  string `json:"short_name,omitempty"`
 	Secondary  string `json:"secondary,omitempty"`
 	Type       string `json:"type"` // "book" or "author"
 	ID         int64  `json:"id,omitempty"`

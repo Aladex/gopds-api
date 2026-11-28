@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { ChevronDown, Star } from 'lucide-react';
 
-import type { AuthorDisplay, Book } from '@/api/books';
+import type { Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/shared/ui/tooltip';
 import { Expandable } from '@/shared/ui/expandable';
@@ -15,6 +15,7 @@ import BookActions from '@/features/catalogue/BookActions';
 import { isClippedBlock, isClippedLine, useMeasured } from '@/features/catalogue/hooks/useMeasured';
 import { thumbURL } from '@/shared/lib/coverUrl';
 import { cn } from '@/shared/lib/utils';
+import { bookAuthors, bookSpelling, shownAuthorName } from '@/shared/lib/authorTitle';
 import { formatCalendarDay } from '@/shared/lib/formatDate';
 import { getLanguageDisplaySafe } from '@/shared/lib/languageUtils';
 import VariantSelector from '@/features/catalogue/variants/VariantSelector';
@@ -40,11 +41,6 @@ import { useSearchBar } from '@/context/SearchBarContext';
  * Wide, the annotation that passes the rail's bottom flows under the rail,
  * around a hidden reservation the card keeps for it — see RAIL_FOOTPRINT.
  */
-
-/** Two names and the counter, or the full author line, from what the list sends. */
-const authorLine = (book: Book): AuthorDisplay[] =>
-    book.authors_display ??
-    (book.authors ?? []).map((author) => ({ name: author.full_name, legacy_author_id: author.id }));
 
 export interface BookCardProps {
     book: Book;
@@ -181,6 +177,8 @@ const CardDetails: React.FC<{
     book: Book;
     genres: NonNullable<Book['genres']>;
     colophon: string;
+    /** How the book writes the authors the card names otherwise; empty when it does not. */
+    inBook: string;
     isWide: boolean;
     open: boolean;
     /** Whether the card is settled shut: the state the clamps and the measurements belong to. */
@@ -200,6 +198,7 @@ const CardDetails: React.FC<{
     book,
     genres,
     colophon,
+    inBook,
     isWide,
     open,
     clamped,
@@ -232,7 +231,10 @@ const CardDetails: React.FC<{
     // still moving it stays too, whatever the measurements of the unclamped
     // content might say: a control that vanishes mid-motion is its own flicker.
     const holdingBack =
-        annotationClipped || chipsHidden > 0 || (isWide ? colophonClipped : colophon !== '');
+        annotationClipped ||
+        chipsHidden > 0 ||
+        inBook !== '' ||
+        (isWide ? colophonClipped : colophon !== '');
     const offerMore = open || !clamped || holdingBack;
 
     return (
@@ -262,6 +264,15 @@ const CardDetails: React.FC<{
                     onGo={onGo}
                     onHiddenChange={setChipsHidden}
                 />
+            )}
+
+            {/* The book's own spelling of a name the card writes otherwise (a
+                pseudonym, a transliteration): one line of the opened card, in
+                the colophon's voice. */}
+            {inBook !== '' && !clamped && (
+                <p data-testid="book-in-book" className={cn(BOOK_META_LINE_CLASS, 'card:mt-2')}>
+                    {t('bookInBookLabel')}: {inBook}
+                </p>
             )}
 
             {showColophon && (
@@ -407,7 +418,14 @@ const BookCard: React.FC<BookCardProps> = ({
     // A code the interface cannot name is not shown at all: "zxx" tells a
     // reader less than the empty space where it would have gone.
     const bookLanguage = getLanguageDisplaySafe(shown.lang);
-    const authors = authorLine(book);
+    // The authors belong to the card, so their names follow the listed
+    // book's language, not the shown file's.
+    const authors = bookAuthors(book);
+    // «В книге»: how the book writes the authors the card names otherwise.
+    const inBook = authors
+        .map((author) => bookSpelling(author, book.lang))
+        .filter(Boolean)
+        .join(', ');
     const published = formatCalendarDay(shown.docdate);
     const genres = shown.genres ?? [];
 
@@ -428,7 +446,8 @@ const BookCard: React.FC<BookCardProps> = ({
 
     // «Подробнее» is offered from what the shut card hides, so the block is
     // there whenever there is anything to hide something in.
-    const hasDetails = genres.length > 0 || colophon !== '' || Boolean(shown.annotation);
+    const hasDetails =
+        genres.length > 0 || colophon !== '' || inBook !== '' || Boolean(shown.annotation);
 
     /*
      * How far the rail hangs into the details region: the rail's height less
@@ -470,7 +489,7 @@ const BookCard: React.FC<BookCardProps> = ({
                         alt={book.title}
                         hasPicture={shown.cover}
                         title={book.title}
-                        author={authors[0]?.name}
+                        author={authors[0] && shownAuthorName(authors[0], book.lang)}
                         className="h-[116px] w-20 flex-none rounded shadow-[0_2px_5px_rgba(0,0,0,0.12)] card:h-[156px] card:w-[108px]"
                     >
                         <FavouriteStar
@@ -520,11 +539,12 @@ const BookCard: React.FC<BookCardProps> = ({
                         authors={authors}
                         isWide={isWide}
                         bookTitle={book.title}
-                        onGo={(scopeName) => {
+                        lang={book.lang}
+                        onGo={(scope) => {
                             leaveScope();
                             // The name is on screen already, so the search chip
                             // need not fetch it to say whose books it is scoped to.
-                            setAuthorName(scopeName);
+                            setAuthorName(scope);
                         }}
                     />
 
@@ -605,6 +625,7 @@ const BookCard: React.FC<BookCardProps> = ({
                                 book={shown}
                                 genres={genres}
                                 colophon={colophon}
+                                inBook={inBook}
                                 isWide={isWide}
                                 open={open}
                                 clamped={clamped}

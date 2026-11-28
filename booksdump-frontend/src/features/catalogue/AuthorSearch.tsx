@@ -15,6 +15,7 @@ import BookPagination from '@/features/catalogue/BookPagination';
 import { LanguageEmpty } from '@/features/catalogue/EmptyList';
 import { useBookLanguage } from '@/features/catalogue/hooks/useBookLanguage';
 import { ALL_LANGUAGES, languageMapping } from '@/shared/lib/languageUtils';
+import type { NamedAuthor } from '@/shared/lib/authorTitle';
 import { Button } from '@/shared/ui/button';
 import { scrollToLoadedList, usePageTurn } from '@/shared/layout/landOnList';
 
@@ -127,11 +128,11 @@ const AuthorSearch: React.FC = () => {
     };
 
     /** Clicking through leaves the search box empty so the filter, not a stale query, applies. */
-    const handleAuthorClick = (fullName: string) => {
+    const handleAuthorClick = (scope: NamedAuthor) => {
         setSearchItem('');
         // Carried over so the scope beside the search box can name the author
         // without asking the server for what was just on screen.
-        setAuthorName(fullName);
+        setAuthorName(scope);
     };
 
     return (

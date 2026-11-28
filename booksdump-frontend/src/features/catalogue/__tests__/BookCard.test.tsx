@@ -206,7 +206,7 @@ describe('the values on the card', () => {
         // own books. The name is handed over rather than fetched again: it is on
         // screen already.
         expect(setSearchItem).toHaveBeenCalledWith('');
-        expect(setAuthorName).toHaveBeenCalledWith('Борис Стругацкий');
+        expect(setAuthorName).toHaveBeenCalledWith({ full_name: 'Борис Стругацкий' });
     });
 
     it('name the series with its label, as one line', () => {

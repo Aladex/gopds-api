@@ -5,7 +5,7 @@ import { Link } from 'react-router';
 import type { AuthorCardData, AuthorCover } from '@/api/books';
 import { authorPath } from '@/features/catalogue/addresses';
 import { authorInitial, isUnexplained, nameParts } from '@/features/catalogue/authorMatch';
-import { authorTitle, namesakeLabel } from '@/shared/lib/authorTitle';
+import { shortName, type NamedAuthor } from '@/shared/lib/authorTitle';
 import { thumbURL } from '@/shared/lib/coverUrl';
 import { isPlainClick } from '@/shared/lib/isPlainClick';
 import { cn } from '@/shared/lib/utils';
@@ -127,14 +127,13 @@ export interface AuthorCardProps {
     /** What was searched for, which the name and the note are read against. */
     query: string;
     /** Called as the card is followed, with the name the author's page goes by. */
-    onGo: (scopeName: string) => void;
+    onGo: (scope: NamedAuthor) => void;
 }
 
 const AuthorCard: React.FC<AuthorCardProps> = ({ author, query, onGo }) => {
     const { t } = useTranslation();
     const genres = author.genres ?? [];
     const works = (author.works ?? []).join(' · ');
-    const label = namesakeLabel(author, t);
     const count = author.books_count;
 
     // The note outranks the titles: it answers why this row is here at all.
@@ -149,7 +148,7 @@ const AuthorCard: React.FC<AuthorCardProps> = ({ author, query, onGo }) => {
             to={authorPath(author.id)}
             onClick={(event) => {
                 if (isPlainClick(event)) {
-                    onGo(authorTitle(author, t));
+                    onGo(author);
                 }
             }}
             className={cn(
@@ -169,7 +168,10 @@ const AuthorCard: React.FC<AuthorCardProps> = ({ author, query, onGo }) => {
                         (count ?? 0) <= 1 ? 'font-medium' : 'font-semibold',
                     )}
                 >
-                    <AuthorName name={author.full_name} query={query} />
+                    {/* The short name alone: the line below — books and genres —
+                        is what tells two namesakes apart here, so no label
+                        repeats it. */}
+                    <AuthorName name={shortName(author)} query={query} />
                     {author.kind === 'collective' && (
                         <Badge
                             variant="secondary"
@@ -177,12 +179,6 @@ const AuthorCard: React.FC<AuthorCardProps> = ({ author, query, onGo }) => {
                         >
                             {t('authorSearch.coauthors')}
                         </Badge>
-                    )}
-                    {/* An entity with a namesake says which one it is. */}
-                    {label && (
-                        <span className="ml-1.5 text-sm font-normal text-muted-foreground">
-                            · {label}
-                        </span>
                     )}
                 </span>
                 {(count || genres.length > 0) && (

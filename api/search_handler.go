@@ -153,10 +153,35 @@ func (h *SearchHandler) authorRef(c *gin.Context, raw string, malformed error) (
 // authorLineOf is the book's line from the lookup, or its legacy authors
 // when the lookup has none for it.
 func authorLineOf(book *models.Book, lines map[int64]models.BookAuthorDisplay) []models.AuthorDisplay {
-	if line, ok := lines[book.ID]; ok {
-		return line.Authors
+	line, ok := lines[book.ID]
+	if !ok {
+		line = models.BookAuthorDisplay{Source: models.AuthorDisplayLegacy, Authors: book.LegacyAuthorLine()}
 	}
-	return book.LegacyAuthorLine()
+	return shownAuthorLine(line, book.Lang)
+}
+
+// shownAuthorLine is the line as the site gets it (design/author-display,
+// rules 3 and 7). A legacy line's catalog names, «Фамилия Имя», come out «Имя
+// Фамилия» (models.GivenNameFirst), without a patronymic for a book in
+// Russian or of no language: it names no entity whose short name the site
+// could show instead. Every name carries its short form when that differs,
+// for the site to tell a dropped patronymic from a spelling of the book's
+// own. The read model and the bot and OPDS lines keep the names as they are.
+func shownAuthorLine(line models.BookAuthorDisplay, lang string) []models.AuthorDisplay {
+	out := make([]models.AuthorDisplay, len(line.Authors))
+	for i, a := range line.Authors {
+		if line.Source == models.AuthorDisplayLegacy {
+			a.Name = models.GivenNameFirst(a.Name)
+			if models.ShowsShortNames(lang) {
+				a.Name = models.ShortAuthorName(a.Name)
+			}
+		}
+		if short := models.ShortAuthorName(a.Name); short != a.Name {
+			a.ShortName = short
+		}
+		out[i] = a
+	}
+	return out
 }
 
 // bookListQuery is the list endpoint's query string: the long-standing list

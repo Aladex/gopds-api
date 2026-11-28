@@ -56,8 +56,13 @@ const UnknownAuthorName = "Автор неизвестен"
 // or names several people one of whom has none (§6 item 5). No surface
 // shows them; under the entity identity a surface turns them into Entities
 // and drops LegacyAuthorID (WithEntities).
+//
+// ShortName is Name with a patronymic dropped (ShortAuthorName), sent only
+// when the two differ. No surface shows it: the site compares it with the
+// entity's short name to tell a patronymic from a spelling of its own.
 type AuthorDisplay struct {
 	Name           string         `json:"name"`
+	ShortName      string         `json:"short_name,omitempty"`
 	LegacyAuthorID *int64         `json:"legacy_author_id,omitempty"`
 	Entities       []AuthorEntity `json:"entities,omitempty"`
 	EntityIDs      []string       `json:"-"`
@@ -70,10 +75,12 @@ type AuthorDisplay struct {
 // one does — most often one person the build has not yet merged — it is
 // the number of its books instead (LabelBooks), which says nothing untrue.
 // BooksCount is filled only by a search, which counts the books it would
-// open.
+// open. ShortName is the full name as book lists write it, without a
+// patronymic (ShortAuthorName); namesakes are entities that share it.
 type AuthorEntity struct {
 	ID         uuid.UUID `json:"id"`
 	FullName   string    `json:"full_name"`
+	ShortName  string    `json:"short_name,omitempty"`
 	Label      string    `json:"label,omitempty"`
 	LabelBooks int       `json:"label_books,omitempty"`
 	BooksCount int       `json:"books_count,omitempty"`
@@ -99,8 +106,8 @@ type AuthorSummary struct {
 	MatchedName string
 }
 
-// Title is the entity's name with its namesake label, as a surface that
-// shows plain text writes it.
+// Title is the entity's full name with its namesake label, as a surface that
+// shows plain text writes it (the bot and OPDS keep full names).
 func (e *AuthorEntity) Title() string {
 	switch {
 	case e.Label != "":
@@ -117,7 +124,7 @@ func (e *AuthorEntity) Title() string {
 func WithEntities(line []AuthorDisplay, entities map[uuid.UUID]AuthorEntity) []AuthorDisplay {
 	out := make([]AuthorDisplay, len(line))
 	for i, a := range line {
-		out[i] = AuthorDisplay{Name: a.Name, EntityIDs: a.EntityIDs}
+		out[i] = AuthorDisplay{Name: a.Name, ShortName: a.ShortName, EntityIDs: a.EntityIDs}
 		linked := make([]AuthorEntity, 0, len(a.EntityIDs))
 		for _, raw := range a.EntityIDs {
 			id, err := uuid.Parse(raw)

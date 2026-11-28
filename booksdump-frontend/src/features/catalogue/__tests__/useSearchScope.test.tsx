@@ -10,6 +10,7 @@ import useSearchScope, {
     unsearchedPathFrom,
 } from '@/features/catalogue/hooks/useSearchScope';
 import * as booksApi from '@/api/books';
+import type { NamedAuthor } from '@/shared/lib/authorTitle';
 
 // A scoped search used to exist only inside one author's list, and its state
 // lived in React context — gone on every reload. The scope is now read from
@@ -18,10 +19,14 @@ import * as booksApi from '@/api/books';
 
 vi.mock('@/api/books', () => ({ getAuthor: vi.fn() }));
 
-const authorState = {
+const authorState: {
+    authorId: string;
+    authorName: NamedAuthor | null;
+    setAuthorName: (name: NamedAuthor) => void;
+} = {
     authorId: '',
-    authorName: '',
-    setAuthorName: vi.fn((name: string) => {
+    authorName: null,
+    setAuthorName: vi.fn((name: NamedAuthor) => {
         authorState.authorName = name;
     }),
 };
@@ -57,7 +62,7 @@ const renderAt = (path: string) =>
 beforeEach(() => {
     vi.clearAllMocks();
     authorState.authorId = '';
-    authorState.authorName = '';
+    authorState.authorName = null;
     // clearAllMocks drops implementations, and an unarmed mock returns
     // undefined where the real call returns a promise.
     getAuthor.mockResolvedValue({ id: 42, full_name: 'Пришвин Михаил' });
@@ -191,10 +196,11 @@ describe('useSearchScope', () => {
 
     it('names the author from the cache without asking the server', () => {
         authorState.authorId = '42';
-        authorState.authorName = 'Пришвин Михаил';
+        authorState.authorName = { full_name: 'Пришвин Михаил' };
         const { result } = renderAt('/author/42');
 
         expect(result.current.label).toBe('searchWithinAuthor');
+        expect(result.current.author).toEqual({ full_name: 'Пришвин Михаил' });
         expect(getAuthor).not.toHaveBeenCalled();
     });
 
@@ -202,10 +208,11 @@ describe('useSearchScope', () => {
         // The context caches one name per id; on a different author's list the
         // cache is simply not this scope's business.
         authorState.authorId = '7';
-        authorState.authorName = 'Кто-то другой';
+        authorState.authorName = { full_name: 'Кто-то другой' };
         const { result } = renderAt('/author/42');
 
         expect(result.current.label).toBe('searchWithinThisAuthor');
+        expect(result.current.author).toBeNull();
     });
 
     it('looks the name up on a cold arrival, as a pasted URL does', async () => {
@@ -215,14 +222,22 @@ describe('useSearchScope', () => {
 
         await waitFor(() => expect(getAuthor).toHaveBeenCalledWith('42'));
         await waitFor(() =>
-            expect(authorState.setAuthorName).toHaveBeenCalledWith('Пришвин Михаил'),
+            expect(authorState.setAuthorName).toHaveBeenCalledWith({
+                id: 42,
+                full_name: 'Пришвин Михаил',
+            }),
         );
     });
 
     it('reads an entity author list from its UUID, and names it as its page does', async () => {
         const id = '01a168d0-a113-741a-b69d-53b91f3c7eb9';
         authorState.authorId = id;
-        getAuthor.mockResolvedValue({ id, full_name: 'Стивен Кинг', label: 'Ужасы' });
+        getAuthor.mockResolvedValue({
+            id,
+            full_name: 'Стивен Эдвин Кинг',
+            short_name: 'Стивен Кинг',
+            label: 'Ужасы',
+        });
 
         const { result } = renderAt(`/author/${id}`);
 
@@ -230,8 +245,12 @@ describe('useSearchScope', () => {
         expect(result.current.id).toBe(id);
         expect(result.current.firstPagePath).toBe(`/author/${id}`);
         await waitFor(() => expect(getAuthor).toHaveBeenCalledWith(id));
+        // The entity as the server sends it: the chip draws its short name and
+        // label, the line beside it the full name.
         await waitFor(() =>
-            expect(authorState.setAuthorName).toHaveBeenCalledWith('Стивен Кинг · Ужасы'),
+            expect(authorState.setAuthorName).toHaveBeenCalledWith(
+                expect.objectContaining({ full_name: 'Стивен Эдвин Кинг', label: 'Ужасы' }),
+            ),
         );
     });
 

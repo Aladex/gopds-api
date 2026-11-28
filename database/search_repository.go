@@ -1216,7 +1216,7 @@ func (r *PGSearchRepository) suggestEntities(
 	}
 	out := make([]models.AutocompleteSuggestion, len(entities))
 	for i, e := range entities {
-		out[i] = models.AutocompleteSuggestion{Value: e.FullName, Type: suggestionTypeAuthor, EntityID: e.ID,
+		out[i] = models.AutocompleteSuggestion{Value: e.FullName, ShortName: e.ShortName, Type: suggestionTypeAuthor, EntityID: e.ID,
 			BooksCount: e.BooksCount, Label: e.Label, LabelBooks: e.LabelBooks}
 	}
 	return out, nil

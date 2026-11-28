@@ -21,6 +21,8 @@ export interface Author {
 export interface AuthorHit {
     id: number | string;
     full_name: string;
+    /** An entity's name without a patronymic, as lists show it. */
+    short_name?: string;
     /** A namesake's label: its dominant genre, or else (label_books) its book count. */
     label?: string;
     label_books?: number;
@@ -150,6 +152,11 @@ export interface BookVariants {
 /** One name of a book's author line. */
 export interface AuthorDisplay {
     name: string;
+    /**
+     * The name with a patronymic dropped, when the two differ. Never shown:
+     * it tells a dropped patronymic from a spelling of the book's own.
+     */
+    short_name?: string;
     /** The catalogue author the name links to; absent when it is none of them. */
     legacy_author_id?: number;
     /**
@@ -164,6 +171,8 @@ export interface AuthorDisplay {
 export interface AuthorEntityRef {
     id: string;
     full_name: string;
+    /** The name as book lists write it, «Имя Фамилия» without a patronymic. */
+    short_name?: string;
     label?: string;
     label_books?: number;
 }

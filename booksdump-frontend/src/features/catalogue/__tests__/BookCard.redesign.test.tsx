@@ -241,7 +241,7 @@ describe('the byline', () => {
         expect(within(sheet).getByTestId('book-authors-list')).toBeInTheDocument();
         expect(everyLink(within(sheet).getByTestId('book-authors-list'))).toEqual(expected);
         await userEvent.click(within(sheet).getByRole('link', { name: 'Кир Булычёв' }));
-        expect(setAuthorName).toHaveBeenCalledWith('Кир Булычёв');
+        expect(setAuthorName).toHaveBeenCalledWith({ full_name: 'Кир Булычёв' });
     });
 
     const several: AuthorDisplay[] = [

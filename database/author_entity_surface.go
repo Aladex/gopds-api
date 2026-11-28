@@ -36,14 +36,18 @@ const dominantGenreSQL = `
 
 // liveAuthorEntitiesSQL reads live entities with their namesake labels
 // (models.AuthorEntity, design E §1.1, §6 item 3a). An entity is labeled
-// only when another live entity carries the same display name: by its
+// only when another live entity carries the same short name — the display
+// name without a patronymic, public.author_short_name (migration 86, indexed
+// for live entities), so «Михаил Павлович Игнатов» and «Михаил Васильевич
+// Игнатов», both «Михаил Игнатов» on a book list, are told apart: by its
 // dominant genre when no such namesake has the same one, else by the number
 // of its listed books.
 var liveAuthorEntitiesSQL = `
 SELECT e.id, e.display_name AS full_name,
     CASE WHEN NOT EXISTS (
             SELECT 1 FROM author_entity AS o
-            WHERE o.display_name = e.display_name AND o.merged_into IS NULL AND o.id <> e.id
+            WHERE public.author_short_name(o.display_name) = public.author_short_name(e.display_name)
+                AND o.merged_into IS NULL AND o.id <> e.id
                 AND (SELECT og.id FROM (` + fmt.Sprintf(dominantGenreSQL, "o.id") + `) AS og) = mine.id)
         THEN mine.title END AS label,
     (SELECT count(DISTINCT d.book_id)
@@ -55,14 +59,16 @@ LEFT JOIN LATERAL (` + fmt.Sprintf(dominantGenreSQL, "e.id") + `) AS mine ON tru
 WHERE e.id IN (?) AND e.merged_into IS NULL
     AND EXISTS (
         SELECT 1 FROM author_entity AS o
-        WHERE o.display_name = e.display_name AND o.merged_into IS NULL AND o.id <> e.id)
+        WHERE public.author_short_name(o.display_name) = public.author_short_name(e.display_name)
+            AND o.merged_into IS NULL AND o.id <> e.id)
 UNION ALL
 SELECT e.id, e.display_name, NULL, NULL
 FROM author_entity AS e
 WHERE e.id IN (?) AND e.merged_into IS NULL
     AND NOT EXISTS (
         SELECT 1 FROM author_entity AS o
-        WHERE o.display_name = e.display_name AND o.merged_into IS NULL AND o.id <> e.id)`
+        WHERE public.author_short_name(o.display_name) = public.author_short_name(e.display_name)
+            AND o.merged_into IS NULL AND o.id <> e.id)`
 
 // authorEntityRow is one row of liveAuthorEntitiesSQL; Books is set for a
 // namesake only.
@@ -85,7 +91,7 @@ func LiveAuthorEntities(ctx context.Context, db pg.DBI, ids []uuid.UUID) (map[uu
 		return nil, fmt.Errorf("reading %d author entities: %w", len(ids), err)
 	}
 	for _, r := range rows {
-		e := models.AuthorEntity{ID: r.ID, FullName: r.FullName}
+		e := models.AuthorEntity{ID: r.ID, FullName: r.FullName, ShortName: models.ShortAuthorName(r.FullName)}
 		switch {
 		case r.Label != nil:
 			e.Label = *r.Label

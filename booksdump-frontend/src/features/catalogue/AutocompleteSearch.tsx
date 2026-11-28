@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { BookOpen, Loader2, Search, Star, User, X } from 'lucide-react';
 
 import { cn } from '@/shared/lib/utils';
+import NamesakeName from '@/shared/components/NamesakeName';
 
 import { autocompleteService, AutocompleteSuggestion, SuggestionScope } from '@/api/autocomplete';
 import { useSearchBar } from '@/context/SearchBarContext';
@@ -286,14 +287,6 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
         inputRef.current?.focus();
     };
 
-    /**
-     * What a row adds after its text: a book's author, or an author entity's
-     * genre label. A namesake of the same genre is told apart by the count the
-     * row ends with, the books it opens.
-     */
-    const asideOf = (suggestion: AutocompleteSuggestion) =>
-        suggestion.secondary || suggestion.label;
-
     /** How much a row stands for: an author's books, a title's editions. */
     const countOf = (suggestion: AutocompleteSuggestion) => {
         const count = suggestion.books_count ?? 0;
@@ -567,11 +560,33 @@ const AutocompleteSearch: React.FC<AutocompleteSearchProps> = ({
                                                 />
                                             )}
                                             <span className="min-w-0 flex-1 truncate">
-                                                {suggestion.value}
-                                                {asideOf(suggestion) && (
-                                                    <span className="ml-1.5 text-xs text-muted-foreground">
-                                                        {asideOf(suggestion)}
-                                                    </span>
+                                                {suggestion.type === 'author' ? (
+                                                    /* An author is named as every
+                                                       entity is: the short name and
+                                                       a namesake's genre. A namesake
+                                                       of the same genre is told apart
+                                                       by the count the row ends with,
+                                                       the books it opens. */
+                                                    <NamesakeName
+                                                        author={{
+                                                            full_name: suggestion.value,
+                                                            short_name: suggestion.short_name,
+                                                            label: suggestion.label,
+                                                        }}
+                                                        countAsLabel={false}
+                                                        labelClassName="text-xs"
+                                                    />
+                                                ) : (
+                                                    <>
+                                                        {suggestion.value}
+                                                        {/* A book's author, telling
+                                                            identical titles apart. */}
+                                                        {suggestion.secondary && (
+                                                            <span className="ml-1.5 text-xs text-muted-foreground">
+                                                                {suggestion.secondary}
+                                                            </span>
+                                                        )}
+                                                    </>
                                                 )}
                                             </span>
                                             {/*

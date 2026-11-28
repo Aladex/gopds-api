@@ -15,7 +15,8 @@ import {
 } from '@/shared/ui/dropdown-menu';
 import ListSheet, { LIST_SHEET_ROW_CLASS } from '@/shared/components/ListSheet';
 import { authorPath } from '@/features/catalogue/addresses';
-import { authorTitle } from '@/shared/lib/authorTitle';
+import NamesakeName from '@/shared/components/NamesakeName';
+import { shownAuthorName, type NamedAuthor } from '@/shared/lib/authorTitle';
 import { cn } from '@/shared/lib/utils';
 
 /**
@@ -32,6 +33,10 @@ import { cn } from '@/shared/lib/utils';
  * A name of several people (several author entities) opens a short menu of
  * them where it stands in the line, and in the full list it is a group: the
  * name as the book writes it, with each person nested under it.
+ *
+ * Each name is the one shownAuthorName decides from the book's language, the
+ * same in the line, the menu and the sheet; a person is named as every
+ * entity is (NamesakeName).
  */
 
 type AuthorBylineProps = {
@@ -40,24 +45,23 @@ type AuthorBylineProps = {
     isWide: boolean;
     /** Named under the sheet's title, so the list says whose authors these are. */
     bookTitle: string;
+    /** The book's language, which decides how its authors are written. */
+    lang?: string;
     /** Called as a name is followed, with the name the author's page goes by. */
-    onGo: (scopeName: string) => void;
+    onGo: (scope: NamedAuthor) => void;
 };
 
 /** Where one name links, and the name its page goes by; none when unlinked. */
 const single = (
     author: AuthorDisplay,
-    t: Parameters<typeof authorTitle>[1],
-): { to: string; scopeName: string } | null => {
+    shown: string,
+): { to: string; scope: NamedAuthor } | null => {
     // Under the entity identity a name links to its entity, and the scope is
     // named as the entity's page names it, so a reload says the same.
     const entity = author.entities?.length === 1 ? author.entities[0] : undefined;
     const id = entity ? entity.id : author.legacy_author_id;
     if (id === undefined) return null;
-    return {
-        to: authorPath(id),
-        scopeName: entity ? authorTitle(entity, t) : author.name,
-    };
+    return { to: authorPath(id), scope: entity ?? { full_name: shown } };
 };
 
 const people = (author: AuthorDisplay): AuthorEntityRef[] =>
@@ -74,9 +78,8 @@ const personLink = (person: AuthorEntityRef) => authorPath(person.id);
 const AuthorPeople: React.FC<{
     name: string;
     people: AuthorEntityRef[];
-    onGo: (scopeName: string) => void;
+    onGo: (scope: NamedAuthor) => void;
 }> = ({ name, people: list, onGo }) => {
-    const { t } = useTranslation();
     return (
         <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
@@ -91,8 +94,10 @@ const AuthorPeople: React.FC<{
             <DropdownMenuContent align="start">
                 {list.map((person) => (
                     <DropdownMenuItem key={person.id} asChild>
-                        <Link to={personLink(person)} onClick={() => onGo(authorTitle(person, t))}>
-                            {authorTitle(person, t)}
+                        <Link to={personLink(person)} onClick={() => onGo(person)}>
+                            <span>
+                                <NamesakeName author={person} />
+                            </span>
                         </Link>
                     </DropdownMenuItem>
                 ))}
@@ -102,24 +107,25 @@ const AuthorPeople: React.FC<{
 };
 
 /** One name in the byline: a link, a menu of people, or plain text. */
-const BylineName: React.FC<{ author: AuthorDisplay; onGo: (scopeName: string) => void }> = ({
-    author,
-    onGo,
-}) => {
-    const { t } = useTranslation();
+const BylineName: React.FC<{
+    author: AuthorDisplay;
+    lang?: string;
+    onGo: (scope: NamedAuthor) => void;
+}> = ({ author, lang, onGo }) => {
     const several = people(author);
     if (several.length > 0) {
         return <AuthorPeople name={author.name} people={several} onGo={onGo} />;
     }
-    const target = single(author, t);
-    if (!target) return <span>{author.name}</span>;
+    const shown = shownAuthorName(author, lang);
+    const target = single(author, shown);
+    if (!target) return <span>{shown}</span>;
     return (
         <Link
             to={target.to}
-            onClick={() => onGo(target.scopeName)}
+            onClick={() => onGo(target.scope)}
             className="border-b border-border hover:border-current"
         >
-            {author.name}
+            {shown}
         </Link>
     );
 };
@@ -130,9 +136,10 @@ const listTitle = (t: (key: string) => string, count: number) => `${t('authors')
 /** The wide card's list: the app's dropdown menu, scrolling when long. */
 const AuthorsMenu: React.FC<{
     authors: AuthorDisplay[];
+    lang?: string;
     trigger: React.ReactNode;
-    onGo: (scopeName: string) => void;
-}> = ({ authors, trigger, onGo }) => {
+    onGo: (scope: NamedAuthor) => void;
+}> = ({ authors, lang, trigger, onGo }) => {
     const { t } = useTranslation();
     const groupID = React.useId();
     return (
@@ -157,29 +164,29 @@ const AuthorsMenu: React.FC<{
                                 </DropdownMenuLabel>
                                 {several.map((person) => (
                                     <DropdownMenuItem key={person.id} asChild className="pl-5">
-                                        <Link
-                                            to={personLink(person)}
-                                            onClick={() => onGo(authorTitle(person, t))}
-                                        >
-                                            {authorTitle(person, t)}
+                                        <Link to={personLink(person)} onClick={() => onGo(person)}>
+                                            <span>
+                                                <NamesakeName author={person} />
+                                            </span>
                                         </Link>
                                     </DropdownMenuItem>
                                 ))}
                             </DropdownMenuGroup>
                         );
                     }
-                    const target = single(author, t);
+                    const shown = shownAuthorName(author, lang);
+                    const target = single(author, shown);
                     if (!target) {
                         return (
                             <DropdownMenuItem key={index} disabled>
-                                {author.name}
+                                {shown}
                             </DropdownMenuItem>
                         );
                     }
                     return (
                         <DropdownMenuItem key={index} asChild>
-                            <Link to={target.to} onClick={() => onGo(target.scopeName)}>
-                                {author.name}
+                            <Link to={target.to} onClick={() => onGo(target.scope)}>
+                                {shown}
                             </Link>
                         </DropdownMenuItem>
                     );
@@ -197,13 +204,14 @@ const AuthorsSheet: React.FC<{
     onOpenChange: (open: boolean) => void;
     authors: AuthorDisplay[];
     bookTitle: string;
-    onGo: (scopeName: string) => void;
-}> = ({ open, onOpenChange, authors, bookTitle, onGo }) => {
+    lang?: string;
+    onGo: (scope: NamedAuthor) => void;
+}> = ({ open, onOpenChange, authors, bookTitle, lang, onGo }) => {
     const { t } = useTranslation();
     const groupID = React.useId();
     // Following a name closes the sheet: the list it opens is the new page.
-    const go = (scopeName: string) => {
-        onGo(scopeName);
+    const go = (scope: NamedAuthor) => {
+        onGo(scope);
         onOpenChange(false);
     };
     const chevron = <ChevronRight aria-hidden="true" className="size-4 text-muted-foreground" />;
@@ -233,10 +241,12 @@ const AuthorsSheet: React.FC<{
                                             <li key={person.id}>
                                                 <Link
                                                     to={personLink(person)}
-                                                    onClick={() => go(authorTitle(person, t))}
+                                                    onClick={() => go(person)}
                                                     className={cn(SHEET_ROW, 'pl-8')}
                                                 >
-                                                    {authorTitle(person, t)}
+                                                    <span>
+                                                        <NamesakeName author={person} />
+                                                    </span>
                                                     {chevron}
                                                 </Link>
                                             </li>
@@ -246,21 +256,22 @@ const AuthorsSheet: React.FC<{
                             </li>
                         );
                     }
-                    const target = single(author, t);
+                    const shown = shownAuthorName(author, lang);
+                    const target = single(author, shown);
                     return (
                         <li key={index}>
                             {target ? (
                                 <Link
                                     to={target.to}
-                                    onClick={() => go(target.scopeName)}
+                                    onClick={() => go(target.scope)}
                                     className={SHEET_ROW}
                                 >
-                                    {author.name}
+                                    {shown}
                                     {chevron}
                                 </Link>
                             ) : (
                                 <span className="flex min-h-12 items-center px-4 text-base">
-                                    {author.name}
+                                    {shown}
                                 </span>
                             )}
                         </li>
@@ -271,7 +282,7 @@ const AuthorsSheet: React.FC<{
     );
 };
 
-const AuthorByline: React.FC<AuthorBylineProps> = ({ authors, isWide, bookTitle, onGo }) => {
+const AuthorByline: React.FC<AuthorBylineProps> = ({ authors, isWide, bookTitle, lang, onGo }) => {
     const { t } = useTranslation();
     const [sheetOpen, setSheetOpen] = React.useState(false);
 
@@ -303,12 +314,12 @@ const AuthorByline: React.FC<AuthorBylineProps> = ({ authors, isWide, bookTitle,
                 // the place in the line is the only stable key.
                 <React.Fragment key={index}>
                     {index > 0 && ', '}
-                    <BylineName author={author} onGo={onGo} />
+                    <BylineName author={author} lang={lang} onGo={onGo} />
                 </React.Fragment>
             ))}
             {rest > 0 &&
                 (isWide ? (
-                    <AuthorsMenu authors={authors} trigger={counter} onGo={onGo} />
+                    <AuthorsMenu authors={authors} lang={lang} trigger={counter} onGo={onGo} />
                 ) : (
                     <>
                         {counter}
@@ -317,6 +328,7 @@ const AuthorByline: React.FC<AuthorBylineProps> = ({ authors, isWide, bookTitle,
                             onOpenChange={setSheetOpen}
                             authors={authors}
                             bookTitle={bookTitle}
+                            lang={lang}
                             onGo={onGo}
                         />
                     </>

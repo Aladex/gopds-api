@@ -3,7 +3,7 @@ import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 
 import * as booksApi from '@/api/books';
-import { authorTitle } from '@/shared/lib/authorTitle';
+import { namesakeTitle, type NamedAuthor } from '@/shared/lib/authorTitle';
 import { useAuthor } from '@/context/AuthorContext';
 import { authorPath, isSearchPath } from '@/features/catalogue/addresses';
 import { useSearchBar } from '@/context/SearchBarContext';
@@ -21,6 +21,12 @@ export interface SearchScope {
     firstPagePath: string;
     /** The chip's text, already localized. */
     label: string;
+    /**
+     * The author an author scope names, once known: the chip draws its name
+     * and label (NamesakeName), the line beside it the full name. Null for
+     * any other scope, and until the name is known.
+     */
+    author: NamedAuthor | null;
     /** Turns the scope off — the reader asking to search the whole library. */
     release: () => void;
     /** Turns the scope back on after it was released. */
@@ -174,7 +180,7 @@ const useSearchScope = (): SearchScope => {
     // name when the cached id is the route's. A cold arrival has neither; the
     // list load puts the id in context, and only then is the name fetched —
     // fetching earlier would bank a name against the wrong id.
-    const name = kind === 'author' && authorId === id ? authorName : '';
+    const author = kind === 'author' && authorId === id ? authorName : null;
     useEffect(() => {
         if (kind !== 'author' || !id || authorId !== id || authorName) {
             return;
@@ -182,8 +188,8 @@ const useSearchScope = (): SearchScope => {
         let cancelled = false;
         booksApi
             .getAuthor(id)
-            .then((author) => {
-                if (!cancelled && author?.full_name) setAuthorName(authorTitle(author, t));
+            .then((found) => {
+                if (!cancelled && found?.full_name) setAuthorName(found);
             })
             .catch(() => {
                 // Without a name the scope simply says less; it still works.
@@ -191,12 +197,14 @@ const useSearchScope = (): SearchScope => {
         return () => {
             cancelled = true;
         };
-    }, [kind, id, authorId, authorName, setAuthorName, t]);
+    }, [kind, id, authorId, authorName, setAuthorName]);
 
     const label = (() => {
         switch (kind) {
             case 'author':
-                return name ? t('searchWithinAuthor', { name }) : t('searchWithinThisAuthor');
+                return author
+                    ? t('searchWithinAuthor', { name: namesakeTitle(author, t) })
+                    : t('searchWithinThisAuthor');
             case 'series':
                 return scopeName
                     ? t('searchWithinSeries', { name: scopeName })
@@ -220,6 +228,7 @@ const useSearchScope = (): SearchScope => {
         active: kind !== null && !released,
         firstPagePath,
         label,
+        author,
         release: () => setReleased(true),
         reclaim: () => setReleased(false),
     };

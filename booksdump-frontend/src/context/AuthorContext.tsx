@@ -8,17 +8,21 @@ import React, {
     ReactNode,
 } from 'react';
 
+import type { NamedAuthor } from '@/shared/lib/authorTitle';
+
 interface AuthorContextType {
     authorId: string;
     /**
-     * The author's name, for saying whose books are being searched. It is only
-     * ever a cache: whoever knows the name puts it here — a book card knows it
-     * from the link that was clicked — and the search chip fetches it by id
-     * when nobody did, which is what happens on a reload or a pasted URL.
+     * The author's name, for saying whose books are being searched: the full
+     * and the short name and a namesake's label, as the server sends them. It
+     * is only ever a cache: whoever knows the name puts it here — a book card
+     * knows it from the link that was clicked — and the search chip fetches
+     * it by id when nobody did, which is what happens on a reload or a pasted
+     * URL. Null until then.
      */
-    authorName: string;
+    authorName: NamedAuthor | null;
     setAuthorId: (authorId: string) => void;
-    setAuthorName: (authorName: string) => void;
+    setAuthorName: (authorName: NamedAuthor) => void;
     clearAuthorId: () => void;
 }
 
@@ -30,7 +34,7 @@ interface AuthorProviderProps {
 
 export const AuthorProvider: React.FC<AuthorProviderProps> = ({ children }) => {
     const [authorId, setAuthorId] = useState('');
-    const [authorName, setAuthorName] = useState('');
+    const [authorName, setAuthorName] = useState<NamedAuthor | null>(null);
 
     // The id is set on every list load, usually to the value it already holds,
     // so the comparison is against a ref rather than a state updater — dropping
@@ -42,17 +46,17 @@ export const AuthorProvider: React.FC<AuthorProviderProps> = ({ children }) => {
     const clearAuthorId = useCallback(() => {
         knownId.current = '';
         setAuthorId('');
-        setAuthorName('');
+        setAuthorName(null);
     }, []);
 
     const memoizedSetAuthorId = useCallback((id: string) => {
         if (knownId.current !== id) {
             knownId.current = id;
-            setAuthorName('');
+            setAuthorName(null);
         }
         setAuthorId(id);
     }, []);
-    const memoizedSetAuthorName = useCallback((name: string) => setAuthorName(name), []);
+    const memoizedSetAuthorName = useCallback((name: NamedAuthor) => setAuthorName(name), []);
 
     const contextValue = useMemo(
         () => ({

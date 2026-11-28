@@ -11,6 +11,7 @@ import { booksLanguageApplies, isSearchPath } from '@/features/catalogue/address
 import { useCatalogueSearchContext } from '@/features/catalogue/CatalogueSearchContext';
 import { authorNameFromLocation } from '@/features/catalogue/hooks/useSearchScope';
 import ScopeChip from '@/features/catalogue/ScopeChip';
+import { shortName } from '@/shared/lib/authorTitle';
 import { CATALOGUE_PATH } from '@/features/catalogue/hooks/useSearchScope';
 
 /**
@@ -30,6 +31,10 @@ const ListLine: React.FC = () => {
     const isPhone = useMediaQuery(PHONE_QUERY);
 
     const inList = scope.kind !== null && scope.kind !== 'favorites';
+    const fullName =
+        scope.author && shortName(scope.author) !== scope.author.full_name
+            ? scope.author.full_name
+            : '';
     const language = booksLanguageApplies(pathname);
 
     const upLink = (
@@ -82,6 +87,17 @@ const ListLine: React.FC = () => {
                     <>
                         {upLink}
                         <ScopeChip />
+                        {/* An author's full name, patronymic and all, once and
+                            smaller, where the chip names them shorter. */}
+                        {fullName && (
+                            <span
+                                data-testid="scope-full-name"
+                                className="min-w-0 truncate text-xs"
+                                title={fullName}
+                            >
+                                {fullName}
+                            </span>
+                        )}
                         <span className="flex-1" />
                     </>
                 ) : (

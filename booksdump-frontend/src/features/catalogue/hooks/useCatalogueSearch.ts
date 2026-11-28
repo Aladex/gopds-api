@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router';
 
 import type { AutocompleteSuggestion, SuggestionScope } from '@/api/autocomplete';
@@ -11,7 +10,6 @@ import useSearchScope, {
     searchTitleFromLocation,
     unsearchedPathFrom,
 } from '@/features/catalogue/hooks/useSearchScope';
-import { authorTitle } from '@/shared/lib/authorTitle';
 
 /**
  * useCatalogueSearch turns a query into a route. Nothing here fetches: the list
@@ -25,7 +23,6 @@ import { authorTitle } from '@/shared/lib/authorTitle';
  * show that state: read it through CatalogueSearchContext, not from here.
  */
 export function useCatalogueSearch() {
-    const { t } = useTranslation();
     const { searchItem, setSearchItem } = useSearchBar();
     const navigate = useNavigate();
     const location = useLocation();
@@ -121,16 +118,12 @@ export function useCatalogueSearch() {
                 return;
             }
             setAuthorId(String(suggestion.id));
-            setAuthorName(
-                authorTitle(
-                    {
-                        full_name: suggestion.value,
-                        label: suggestion.label,
-                        label_books: suggestion.label_books,
-                    },
-                    t,
-                ),
-            );
+            setAuthorName({
+                full_name: suggestion.value,
+                short_name: suggestion.short_name,
+                label: suggestion.label,
+                label_books: suggestion.label_books,
+            });
             setSearchItem('');
             navigate(authorPath(suggestion.id));
             return;

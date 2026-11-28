@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { Book } from '@/api/books';
 import { Button } from '@/shared/ui/button';
 import ResponsiveSheet from '@/shared/components/ResponsiveSheet';
+import { shownAuthorNames } from '@/shared/lib/authorTitle';
 
 type SendConfirmSheetProps = {
     open: boolean;
@@ -19,13 +20,8 @@ type SendConfirmSheetProps = {
     'data-testid'?: string;
 };
 
-/** The book's authors as one line, from whichever list the catalogue sent. */
-export const authorsOf = (book: Book) =>
-    (
-        book.authors_display?.map((author) => author.name) ??
-        book.authors?.map((author) => author.full_name) ??
-        []
-    ).join(', ');
+/** The book's authors as one line, named as the card names them. */
+export const authorsOf = (book: Book) => shownAuthorNames(book).join(', ');
 
 /**
  * SendConfirmSheet asks before a book is sent somewhere it cannot be taken

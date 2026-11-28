@@ -1,8 +1,10 @@
 import { http } from '@/api/http';
 
 export interface AutocompleteSuggestion {
-    /** Display text: the book title or the author name. */
+    /** Display text: the book title or the author's full name. */
     value: string;
+    /** Author lane only: an entity's name without a patronymic, as lists show it. */
+    short_name?: string;
     /** What the suggestion opens. */
     type: 'book' | 'author';
     /** A book's number; an author's number, or an author entity's UUID. */

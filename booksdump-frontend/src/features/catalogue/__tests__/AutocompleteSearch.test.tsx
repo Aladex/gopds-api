@@ -264,6 +264,38 @@ describe('AutocompleteSearch', () => {
         expect(screen.getByText('bookCount')).toBeInTheDocument();
     });
 
+    it('names an author entity by its short name and a namesake by «· genre»', async () => {
+        const user = userEvent.setup();
+        getSuggestions.mockResolvedValue([
+            {
+                value: 'Михаил Павлович Игнатов',
+                short_name: 'Михаил Игнатов',
+                type: 'author' as const,
+                id: 'e1',
+                books_count: 4,
+                label: 'Фантастика',
+            },
+            {
+                value: 'Михаил Васильевич Игнатов',
+                short_name: 'Михаил Игнатов',
+                type: 'author' as const,
+                id: 'e2',
+                books_count: 2,
+                label_books: 2,
+            },
+        ]);
+        const { input } = setup();
+
+        await user.type(input, 'Игнатов');
+
+        await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+        const [first, second] = screen.getAllByRole('option');
+        expect(first).toHaveTextContent(/^Михаил Игнатов · Фантастика/);
+        // A namesake of the same genre: its count ends the row, said once.
+        expect(second).toHaveTextContent(/^Михаил Игнатов(?! ·)/);
+        expect(screen.queryByText(/Павлович|Васильевич/)).toBeNull();
+    });
+
     it('adopts a suggestion the reader picks and closes the list', async () => {
         const user = userEvent.setup();
         const { input, onChange, onEnterPressed } = setup();

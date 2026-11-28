@@ -66,9 +66,11 @@ func TestSearchHandler_Books_CarriesTheAuthorLine(t *testing.T) {
 
 	books := listedSourceFields(t, rec.Body.Bytes())
 	require.Len(t, books, 2)
-	assert.JSONEq(t, `[{"name":"Иван Петрович Петров","legacy_author_id":1},{"name":"Мастер"}]`,
+	// A name with a patronymic carries its short form; a legacy name comes
+	// given name first.
+	assert.JSONEq(t, `[{"name":"Иван Петрович Петров","short_name":"Иван Петров","legacy_author_id":1},{"name":"Мастер"}]`,
 		string(books[0]["authors_display"]))
-	assert.JSONEq(t, `[{"name":"Иванов Иван","legacy_author_id":2}]`, string(books[1]["authors_display"]))
+	assert.JSONEq(t, `[{"name":"Иван Иванов","legacy_author_id":2}]`, string(books[1]["authors_display"]))
 	// The legacy list stays as it was beside the line.
 	assert.JSONEq(t, `[{"id":1,"full_name":"Петров Иван"}]`, string(books[0]["authors"]))
 	assert.Equal(t, [][]int64{{10, 20}}, authors.calls)
@@ -125,5 +127,42 @@ func TestSearchHandler_Books_BookMissingFromTheLookupShowsItsLegacyAuthors(t *te
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page))
 	require.Len(t, page.Books, 1)
-	assert.JSONEq(t, `[{"name":"Петров Иван","legacy_author_id":1}]`, string(page.Books[0].AuthorsDisplay))
+	assert.JSONEq(t, `[{"name":"Иван Петров","legacy_author_id":1}]`, string(page.Books[0].AuthorsDisplay))
+}
+
+// A legacy line's catalog names, «Фамилия Имя Отчество», come out given name
+// first (design/author-display, rule 7), and without the patronymic for a
+// book in Russian or of no language; a book in another language keeps it,
+// with the short form beside it. A name that is not a plain personal name,
+// and a layer name, keep their order.
+func TestSearchHandler_Books_LegacyNamesComeGivenNameFirst(t *testing.T) {
+	search := &fakeSearch{booksPage: models.BookSearchPage{
+		Books: []models.Book{{ID: 10, Lang: "ru"}, {ID: 20, Lang: "uk"}, {ID: 30}, {ID: 40, Lang: "en"}},
+		Total: 4, Limit: 10,
+	}}
+	legacy := func(names ...string) models.BookAuthorDisplay {
+		line := models.BookAuthorDisplay{Source: models.AuthorDisplayLegacy, Fallback: models.AuthorDisplayNoCredits}
+		for i, n := range names {
+			line.Authors = append(line.Authors, models.AuthorDisplay{Name: n, LegacyAuthorID: int64Ptr(int64(i + 1))})
+		}
+		return line
+	}
+	authors := &fakeAuthorLines{lines: map[int64]models.BookAuthorDisplay{
+		10: legacy("Прутков Козьма Петрович", "Абу Нувас"),
+		20: legacy("Прутков Козьма Петрович"),
+		30: legacy("Зубков (ред.) Владимир"),
+		40: {Source: models.AuthorDisplayLayer, Authors: []models.AuthorDisplay{{Name: "Christie Agatha"}}},
+	}}
+
+	rec := doJSON(t, newAuthorLinesTestRouter(search, authors), http.MethodGet, "/api/books/list?title=book", nil)
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+
+	books := listedSourceFields(t, rec.Body.Bytes())
+	require.Len(t, books, 4)
+	assert.JSONEq(t, `[{"name":"Козьма Прутков","legacy_author_id":1},{"name":"Абу Нувас","legacy_author_id":2}]`,
+		string(books[0]["authors_display"]))
+	assert.JSONEq(t, `[{"name":"Козьма Петрович Прутков","short_name":"Козьма Прутков","legacy_author_id":1}]`,
+		string(books[1]["authors_display"]))
+	assert.JSONEq(t, `[{"name":"Владимир Зубков (ред.)","legacy_author_id":1}]`, string(books[2]["authors_display"]))
+	assert.JSONEq(t, `[{"name":"Christie Agatha"}]`, string(books[3]["authors_display"]))
 }

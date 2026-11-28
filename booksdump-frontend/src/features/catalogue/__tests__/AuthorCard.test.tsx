@@ -149,10 +149,32 @@ describe('AuthorCard text', () => {
         expect(screen.queryByText('authorSearch.coauthors')).toBeNull();
     });
 
-    it('still tells namesakes apart by their label', () => {
-        renderCard({ label: 'Фантастика' });
+    it('tells namesakes apart by the line under the name, not by a label after it', () => {
+        renderCard(
+            {
+                full_name: 'Михаил Павлович Игнатов',
+                short_name: 'Михаил Игнатов',
+                label: 'Фантастика',
+                genres: ['Фантастика'],
+                books_count: 4,
+            },
+            'игнатов',
+        );
 
-        expect(screen.getByText(/Фантастика/)).toBeInTheDocument();
+        // The short name alone, the query marked in it.
+        const name = screen.getByTestId('author-name');
+        expect(name).toHaveTextContent(/^Михаил Игнатов$/);
+        expect(within(name).getByText('Игнатов')).toHaveAttribute('data-hit');
+        expect(within(name).queryByText(/Фантастика|·/)).toBeNull();
+        // The second line carries the count and the genre.
+        expect(screen.getByTestId('author-meta')).toHaveTextContent(/^bookCount:4 · Фантастика$/);
+    });
+
+    it('writes no label of book counts after the name either', () => {
+        renderCard({ label_books: 12 });
+
+        expect(screen.getByTestId('author-name')).toHaveTextContent(new RegExp(`^${NAME}$`));
+        expect(screen.getByTestId('author-meta')).toHaveTextContent(/^bookCount:12$/);
     });
 
     it('lets the query recede and the rest of the name carry the row', () => {
@@ -212,7 +234,8 @@ describe('AuthorCard link', () => {
         fireEvent.click(screen.getByRole('link'));
 
         expect(onGo).toHaveBeenCalledTimes(1);
-        expect(onGo.mock.calls[0][0]).toBe(`${NAME} · Ужасы`);
+        // The scope gets the entity itself: the chip draws its name and label.
+        expect(onGo.mock.calls[0][0]).toMatchObject({ full_name: NAME, label: 'Ужасы' });
     });
 
     // The reader stays on this page, so its search box must stay as it is.
