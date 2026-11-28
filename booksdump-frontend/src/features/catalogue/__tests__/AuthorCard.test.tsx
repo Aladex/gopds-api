@@ -170,6 +170,28 @@ describe('AuthorCard text', () => {
         expect(screen.getByTestId('author-meta')).toHaveTextContent(/^bookCount:4 · Фантастика$/);
     });
 
+    it('shows the full name when the query is found only in the dropped patronymic', () => {
+        renderCard(
+            { full_name: 'Михаил Павлович Игнатов', short_name: 'Михаил Игнатов' },
+            'павлович',
+        );
+
+        const name = screen.getByTestId('author-name');
+        expect(name).toHaveTextContent(/^Михаил Павлович Игнатов$/);
+        expect(within(name).getByText('Павлович')).toHaveAttribute('data-hit');
+        // The name explains the hit: no «similar name» note.
+        expect(screen.queryByText(/authorSearch\./)).toBeNull();
+    });
+
+    it('keeps the short name when the query is found in it', () => {
+        renderCard(
+            { full_name: 'Михаил Павлович Игнатов', short_name: 'Михаил Игнатов' },
+            'михаил',
+        );
+
+        expect(screen.getByTestId('author-name')).toHaveTextContent(/^Михаил Игнатов$/);
+    });
+
     it('writes no label of book counts after the name either', () => {
         renderCard({ label_books: 12 });
 

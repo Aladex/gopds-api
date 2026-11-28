@@ -30,13 +30,16 @@ var notPeople = []string{
 // leading family name moves to the end, with a note in brackets that follows
 // it («Зубков (ред.) Владимир» → «Владимир Зубков (ред.)»).
 //
-// The catalog is edited by hand and holds anything, so a name is turned only
-// when it reads as a plain personal name: two words or more outside brackets,
-// each starting with a capital letter, none all capitals, no digits or
+// The catalog is edited by hand and holds anything, so only a shape that
+// cannot be read another way is turned (unambiguousOrder): two words, a
+// family name with initials, or a family name, a given name and a
+// patronymic. It must also read as a plain personal name: each word outside
+// brackets starts with a capital letter, none is all capitals, no digits or
 // punctuation beyond a dot, an apostrophe or a hyphen, one script for every
-// word (Latin look-alikes in a Cyrillic word aside), no name
-// particle (Абу, ибн, Ле, van, …), initials only at the end, and a first word
-// that is a family name rather than an initial or a publisher. Any other name comes back as it is.
+// word (Latin look-alikes in a Cyrillic word aside), no name particle (Абу,
+// ибн, Ле, van, …), initials only at the end, and a first word that is a
+// family name rather than an initial or a publisher. Any other name comes
+// back exactly as written.
 func GivenNameFirst(name string) string {
 	if name == UnknownAuthorName {
 		return name
@@ -70,11 +73,32 @@ func GivenNameFirst(name string) string {
 			script = s
 		}
 	}
+	if !unambiguousOrder(tokens) {
+		return name
+	}
 	out := make([]string, 0, len(tokens))
 	for _, t := range tokens[1:] {
 		out = append(out, t.text)
 	}
 	return strings.Join(append(out, tokens[0].text), " ")
+}
+
+// unambiguousOrder reports whether the words can only be «Фамилия Имя»:
+// two words; a family name and initials alone («Любичев А. А.»); or a family
+// name, a given name and a patronymic by the short-name rule («Пустынин Иван
+// Кузьмич»). Any other three words or more may hold a family name of two
+// («Скотт Браун Дениз», «Коложвари Гранпьер Эмиль»), and are left as written.
+func unambiguousOrder(tokens []nameToken) bool {
+	rest := tokens[1:]
+	switch {
+	case len(rest) == 1:
+		return true
+	case !slices.ContainsFunc(rest, func(t nameToken) bool { return !isInitial(t.word) }):
+		return true
+	case len(rest) == 2:
+		return !isInitial(rest[0].word) && isPatronymic(rest[1].word)
+	}
+	return false
 }
 
 // nameToken is a word of a name and the bracketed note that follows it, if

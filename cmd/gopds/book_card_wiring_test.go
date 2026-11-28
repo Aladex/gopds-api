@@ -123,8 +123,9 @@ func TestSetupApiRoutesWiresTheAuthorLineBehindTheSwitch(t *testing.T) {
 		string(listAuthorLines(t, db, true, books[scanfixture.EntryLatin])))
 	// The legacy scan glued "пушкин" and "Анна" into one author; every word
 	// is still the file's, so the file's four authors are shown, the glued
-	// name linked to none of them.
-	assert.JSONEq(t, fmt.Sprintf(`[{"name":"лев Николаевич Толстой","legacy_author_id":%d},{"name":"пушкин"},`+
+	// name linked to none of them. A name with a patronymic carries its short
+	// form beside it (design/author-display).
+	assert.JSONEq(t, fmt.Sprintf(`[{"name":"лев Николаевич Толстой","short_name":"лев Толстой","legacy_author_id":%d},{"name":"пушкин"},`+
 		`{"name":"Анна"},{"name":"Аноним"}]`, legacyID("Толстой лев")),
 		string(listAuthorLines(t, db, true, books[scanfixture.EntryMultiAuthor])))
 	assert.JSONEq(t, fmt.Sprintf(`[{"name":"Автор неизвестен","legacy_author_id":%d}]`, legacyID("Автор неизвестен")),
@@ -134,7 +135,9 @@ func TestSetupApiRoutesWiresTheAuthorLineBehindTheSwitch(t *testing.T) {
 // An administrator's edit of a book's authors lives only in the catalog;
 // the author layer still holds what the file says. A book whose catalog
 // names an author the file does not stays on its catalog authors, so the
-// edit does not vanish from the card.
+// edit does not vanish from the card. The catalog writes «Фамилия Имя»; the
+// site shows a plain two-word name given name first (design/author-display,
+// rule 7), and keeps a name that is not a plain personal name as written.
 func TestEditedAuthorsKeepTheBookOnTheCatalog(t *testing.T) {
 	db := scanfixture.ScratchDB(t)
 	scanner := services.NewBookScanService(t.TempDir(), t.TempDir(),
@@ -156,12 +159,12 @@ func TestEditedAuthorsKeepTheBookOnTheCatalog(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	assert.JSONEq(t, fmt.Sprintf(`[{"name":"O'brien jOHN","legacy_author_id":%d},{"name":"толстой ЛЕВ","legacy_author_id":%d},`+
-		`{"name":"Добавленный Соавтор","legacy_author_id":%d}]`, obrien, tolstoy, authorID("Добавленный Соавтор")),
+		`{"name":"Соавтор Добавленный","legacy_author_id":%d}]`, obrien, tolstoy, authorID("Добавленный Соавтор")),
 		string(listAuthorLines(t, db, true, book)))
 
 	// The authors replaced by hand.
 	_, err = database.UpdateBook(models.BookUpdateRequest{ID: book, Authors: []models.Author{{FullName: "Исправленный Автор"}}})
 	require.NoError(t, err)
-	assert.JSONEq(t, fmt.Sprintf(`[{"name":"Исправленный Автор","legacy_author_id":%d}]`, authorID("Исправленный Автор")),
+	assert.JSONEq(t, fmt.Sprintf(`[{"name":"Автор Исправленный","legacy_author_id":%d}]`, authorID("Исправленный Автор")),
 		string(listAuthorLines(t, db, true, book)))
 }

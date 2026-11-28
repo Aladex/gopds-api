@@ -135,6 +135,12 @@ const AuthorCard: React.FC<AuthorCardProps> = ({ author, query, onGo }) => {
     const genres = author.genres ?? [];
     const works = (author.works ?? []).join(' · ');
     const count = author.books_count;
+    // The short name, unless the query is found only in the patronymic it
+    // drops («Павлович»): then the full name, so the card shows why it is here.
+    const name =
+        isUnexplained(shortName(author), query) && !isUnexplained(author.full_name, query)
+            ? author.full_name
+            : shortName(author);
 
     // The note outranks the titles: it answers why this row is here at all.
     const note = isUnexplained(author.full_name, query)
@@ -171,7 +177,7 @@ const AuthorCard: React.FC<AuthorCardProps> = ({ author, query, onGo }) => {
                     {/* The short name alone: the line below — books and genres —
                         is what tells two namesakes apart here, so no label
                         repeats it. */}
-                    <AuthorName name={shortName(author)} query={query} />
+                    <AuthorName name={name} query={query} />
                     {author.kind === 'collective' && (
                         <Badge
                             variant="secondary"
