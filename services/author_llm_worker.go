@@ -378,7 +378,7 @@ func (w *AuthorLLMWorker) Process(ctx context.Context, slot llmreq.Slot, claim *
 		settlement.ModelMismatch = false
 		return w.settle(ctx, slot, claim, settlement)
 	}
-	if !settlement.ModelMismatch {
+	if !settlement.ModelMismatch && !settlement.ProviderRefused {
 		if w.merge() {
 			settlement.Items = judgeMergeReplies(items, resp.Content)
 		} else {
@@ -466,6 +466,13 @@ func (w *AuthorLLMWorker) answered(claim *database.AuthorLLMClaim, resp *llm.Str
 	s.CompletionTokens = resp.Usage.CompletionTokens
 	s.ReasoningTokens = resp.Usage.ReasoningTokens
 	if claim.ExpectedModels != nil && llmres.ValidateModelID(resp.Model, claim.ExpectedModels) != nil {
+		if claim.Kind != models.AuthorLLMCallFingerprint && llmres.IsModerationStub(resp.Model, resp.Content) {
+			// The provider refused the content, as a 400 rejection does;
+			// a fingerprint check fails on it as on any mismatch.
+			s.ProviderRefused = true
+			s.ProviderCode = database.AuthorLLMProviderCodeModerationStub
+			return
+		}
 		s.ModelMismatch = true
 	}
 }

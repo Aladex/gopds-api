@@ -95,6 +95,10 @@ type AuthorLLMSettlement struct {
 	Content          []byte
 	// ModelMismatch: V0 refused the response's model id; every item is void.
 	ModelMismatch bool
+	// ProviderRefused: an answered jobs call got the provider's canned
+	// refusal (llmres.IsModerationStub) instead of an answer; it settles as
+	// a provider rejection of the call's content, as an HTTP 400 does.
+	ProviderRefused bool
 	// Items are the attempts' outcomes of an answered jobs call.
 	Items []AuthorLLMItemSettlement
 	// CheckPassed is the result of an answered fingerprint call.
@@ -168,6 +172,9 @@ func SettleAuthorLLMCall(ctx context.Context, db *pg.DB, s *AuthorLLMSettlement)
 	if s.ErrorClass != "" && !ValidLeaseErrorClass(s.ErrorClass) {
 		return nil, ErrInvalidLeaseFailure
 	}
+	if s.ProviderRefused && (s.Outcome != models.AuthorLLMCallAnswered || s.ModelMismatch) {
+		return nil, ErrInvalidLeaseFailure
+	}
 	report := &AuthorLLMSettleReport{}
 	err := RunAuthorLLMTx(ctx, db, func(tx *pg.Tx) error {
 		*report = AuthorLLMSettleReport{} // a retried settle reports its last attempt only
@@ -217,7 +224,8 @@ func settleAuthorLLMCallTx(ctx context.Context, tx *pg.Tx, s *AuthorLLMSettlemen
 		}
 	}
 	closing := s
-	if rejection == authorLLMRejectionSplit || rejection == authorLLMRejectionItem {
+	if rejection == authorLLMRejectionSplit || rejection == authorLLMRejectionItem ||
+		(rejection == authorLLMRejectionParticipant && s.ProviderRefused) {
 		// The provider refused the call's content, not the participant.
 		c := *s
 		c.ErrorClass = AuthorLLMClassProviderRejected
@@ -236,9 +244,10 @@ func settleAuthorLLMCallTx(ctx context.Context, tx *pg.Tx, s *AuthorLLMSettlemen
 	if err != nil {
 		return err
 	}
-	if s.Outcome == models.AuthorLLMCallAnswered && len(s.RequestSHA256) > 0 {
+	if s.Outcome == models.AuthorLLMCallAnswered && len(s.RequestSHA256) > 0 && !s.ProviderRefused {
 		// The endpoint answered a request: the participant works, and a
-		// run of rejected items starts again.
+		// run of rejected items starts again. A refusal answered with a 200
+		// is no answer.
 		if resetErr := execAuthorLLM(ctx, tx, `UPDATE author_llm_provider_state SET rejected_items = '{}'
 			WHERE config_version = ?0 AND slot = ?1 AND rejected_items <> '{}'`, call.ConfigVersion, call.Slot); resetErr != nil {
 			return resetErr
@@ -364,6 +373,24 @@ func settleAuthorLLMJobs(
 		}
 		return settleAuthorLLMRejection(ctx, tx, call, s, jobs, rejection == authorLLMRejectionItem, now, report)
 	}
+	if rejection == authorLLMRejectionParticipant && s.ProviderRefused {
+		// A refusal answered with a 200 carries no client class to fail
+		// the attempts with: the item goes back uncounted and the
+		// participant pauses bad_request, as for the limit-th 400.
+		for _, a := range attempts {
+			if err := closeAuthorLLMAttemptCode(ctx, tx, a.ID, models.AuthorLLMAttemptInvalid,
+				AuthorLLMClassProviderRejected, s.ProviderCode, now); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE author_llm_job SET status = 'pending', call_id = NULL, last_error_class = ?2, next_attempt_at = ?1
+				WHERE id = ?0`, a.JobID, now, AuthorLLMClassProviderRejected); err != nil {
+				return fmt.Errorf("requeueing an LLM job: %w", err)
+			}
+			report.Requeued++
+		}
+		return pauseAuthorLLMParticipant(ctx, tx, call, models.AuthorLLMPausedBadRequest, now, report)
+	}
 	items := make(map[int64]*AuthorLLMItemSettlement, len(s.Items))
 	for i := range s.Items {
 		items[s.Items[i].AttemptID] = &s.Items[i]
@@ -413,9 +440,14 @@ func settleAuthorLLMJobs(
 
 // AuthorLLMClassProviderRejected: the provider refused one item — an HTTP
 // 400 on a call carrying that item alone, after the participant's output
-// mode was negotiated (the z.ai content filter's 1301). The item ends
-// rejected, counted like a refusal; the participant goes on.
+// mode was negotiated (the z.ai content filter's 1301), or a moderation stub
+// answered with a 200 (ProviderRefused). The item ends rejected, counted like
+// a refusal; the participant goes on.
 const AuthorLLMClassProviderRejected = "provider_rejected"
+
+// AuthorLLMProviderCodeModerationStub is the provider code the attempts of a
+// moderation stub keep, which tells them apart from a 400's own code.
+const AuthorLLMProviderCodeModerationStub = "moderation_stub"
 
 // authorLLMRejectionLimit is how many distinct items rejected in a row, with
 // no answered call in between, say the participant itself is broken: it is
@@ -439,15 +471,17 @@ const (
 	authorLLMRejectionParticipant
 )
 
-// authorLLMRejectionOf classifies a jobs call's HTTP 400. A call of eval
-// fingerprint jobs negotiates the output mode instead (authorLLMFormatRejected);
+// authorLLMRejectionOf classifies a jobs call's HTTP 400, or its moderation
+// stub (ProviderRefused), which classifies as a 400 of a negotiated
+// participant. A 400 on a call of eval fingerprint jobs negotiates the
+// output mode instead (authorLLMFormatRejected);
 // any other jobs call comes after its participant's mode was negotiated. A
 // single-item rejection adds its item — an eval item, or a source — to the
 // participant's run of distinct rejected items, which the settles keep in
 // their own serialized order and an answered call or a bad_request pause
 // empties.
 func authorLLMRejectionOf(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement) (authorLLMRejection, error) {
-	if s.Outcome != models.AuthorLLMCallHTTPError || s.HTTPStatus != http.StatusBadRequest {
+	if !s.ProviderRefused && (s.Outcome != models.AuthorLLMCallHTTPError || s.HTTPStatus != http.StatusBadRequest) {
 		return authorLLMRejectionNone, nil
 	}
 	format, err := authorLLMFormatRejected(ctx, tx, call, s)
@@ -486,11 +520,16 @@ func authorLLMRejectionOf(ctx context.Context, tx *pg.Tx, call *settledCall, s *
 // only its success streak resets. jobs are the call's (attempt, job) pairs.
 func settleAuthorLLMRejection(ctx context.Context, tx *pg.Tx, call *settledCall, s *AuthorLLMSettlement,
 	jobs [][2]int64, single bool, now time.Time, report *AuthorLLMSettleReport) error {
+	outcome := models.AuthorLLMAttemptHTTPError
+	if s.ProviderRefused {
+		// The stub came with a 200: the attempt got a reply, not an answer.
+		outcome = models.AuthorLLMAttemptInvalid
+	}
 	var ended []int64
 	for _, j := range jobs {
 		attemptID, jobID := j[0], j[1]
 		if single {
-			if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, models.AuthorLLMAttemptHTTPError,
+			if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, outcome,
 				AuthorLLMClassProviderRejected, s.ProviderCode, now); err != nil {
 				return err
 			}
@@ -503,7 +542,7 @@ func settleAuthorLLMRejection(ctx context.Context, tx *pg.Tx, call *settledCall,
 			report.Rejected++
 			continue
 		}
-		if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, models.AuthorLLMAttemptHTTPError, "",
+		if err := closeAuthorLLMAttemptCode(ctx, tx, attemptID, outcome, "",
 			s.ProviderCode, now); err != nil {
 			return err
 		}

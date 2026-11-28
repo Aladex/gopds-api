@@ -1,6 +1,7 @@
 package llmres
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"slices"
@@ -48,6 +49,16 @@ func ValidateModelID(model string, expectedIDs []string) error {
 		return &Violation{Validator: validatorV0, Detail: "response model id is not in the expected id list"}
 	}
 	return nil
+}
+
+// IsModerationStub reports a reply that is the provider's canned refusal
+// rather than an answer: no model id, and non-empty text with no JSON object
+// in it (DeepSeek's content moderation answers HTTP 200 this way). A reply
+// that carries any '{' is not one, so a JSON answer without a model id — a
+// substituted model hiding its id — stays a model_mismatch.
+func IsModerationStub(model string, content []byte) bool {
+	text := bytes.TrimSpace(content)
+	return model == "" && len(text) > 0 && bytes.IndexByte(text, '{') < 0
 }
 
 // Input is the validated request side: the tokenized source display name plus
