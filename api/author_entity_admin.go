@@ -47,6 +47,9 @@ type AuthorEntityAdminService interface {
 	WithdrawMergeRegistration(ctx context.Context, id, actor int64) error
 	BlockMergeScript(ctx context.Context, id int64, script string, actor int64) error
 	ApplyMergeEval(ctx context.Context, registrationID, actor int64) (*services.AuthorEntityMergeApplyReport, error)
+	EntityNames(ctx context.Context, id uuid.UUID) (*database.EntityNames, error)
+	PinEntityNames(ctx context.Context, pins []database.NamePin, actor int64) error
+	UnpinEntityNames(ctx context.Context, ids []uuid.UUID, actor int64) error
 }
 
 // codeEntityServiceUnavailable: the entity admin is not wired.
@@ -146,6 +149,18 @@ func (unavailableAuthorEntityAdmin) ApplyMergeEval(
 }
 
 // authorEntityHandler serves the entity routes.
+func (unavailableAuthorEntityAdmin) EntityNames(context.Context, uuid.UUID) (*database.EntityNames, error) {
+	return nil, errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) PinEntityNames(context.Context, []database.NamePin, int64) error {
+	return errAuthorEntityServiceUnavailable
+}
+
+func (unavailableAuthorEntityAdmin) UnpinEntityNames(context.Context, []uuid.UUID, int64) error {
+	return errAuthorEntityServiceUnavailable
+}
+
 type authorEntityHandler struct {
 	svc func() AuthorEntityAdminService
 }
@@ -172,6 +187,9 @@ func SetupAuthorEntityRoutes(r *gin.RouterGroup, svc func() AuthorEntityAdminSer
 	r.GET("/credits/moves", h.creditMoves)
 	r.POST("/credits/moves", middlewares.CSRFMiddleware(), h.moveCredits)
 	r.POST("/credits/moves/revoke", middlewares.CSRFMiddleware(), h.revokeCreditMoves)
+	r.GET("/names/:id", h.entityNames)
+	r.POST("/names/pins", middlewares.CSRFMiddleware(), h.pinNames)
+	r.POST("/names/pins/revoke", middlewares.CSRFMiddleware(), h.unpinNames)
 	r.POST("/merges/registrations", h.register)
 	r.POST("/merges/registrations/:id/withdraw", h.withdraw)
 	r.POST("/merges/registrations/:id/block", h.blockScript)

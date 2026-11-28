@@ -481,14 +481,15 @@ func (pl *planner) entityUnits(absorb map[uuid.UUID][]MergeRow) {
 		u := &Unit{EntityID: id, Absorb: absorb[id]}
 		row := b.display(pl.members[id])
 		row.ID = id
-		match := b.matchName(pl.members[id])
 		old, stored := b.old.Entities[id]
 		if stored && old.NamePinned {
+			// A pin decides the shown row alone. The matching name stays the
+			// one the credits give: every merge input (candidate sides, cards,
+			// digests, swaps) reads it, and a pin must lapse no decision.
 			row.Kind, row.DisplayName, row.SortName, row.SearchKey, row.NamePinned =
 				old.Kind, old.DisplayName, old.SortName, old.SearchKey, true
-			match.DisplayName, match.SearchKey = old.DisplayName, old.SearchKey
 		}
-		pl.p.matchNames[id] = match
+		pl.p.matchNames[id] = b.matchName(pl.members[id])
 		if !stored || !old.sameAs(&row) {
 			r := row
 			u.Entity = &r

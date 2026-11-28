@@ -147,6 +147,27 @@ func (f *fakeEntityAdmin) MoveCredits(_ context.Context, m *database.CreditMove)
 	return uuid.MustParse("01a17dc0-a8b4-7706-b3db-57951f632b68"), f.err
 }
 
+func (f *fakeEntityAdmin) EntityNames(_ context.Context, id uuid.UUID) (*database.EntityNames, error) {
+	f.record(fmt.Sprintf("names %s", id))
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &database.EntityNames{ID: id, DisplayName: "Урсула Крёбер Ле Гуин",
+		Forms: []database.EntityNameForm{{Name: "Урсула Ле Гуин", SortName: "Ле Гуин, Урсула", Books: 198}}}, nil
+}
+
+func (f *fakeEntityAdmin) PinEntityNames(_ context.Context, pins []database.NamePin, actor int64) error {
+	f.record(fmt.Sprintf("pin names %v", pins))
+	f.actor = actor
+	return f.err
+}
+
+func (f *fakeEntityAdmin) UnpinEntityNames(_ context.Context, ids []uuid.UUID, actor int64) error {
+	f.record(fmt.Sprintf("unpin names %v", ids))
+	f.actor = actor
+	return f.err
+}
+
 func (f *fakeEntityAdmin) RevokeCreditMoves(_ context.Context, credits []int64) (int, error) {
 	f.record(fmt.Sprintf("revoke moves %v", credits))
 	return len(credits), f.err
@@ -227,7 +248,11 @@ func TestAuthorEntityRoutesRequireAnAdministrator(t *testing.T) {
 		{http.MethodPost, entityBase + "/merges/registrations", `{"run_id":33,"kind":"swap"}`},
 		{http.MethodPost, entityBase + "/merges/registrations/4/withdraw", ""},
 		{http.MethodPost, entityBase + "/merges/registrations/4/block", `{"script":"Latn"}`},
-		{http.MethodPost, entityBase + "/merges/registrations/4/apply", ""}}
+		{http.MethodPost, entityBase + "/merges/registrations/4/apply", ""},
+		{http.MethodGet, entityBase + "/names/01a17dc0-a8b4-7706-b3db-57951f632b68", ""},
+		{http.MethodPost, entityBase + "/names/pins",
+			`{"pins":[{"entity_id":"01a17dc0-a8b4-7706-b3db-57951f632b68","name":"Урсула Ле Гуин"}]}`},
+		{http.MethodPost, entityBase + "/names/pins/revoke", `{"entities":["01a17dc0-a8b4-7706-b3db-57951f632b68"]}`}}
 	for _, route := range routes {
 		assert.Equal(t, http.StatusUnauthorized, runsRequest(t, r, route.method, route.path, route.body).Code)
 		req := httptest.NewRequestWithContext(context.Background(), route.method, route.path, strings.NewReader(route.body))
@@ -610,9 +635,12 @@ func TestThePinWritesCheckCSRF(t *testing.T) {
 		return rec.Code
 	}
 	move := `{"credits":[1],"new_entity_name":"Алексей Константинович Толстой"}`
+	namePin := `{"pins":[{"entity_id":"01a17dc0-a8b4-7706-b3db-57951f632b68","name":"Урсула Ле Гуин"}]}`
+	nameUnpin := `{"entities":["01a17dc0-a8b4-7706-b3db-57951f632b68"]}`
 	for _, route := range []struct{ path, body string }{
 		{entityBase + "/merges/pins", pin}, {entityBase + "/merges/pins/7/revoke", ""},
 		{entityBase + "/credits/moves", move}, {entityBase + "/credits/moves/revoke", `{"credits":[1]}`},
+		{entityBase + "/names/pins", namePin}, {entityBase + "/names/pins/revoke", nameUnpin},
 	} {
 		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, route.path, route.body, "", ""), route.path)
 		assert.Equal(t, http.StatusForbidden, send(http.MethodPost, route.path, route.body, "c1", ""), route.path)
@@ -625,7 +653,9 @@ func TestThePinWritesCheckCSRF(t *testing.T) {
 	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/credits/moves", move, "c1", "c1"))
 	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/credits/moves/revoke", `{"credits":[1]}`, "c1", "c1"))
 	assert.Equal(t, http.StatusOK, send(http.MethodGet, entityBase+"/credits/moves", "", "", ""))
-	assert.Len(t, svc.calls, 6)
+	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/names/pins", namePin, "c1", "c1"))
+	assert.Equal(t, http.StatusOK, send(http.MethodPost, entityBase+"/names/pins/revoke", nameUnpin, "c1", "c1"))
+	assert.Len(t, svc.calls, 8)
 }
 
 // A hand move names credits and one target; a malformed request reaches no

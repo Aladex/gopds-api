@@ -2,10 +2,12 @@ package authorentity_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"gopds-api/internal/authorentity"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -180,23 +182,95 @@ func TestTheLinkReadsTheMatchingName(t *testing.T) {
 	assert.Equal(t, "Q1", p.WikidataOf(p.EntityOf(1)))
 }
 
-// A pinned name is matched by as before: the swap of the name the
-// administrator set («Цвейг Стефан Фридрих») is a candidate, though the
-// matching rule alone would name the entity «Стефан Цвейг».
-func TestAPinnedNameIsMatchedBy(t *testing.T) {
-	c := forms(t, person("Цвейг", "Стефан"), "Стефан Цвейг", 3)
-	c.book(21, "Сборник").credit(21, 21, "fp-swap", shown("Фридрих Стефан Цвейг", person("Фридрих", "Стефан", "Цвейг")))
-	p := c.build()
-	id := p.EntityOf(1)
+// pinnedState is the plan's state with the entity of credit 1 shown as name,
+// pinned or not.
+func pinnedState(p *authorentity.Plan, name string, pinned bool) *authorentity.State {
 	st := authorentity.NewState()
 	p.Apply(st)
+	id := p.EntityOf(1)
 	row := st.Entities[id]
-	row.DisplayName, row.SearchKey, row.NamePinned = "Цвейг Стефан Фридрих", "цвейг стефан фридрих", true
+	row.DisplayName, row.SortName, row.SearchKey, row.NamePinned = name, name, strings.ToLower(name), pinned
 	st.Entities[id] = row
+	return st
+}
+
+// A pin is the shown name alone (design/author-display, name pins): every
+// merge input keeps the name the build computes. The same catalog built over
+// a pinned entity and over the same entity unpinned gives the same merge
+// candidates — kinds, scripts, members, inputs, digests — and the same
+// Wikidata links; only the pinned row's name differs. The pinned form
+// «Цвейг Стефан Фридрих» would pair with «Фридрих Стефан Цвейг» as a swap if
+// it were matched by, and it is a Wikidata label.
+func TestAPinnedNameChangesNoMergeInput(t *testing.T) {
+	c := forms(t, person("Цвейг", "Стефан"), "Стефан Цвейг", 3)
+	c.book(21, "Сборник").credit(21, 21, "fp-swap", shown("Фридрих Стефан Цвейг", person("Фридрих", "Стефан", "Цвейг")))
+	c.book(31, "Повесть").credit(31, 31, "fp-swap-a", person("Петров", "Иван")).
+		book(32, "Рассказ").credit(32, 32, "fp-swap-b", person("Иван", "Петров"))
+	c.with(newReference().item("Q1", []string{"Цвейг Стефан Фридрих"}))
+	first := c.build()
+
+	build := func(pinned bool) *authorentity.Plan {
+		c.in.Old = pinnedState(first, "Цвейг Стефан Фридрих", pinned)
+		return sealed(t, c, nil)
+	}
+	plain, pinned := build(false), build(true)
+
+	require.NotEmpty(t, plain.MergeCandidates(), "the catalog asks something")
+	assert.Equal(t, plain.MergeCandidates(), pinned.MergeCandidates())
+	for i := range plain.MergeCandidates() {
+		assert.Equal(t, plain.MergeInput(i), pinned.MergeInput(i), "the input of candidate %d", i)
+	}
+	assert.Nil(t, candidateOf(pinned, authorentity.CandidateSwap, 21, 1), "the pinned form is matched by")
+	id := pinned.EntityOf(1)
+	assert.Equal(t, plain.WikidataOf(id), pinned.WikidataOf(id))
+	for _, ci := range []int64{1, 2, 3, 21, 31, 32} {
+		assert.Equal(t, plain.EntityOf(ci), pinned.EntityOf(ci), "credit %d", ci)
+	}
+
+	// Only the pinned row's name differs: the unpinned row goes back to the
+	// name the build computes.
+	assert.Equal(t, "Стефан Цвейг", plain.Entity(id).DisplayName)
+	assert.False(t, plain.Entity(id).NamePinned)
+	row := pinned.Entity(id)
+	assert.Equal(t, "Цвейг Стефан Фридрих", row.DisplayName)
+	assert.Equal(t, "цвейг стефан фридрих", row.SearchKey)
+	assert.True(t, row.NamePinned)
+	for _, ci := range []int64{21, 31, 32} {
+		e := pinned.EntityOf(ci)
+		assert.Equal(t, plain.Entity(e), pinned.Entity(e), "the row of credit %d's entity", ci)
+	}
+}
+
+// A pinned entity the build merges into another goes as any entity does: the
+// group keeps the ID of the entity it shares more books with, the pinned one
+// is merged into it, and the survivor is shown under the name the build
+// computes — a pin holds a name, not an entity apart.
+func TestAPinnedEntityMergedAwayTakesItsPinWithIt(t *testing.T) {
+	c := forms(t, person("Цвейг", "Стефан"), "Стефан Цвейг", 4)
+	first := c.build()
+	st := authorentity.NewState()
+	first.Apply(st)
+	survivor, pinnedID := first.EntityOf(1), uuid.MustParse("01a168d0-0000-7000-8000-0000000000aa")
+	st.Entities[pinnedID] = authorentity.EntityRow{ID: pinnedID, Kind: authorentity.KindPerson,
+		DisplayName: "Цвейг Стефан", SortName: "Цвейг Стефан", SearchKey: "цвейг стефан", NamePinned: true}
+	// The fingerprint of credit 1 was the pinned entity's: one book of four.
+	for key, row := range st.Fingerprints {
+		if key.Fingerprint == c.in.Credits[0].Fingerprint {
+			row.EntityID = pinnedID
+			st.Fingerprints[key] = row
+		}
+	}
 	c.in.Old = st
-	p = sealed(t, c, nil)
-	assert.Equal(t, "Цвейг Стефан Фридрих", shownAs(t, p))
-	requireCandidate(t, p, authorentity.CandidateSwap, "Cyrl", 21, 1)
+	p := c.build()
+	after := authorentity.NewState()
+	*after = *st
+	p.Apply(after)
+
+	same(t, p, 1, 4)
+	assert.Equal(t, survivor, p.EntityOf(1))
+	assert.Equal(t, "Стефан Цвейг", p.Entity(survivor).DisplayName)
+	require.NotNil(t, after.Entities[pinnedID].MergedInto)
+	assert.Equal(t, survivor, *after.Entities[pinnedID].MergedInto)
 }
 
 // The Wikidata step after the decisions names a component by its matching

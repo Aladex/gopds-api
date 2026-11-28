@@ -217,7 +217,7 @@ func AuthorEntityBuildStatuses() []string {
 		AuthorEntityCensusErrorWrite, AuthorEntityBuildErrorCensus, authorEntityFenceRefused,
 		AuthorEntityBuildErrorInputMoved, AuthorEntityBuildErrorVetoOverlap, authorEntityMergeRevoked,
 		authorEntityMergeVetoRetired, authorEntityMergeVetoReanchored, authorEntityCreditsMoved,
-		authorEntityCreditMoveRevoked}
+		authorEntityCreditMoveRevoked, authorEntityNamesPinned, authorEntityNamesUnpinned}
 }
 
 // loaded runs the test hook after a load of the plan's snapshot.
@@ -850,6 +850,8 @@ const (
 	authorEntityMergePinRevoked     = "pin_revoked"
 	authorEntityCreditsMoved        = "credits_moved"
 	authorEntityCreditMoveRevoked   = "credit_move_revoked" // #nosec G101 -- a log status, not a credential
+	authorEntityNamesPinned         = "names_pinned"
+	authorEntityNamesUnpinned       = "names_unpinned"
 )
 
 // MergeDecisions reads the card's merge block.
@@ -949,6 +951,36 @@ func (a *AuthorEntityAdmin) RevokeCreditMoves(ctx context.Context, credits []int
 // CreditMoves reads the live hand moves.
 func (a *AuthorEntityAdmin) CreditMoves(ctx context.Context) ([]database.CreditMoveRow, error) {
 	return database.ListCreditMoves(ctx, a.db)
+}
+
+// EntityNames reads a live entity's name, its pin and the names its credits
+// are written with, which a pin chooses from.
+func (a *AuthorEntityAdmin) EntityNames(ctx context.Context, id uuid.UUID) (*database.EntityNames, error) {
+	return database.ReadEntityNames(ctx, a.db, id)
+}
+
+// PinEntityNames pins the names of entities, all or none: each is shown under
+// its chosen name, which every build keeps; no merge input changes.
+func (a *AuthorEntityAdmin) PinEntityNames(ctx context.Context, pins []database.NamePin, actor int64) error {
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		return database.PinEntityNames(ctx, tx, pins, actor)
+	})
+	if err == nil {
+		logMergeAction(authorEntityNamesPinned, int64(len(pins)))
+	}
+	return err
+}
+
+// UnpinEntityNames hands the names of entities back to the build, all or
+// none; the next pass shows the names it computes.
+func (a *AuthorEntityAdmin) UnpinEntityNames(ctx context.Context, ids []uuid.UUID, actor int64) error {
+	err := a.db.RunInTransaction(ctx, func(tx *pg.Tx) error {
+		return database.UnpinEntityNames(ctx, tx, ids, actor)
+	})
+	if err == nil {
+		logMergeAction(authorEntityNamesUnpinned, int64(len(ids)))
+	}
+	return err
 }
 
 // RevokeMergePin revokes a live hand join: the next build no longer joins
